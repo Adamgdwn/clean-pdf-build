@@ -99,6 +99,224 @@ Billing endpoints now live in:
 - [billing-portal.ts](/home/adamgoodwin/code/Applications/Clean_pdf_build/apps/web/api/billing-portal.ts)
 - [stripe-webhook.ts](/home/adamgoodwin/code/Applications/Clean_pdf_build/apps/web/api/stripe-webhook.ts)
 
+## Concrete Next Steps For You
+
+1. Sign in to EasyDraft with `admin@agoperations.ca` so the admin console path is visible under the current admin-email gate.
+2. Configure Resend when you are ready for live notification delivery:
+   - `RESEND_API_KEY`
+   - `EASYDRAFT_NOTIFICATION_FROM_EMAIL`
+3. Pick a digital-signing vendor before we claim cryptographic PDF signing is production-ready.
+   - Good categories: qualified remote signature provider, organization HSM, or a remote signing API with certificate lifecycle support
+4. Keep Stripe in placeholder mode for now.
+   - The UI is already wired to degrade gracefully until `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are added
+5. Start a structured test pass using the lifecycle matrix below and keep notes on:
+   - where the flow feels too dense
+   - where terminology is unclear
+   - where signer notifications or owner feedback feel late
+
+## Concrete Next Steps For Me
+
+1. Implement change-impact tracking on documents after signatures begin.
+2. Add explicit resend-for-signature and resend-for-changes actions instead of relying only on reopen.
+3. Differentiate non-material edits from signature-impacting edits.
+4. Add signer-level invalidation markers so previously completed signature fields can be flagged as:
+   - still valid
+   - requires acknowledgement
+   - requires re-sign
+5. Add a document comparison view between the last signed snapshot and the current draft.
+6. Add stronger admin pages for:
+   - user lookup
+   - workspace lookup
+   - subscription/payment placeholders
+   - notification health
+   - processing-job health
+
+## Document Lifecycle Walkthrough
+
+The intended lifecycle should be treated as field-centric and audit-centric, not envelope-centric.
+
+1. Upload
+   - Owner uploads the PDF.
+   - The file is stored privately.
+   - The document starts in `draft`.
+2. Prepare
+   - Owner or editor adds fields, assigns signers, chooses sequential or parallel routing, and decides between self-managed or platform-managed flow.
+   - OCR and field detection can be queued.
+   - The document moves into `prepared` once usable structure exists.
+3. Send
+   - In `self_managed`, the owner downloads or shares the file themselves.
+   - In `platform_managed`, EasyDraft queues signer notifications and owner progress updates.
+   - The document moves into `sent`.
+4. Partial completion
+   - A signer completes only the fields assigned to them.
+   - The document stays signable until all required assigned signing fields are complete, unless an explicit lock happens.
+   - The document moves into `partially signed` when some required assigned signing fields are complete but not all.
+5. Completion
+   - When all required assigned signing fields are complete, the document becomes `completed`.
+   - Export remains available.
+6. Reopen
+   - An authorized user can reopen the document when further signing is needed.
+   - Reopen must always be explicit and auditable.
+7. Lock
+   - An authorized user can explicitly lock the document before full completion.
+   - Lock records who locked it and when.
+
+## Change Handling After Signing Starts
+
+This is the next important workflow rule to implement more deeply.
+
+Today:
+
+- The system already supports reopen and continued signing.
+- The system already records audit and version events.
+
+Next rule to add:
+
+- Any edit after one or more signatures exist should be classified by impact.
+
+Recommended impact levels:
+
+1. `non_material`
+   - layout cleanup, labels, internal notes, metadata-only changes
+   - does not require re-sign
+2. `review_required`
+   - changed text in a non-signed section, added attachment, changed optional field
+   - should notify affected signers and owner
+3. `resign_required`
+   - changed signed text, changed required field placement, changed assignee, changed signing order, changed a completed signature field’s context
+   - should flag impacted signatures as no longer sufficient and require re-sign
+
+Recommended behavior:
+
+1. Capture a signed snapshot whenever a signer completes a signature or initial field.
+2. When edits happen later, compare the current working version against the last signed snapshot.
+3. Mark impacted signers without silently throwing away prior work.
+4. Let the owner choose:
+   - continue without resend
+   - notify impacted signers
+   - force resend and re-sign
+
+## Scenario Test Matrix
+
+Use these scenarios in order.
+
+### 1. Single User Draft And Export
+
+1. Upload one PDF.
+2. Add a text field and one signature field.
+3. Save as copy.
+4. Download.
+5. Share with signed URL.
+6. Confirm audit trail and version history are readable.
+
+Expected:
+
+- draft -> prepared
+- undo/redo works for field placement
+- clear all removes fields and is reversible through history
+
+### 2. Single Signer Managed Flow
+
+1. Upload one PDF in `platform_managed`.
+2. Add one signer and one required signature field.
+3. Send for signatures.
+4. Complete the field as that signer.
+
+Expected:
+
+- sent -> partially signed or completed depending on remaining required fields
+- originator gets progress notification when configured
+- completed state appears only when all required assigned signing fields are done
+
+### 3. Sequential Multi-Signer Flow
+
+1. Add signer A and signer B.
+2. Set sequential routing.
+3. Assign required fields to each signer.
+4. Send.
+5. Complete signer A.
+6. Verify signer B becomes the next routed signer.
+
+Expected:
+
+- only the next eligible signer is notified
+- owner sees who is next
+- signer B is not considered blocked by envelope completion semantics
+
+### 4. Parallel Multi-Signer Flow
+
+1. Add signer A and signer B.
+2. Set parallel routing.
+3. Assign required fields to both.
+4. Send.
+
+Expected:
+
+- both eligible signers are queued at once
+- owner notifications reflect incremental progress
+
+### 5. Edit After One Signature Exists
+
+1. Start a two-signer flow.
+2. Let signer A complete their field.
+3. Reopen or continue editing.
+4. Move or resize a non-signed field.
+5. Change a signed section of text or field placement.
+
+Expected today:
+
+- version history and audit trail capture the edit
+- reopen is explicit
+
+Expected next:
+
+- the app should classify whether signer A stays valid, must review, or must re-sign
+
+### 6. Send Back For Changes And Re-Sign
+
+1. Complete one signer.
+2. Make a material document change.
+3. Mark that change as `resign_required`.
+4. Re-route affected signers only.
+
+Expected next:
+
+- affected signatures are flagged, not silently discarded
+- unaffected signers are preserved where possible
+- owner sees exactly who must re-sign and why
+
+### 7. Explicit Lock Before Full Completion
+
+1. Prepare a document with outstanding required fields.
+2. Lock it manually.
+
+Expected:
+
+- document is no longer signable
+- audit trail records who locked it and when
+- reopening restores signability
+
+### 8. Self-Managed Distribution Path
+
+1. Upload one PDF as `self_managed`.
+2. Edit and assign fields.
+3. Download or generate a share link.
+4. Do not use managed notifications.
+
+Expected:
+
+- the document remains a workspace-centered editing object
+- no automatic signer emails are queued
+- export and sharing remain available
+
+## Suggested Testing Order
+
+1. Validate local UX and workflow transitions.
+2. Validate notification timing with live Resend credentials.
+3. Validate multi-signer routing in production.
+4. Validate reopen, edit, and resend-for-changes behavior.
+5. Only then validate certificate-backed digital signing with a real provider.
+
 ## Verification
 
 The current repository passes:
