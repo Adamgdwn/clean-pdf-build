@@ -16,6 +16,8 @@ type SessionUser = {
 
 type WorkflowDocument = DocumentRecord & {
   currentUserRole: "owner" | "editor" | "signer" | "viewer" | null;
+  currentUserIsSigner: boolean;
+  currentUserSignerId: string | null;
   workflowState: string;
   signable: boolean;
   completionSummary: {
@@ -149,6 +151,18 @@ function filenameToTitle(fileName: string) {
   return fileName.replace(/\.pdf$/i, "").replace(/[-_]/g, " ");
 }
 
+function formatRoleLabel(document: Pick<WorkflowDocument, "currentUserRole" | "currentUserIsSigner">) {
+  if (!document.currentUserRole) {
+    return document.currentUserIsSigner ? "signer" : "none";
+  }
+
+  if (document.currentUserIsSigner && document.currentUserRole !== "signer") {
+    return `${document.currentUserRole} + signer`;
+  }
+
+  return document.currentUserRole;
+}
+
 type ChecklistStep = {
   label: string;
   detail: string;
@@ -187,7 +201,7 @@ export default function App() {
   const [fieldPage, setFieldPage] = useState("1");
   const [fieldAssigneeSignerId, setFieldAssigneeSignerId] = useState<string>("");
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"editor" | "viewer" | "signer">("viewer");
+  const [inviteRole, setInviteRole] = useState<"editor" | "viewer">("viewer");
   const [savedSignatureLabel, setSavedSignatureLabel] = useState("");
   const [savedSignatureTitle, setSavedSignatureTitle] = useState("");
   const [savedSignatureType, setSavedSignatureType] = useState<"typed" | "uploaded">("typed");
@@ -240,7 +254,20 @@ export default function App() {
     selectedDocument?.fields.filter(
       (field) => field.required && (field.kind === "signature" || field.kind === "initial"),
     ) ?? [];
+  const signerLabelById = new Map(
+    (selectedDocument?.signers ?? []).map((signer) => [
+      signer.id,
+      signer.email ? `${signer.name} (${signer.email})` : signer.name,
+    ]),
+  );
   const assignedRequiredSigningFields = requiredSigningFields.filter((field) => field.assigneeSignerId);
+  const currentUserAssignedOpenFields =
+    selectedDocument?.currentUserSignerId
+      ? selectedDocument.fields.filter(
+          (field) =>
+            !field.completedAt && field.assigneeSignerId === selectedDocument.currentUserSignerId,
+        )
+      : [];
   const hasBeenSent = Boolean(selectedDocument?.sentAt);
   const hasCompletedSigning =
     (selectedDocument?.completionSummary.completedRequiredAssignedFields ?? 0) > 0;
@@ -337,6 +364,8 @@ export default function App() {
       ? "Completed. Download, share, or duplicate this document for the next cycle."
       : selectedDocument.lockedAt
         ? "This workflow is locked. Reopen it when you need additional edits or signatures."
+        : hasBeenSent && currentUserAssignedOpenFields.length > 0
+          ? `You're up next. Complete ${currentUserAssignedOpenFields.length} assigned field${currentUserAssignedOpenFields.length === 1 ? "" : "s"}.`
         : !sendReadiness?.ready
           ? sendReadiness?.blockers[0] ?? "Finish setup before sending."
           : !hasBeenSent
@@ -1521,7 +1550,7 @@ export default function App() {
                 >
                   <span>{document.name}</span>
                   <small>
-                    {formatState(document.workflowState)} · {document.currentUserRole}
+                    {formatState(document.workflowState)} · {formatRoleLabel(document)}
                   </small>
                 </button>
               ))
@@ -2013,7 +2042,9 @@ export default function App() {
                             </strong>
                             <p className="muted">
                               Page {field.page} · {field.source} ·{" "}
-                              {field.assigneeSignerId ?? "unassigned"}
+                              {field.assigneeSignerId
+                                ? signerLabelById.get(field.assigneeSignerId) ?? "assigned signer"
+                                : "unassigned"}
                             </p>
                             {field.appliedSavedSignatureId ? (
                               <p className="muted">
@@ -2036,7 +2067,8 @@ export default function App() {
                                   : ""}
                               </small>
                             ) : null}
-                            {!field.completedAt ? (
+                            {!field.completedAt &&
+                            selectedDocument.currentUserSignerId === field.assigneeSignerId ? (
                               <button
                                 className="ghost-button"
                                 disabled={isLoading}
@@ -2223,6 +2255,10 @@ export default function App() {
 
                     {canManageAccess ? (
                       <form className="stack form-block" onSubmit={handleInviteCollaborator}>
+                        <p className="muted">
+                          Invite collaborators here for review or editing. Add routed signers in the
+                          Signers section above.
+                        </p>
                         <label className="form-field">
                           <span>Invite email</span>
                           <input
@@ -2237,12 +2273,11 @@ export default function App() {
                           <select
                             value={inviteRole}
                             onChange={(event) =>
-                              setInviteRole(event.target.value as "editor" | "viewer" | "signer")
+                              setInviteRole(event.target.value as "editor" | "viewer")
                             }
                           >
                             <option value="viewer">Viewer</option>
                             <option value="editor">Editor</option>
-                            <option value="signer">Signer</option>
                           </select>
                         </label>
                         <button className="ghost-button" disabled={isLoading} type="submit">
@@ -2335,7 +2370,7 @@ export default function App() {
                       </div>
                       <div className="meta-item">
                         <span>Your role</span>
-                        <strong>{selectedDocument.currentUserRole ?? "none"}</strong>
+                        <strong>{formatRoleLabel(selectedDocument)}</strong>
                       </div>
                       <div className="meta-item">
                         <span>Distribution target</span>

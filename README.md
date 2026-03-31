@@ -86,6 +86,7 @@ npm run processor:run-notifications
 - Stripe Checkout and the billing portal drive subscriptions against workspace records
 - Stripe gracefully falls back to placeholder mode until `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are configured
 - Resend can deliver notification emails once `RESEND_API_KEY` and `EASYDRAFT_NOTIFICATION_FROM_EMAIL` are configured
+- When Resend is configured, managed signature emails are attempted immediately during send and completion events
 - GitHub Actions runs CI on each push and PR
 - A separate processor service can be deployed as a container later for heavier OCR and transform workloads
 
@@ -100,35 +101,61 @@ Billing endpoints now live in:
 - [billing-portal.ts](/home/adamgoodwin/code/Applications/Clean_pdf_build/apps/web/api/billing-portal.ts)
 - [stripe-webhook.ts](/home/adamgoodwin/code/Applications/Clean_pdf_build/apps/web/api/stripe-webhook.ts)
 
-## Concrete Next Steps For You
+## Latest Workflow Updates
 
-1. Sign in to EasyDraft with `admin@agoperations.ca` so the admin console path is visible under the current admin-email gate.
-2. Configure Resend when you are ready for live notification delivery:
+The current build now includes these workflow and policy improvements:
+
+- a user can be a collaborator and a signer on the same document without losing their stronger role
+- duplicate signer emails are blocked per document
+- routed signer notifications are based on required signature and initial fields only
+- managed notification emails are attempted immediately when Resend is configured
+- collaborator invites are now clearly separated from routed signer setup
+- the document UI shows clearer role labels like `owner + signer`
+- signer-facing actions are less noisy and only show completion controls when the current user is the assigned signer
+
+There is also a new database migration to apply:
+
+- [20260331120000_unique_signer_email_per_document.sql](/home/adamgoodwin/code/Applications/Clean_pdf_build/supabase/migrations/20260331120000_unique_signer_email_per_document.sql)
+
+## Concrete Next Steps For Adam
+
+1. Pull `main` and apply the latest Supabase migration locally and in hosted environments.
+2. Sign in with `admin@agoperations.ca` and run the structured workflow test pass below.
+3. Create three realistic test identities:
+   - one owner/editor
+   - one signer-only user
+   - one owner or editor who is also assigned as a signer
+4. Configure Resend when you are ready for live notification delivery:
    - `RESEND_API_KEY`
    - `EASYDRAFT_NOTIFICATION_FROM_EMAIL`
-3. Pick a digital-signing vendor before we claim cryptographic PDF signing is production-ready.
-   - Good categories: qualified remote signature provider, organization HSM, or a remote signing API with certificate lifecycle support
-4. Keep Stripe in placeholder mode for now.
-   - The UI is already wired to degrade gracefully until `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are added
-5. Start a structured test pass using the lifecycle matrix below and keep notes on:
-   - where the flow feels too dense
-   - where terminology is unclear
-   - where signer notifications or owner feedback feel late
+5. Run one real managed-signing flow with Resend enabled and verify:
+   - the first email arrives
+   - the link opens the correct document
+   - the originator progress message arrives after a signature is completed
+6. Keep Stripe in placeholder mode until you are ready to wire live billing:
+   - `STRIPE_SECRET_KEY`
+   - `STRIPE_WEBHOOK_SECRET`
+7. Continue Dropbox Sign pricing and account setup so the integration handoff is ready when we start that phase.
+8. Keep notes on:
+   - any wording that still feels internal
+   - any moment where the next action is unclear
+   - any signer-facing screen that still feels too dense
 
-## Concrete Next Steps For Me
+## Concrete Next Steps For Codex
 
-1. Implement change-impact tracking on documents after signatures begin.
-2. Add explicit resend-for-signature and resend-for-changes actions instead of relying only on reopen.
-3. Differentiate non-material edits from signature-impacting edits.
-4. Add signer-level invalidation markers so previously completed signature fields can be flagged as:
-   - still valid
-   - requires acknowledgement
-   - requires re-sign
-5. Add a document comparison view between the last signed snapshot and the current draft.
-6. Add stronger admin pages for:
+1. Implement change-impact tracking once signatures have started.
+2. Add explicit resend and remind actions instead of relying only on reopen.
+3. Differentiate `non_material`, `review_required`, and `resign_required` edits.
+4. Add signer invalidation markers so affected signatures can remain valid, require acknowledgement, or require re-sign.
+5. Build a signed-snapshot comparison view between the last signed state and the current draft.
+6. Improve signer-facing progress UI even further:
+   - clearer "you are next" states
+   - a calmer signer-only action area
+   - friendlier access and audit labels
+7. Expand admin operations pages for:
    - user lookup
    - workspace lookup
-   - subscription/payment placeholders
+   - subscription placeholders
    - notification health
    - processing-job health
 
@@ -142,6 +169,7 @@ The intended lifecycle should be treated as field-centric and audit-centric, not
    - The document starts in `draft`.
 2. Prepare
    - Owner or editor adds fields, assigns signers, chooses sequential or parallel routing, and decides between self-managed or platform-managed flow.
+   - Collaborator invites are for editors and viewers. Routed signers should be added through the signer list.
    - OCR and field detection can be queued.
    - The document moves into `prepared` once usable structure exists.
 3. Send

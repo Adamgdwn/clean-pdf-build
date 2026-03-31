@@ -65,6 +65,7 @@ Use this after workflow testing passes and before you present EasyDraft as produ
    - `RESEND_API_KEY`
    - `EASYDRAFT_NOTIFICATION_FROM_EMAIL`
 3. Send one real notification to verify deliverability and link behavior.
+4. Decide whether you also want the processor deployed for notification retries and queued OCR / field-detection jobs.
 
 ## Dropbox Sign
 

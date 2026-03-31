@@ -188,6 +188,8 @@ type ProcessingJobRow = {
 
 type WorkflowDocumentResponse = DocumentRecord & {
   currentUserRole: AccessRole | null;
+  currentUserIsSigner: boolean;
+  currentUserSignerId: string | null;
   workflowState: ReturnType<typeof deriveWorkflowState>;
   signable: boolean;
   completionSummary: ReturnType<typeof getDocumentCompletionSummary>;
@@ -247,7 +249,7 @@ const createDocumentInputSchema = z.object({
 
 const addSignerInputSchema = z.object({
   name: z.string().min(1).max(120),
-  email: z.string().email(),
+  email: z.string().trim().email().transform((value) => normalizeEmailAddress(value)),
   required: z.boolean().default(true),
   signingOrder: z.number().int().positive().nullable().default(null),
 });
@@ -270,8 +272,8 @@ const addFieldInputSchema = z.object({
 });
 
 const inviteCollaboratorInputSchema = z.object({
-  email: z.string().email(),
-  role: z.enum(["editor", "viewer", "signer"]),
+  email: z.string().trim().email().transform((value) => normalizeEmailAddress(value)),
+  role: z.enum(["editor", "viewer"]),
 });
 
 const createSavedSignatureInputSchema = z
@@ -329,6 +331,27 @@ function slugify(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
+}
+
+function normalizeEmailAddress(value: string) {
+  return value.trim().toLowerCase();
+}
+
+const accessRolePriority: Record<AccessRole, number> = {
+  signer: 1,
+  viewer: 2,
+  editor: 3,
+  owner: 4,
+};
+
+function mergeAccessRole(existingRole: AccessRole | null, incomingRole: AccessRole) {
+  if (!existingRole) {
+    return incomingRole;
+  }
+
+  return accessRolePriority[existingRole] >= accessRolePriority[incomingRole]
+    ? existingRole
+    : incomingRole;
 }
 
 function getAdminEmailSet() {
@@ -429,7 +452,7 @@ function normalizeMetadata(metadata: AuditEventRow["metadata"]): AuditEvent["met
 function mapSigner(row: SignerRow): Signer {
   return {
     id: row.id,
-    userId: row.user_id ?? "",
+    userId: row.user_id,
     name: row.name,
     email: row.email,
     required: row.required,
@@ -634,6 +657,7 @@ export async function resolveAuthenticatedUser(authorizationHeader: string | und
       data.user.user_metadata.name ??
       data.user.email.split("@")[0],
   };
+  const normalizedEmail = normalizeEmailAddress(user.rawEmail);
 
   await adminClient.from("profiles").upsert(
     {
@@ -651,22 +675,18 @@ export async function resolveAuthenticatedUser(authorizationHeader: string | und
     .from("document_invites")
     .select("id, document_id, email, role, accepted_at")
     .is("accepted_at", null)
-    .ilike("email", user.rawEmail);
+    .ilike("email", normalizedEmail);
 
   if (invites && invites.length > 0) {
     await Promise.all(
       invites.map(async (invite) => {
         const typedInvite = invite as DocumentInviteRow;
 
-        await adminClient.from("document_access").upsert(
-          {
-            document_id: typedInvite.document_id,
-            user_id: user.id,
-            role: typedInvite.role,
-          },
-          {
-            onConflict: "document_id,user_id",
-          },
+        await upsertDocumentAccessRole(
+          adminClient,
+          typedInvite.document_id,
+          user.id,
+          typedInvite.role,
         );
 
         await adminClient
@@ -679,7 +699,7 @@ export async function resolveAuthenticatedUser(authorizationHeader: string | und
             .from("document_signers")
             .update({ user_id: user.id })
             .eq("document_id", typedInvite.document_id)
-            .ilike("email", user.rawEmail)
+            .ilike("email", normalizedEmail)
             .is("user_id", null);
         }
       }),
@@ -689,7 +709,7 @@ export async function resolveAuthenticatedUser(authorizationHeader: string | und
   const { data: signerRows } = await adminClient
     .from("document_signers")
     .select("id, document_id, user_id, name, email, required, signing_order")
-    .ilike("email", user.rawEmail)
+    .ilike("email", normalizedEmail)
     .is("user_id", null);
 
   if (signerRows && signerRows.length > 0) {
@@ -701,16 +721,7 @@ export async function resolveAuthenticatedUser(authorizationHeader: string | und
           .update({ user_id: user.id })
           .eq("id", signer.id);
 
-        await adminClient.from("document_access").upsert(
-          {
-            document_id: signer.document_id,
-            user_id: user.id,
-            role: "signer",
-          },
-          {
-            onConflict: "document_id,user_id",
-          },
-        );
+        await upsertDocumentAccessRole(adminClient, signer.document_id, user.id, "signer");
       }),
     );
   }
@@ -738,6 +749,73 @@ async function requireDocumentRole(documentId: string, userId: string) {
   }
 
   return data.role as AccessRole;
+}
+
+async function getDocumentRole(documentId: string, userId: string) {
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("document_access")
+    .select("role")
+    .eq("document_id", documentId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return (data?.role as AccessRole | undefined) ?? null;
+}
+
+async function upsertDocumentAccessRole(
+  adminClient: ReturnType<typeof createServiceRoleClient>,
+  documentId: string,
+  userId: string,
+  incomingRole: AccessRole,
+) {
+  const { data, error } = await adminClient
+    .from("document_access")
+    .select("role")
+    .eq("document_id", documentId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  const nextRole = mergeAccessRole((data?.role as AccessRole | undefined) ?? null, incomingRole);
+
+  if (data?.role === nextRole) {
+    return nextRole;
+  }
+
+  const { error: upsertError } = await adminClient.from("document_access").upsert(
+    {
+      document_id: documentId,
+      user_id: userId,
+      role: nextRole,
+    },
+    {
+      onConflict: "document_id,user_id",
+    },
+  );
+
+  if (upsertError) {
+    throw new AppError(500, upsertError.message);
+  }
+
+  return nextRole;
+}
+
+function findSignerForUser(document: DocumentRecord, user: Pick<AuthenticatedUser, "id" | "rawEmail">) {
+  const normalizedEmail = normalizeEmailAddress(user.rawEmail);
+  return (
+    document.signers.find(
+      (signer) =>
+        signer.userId === user.id || normalizeEmailAddress(signer.email) === normalizedEmail,
+    ) ?? null
+  );
 }
 
 async function requireDocumentBundle(documentId: string) {
@@ -827,9 +905,14 @@ function toWorkflowDocumentResponse(
   document: DocumentRecord & { editorHistory: { currentIndex: number; latestIndex: number } },
   userId: string,
 ): WorkflowDocumentResponse {
+  const normalizedUserId = userId.trim();
+  const currentUserSigner = document.signers.find((signer) => signer.userId === normalizedUserId) ?? null;
+
   return {
     ...document,
-    currentUserRole: document.access.find((entry) => entry.userId === userId)?.role ?? null,
+    currentUserRole: document.access.find((entry) => entry.userId === normalizedUserId)?.role ?? null,
+    currentUserIsSigner: Boolean(currentUserSigner),
+    currentUserSignerId: currentUserSigner?.id ?? null,
     workflowState: deriveWorkflowState(document),
     signable: isDocumentSignable(document),
     completionSummary: getDocumentCompletionSummary(document),
@@ -1165,7 +1248,11 @@ async function getProfileById(userId: string) {
 
 function getPendingRequiredAssignedFields(document: DocumentRecord) {
   return document.fields.filter(
-    (field) => field.required && !!field.assigneeSignerId && !field.completedAt,
+    (field) =>
+      field.required &&
+      !!field.assigneeSignerId &&
+      (field.kind === "signature" || field.kind === "initial") &&
+      !field.completedAt,
   );
 }
 
@@ -1254,14 +1341,53 @@ async function appendVersion(
   }
 }
 
-async function assertPermission(documentId: string, userId: string, action: Parameters<typeof canPerformDocumentAction>[1]) {
-  const role = await requireDocumentRole(documentId, userId);
+async function assertPermission(
+  documentId: string,
+  user: Pick<AuthenticatedUser, "id" | "rawEmail">,
+  action: Parameters<typeof canPerformDocumentAction>[1],
+) {
+  const role = await getDocumentRole(documentId, user.id);
 
-  if (!canPerformDocumentAction(role, action)) {
-    throw new AppError(403, "You do not have permission to perform this action.");
+  if (role && canPerformDocumentAction(role, action)) {
+    return role;
   }
 
-  return role;
+  if (action === "complete_assigned_field") {
+    const adminClient = createServiceRoleClient();
+    const { data: byUserId, error: byUserIdError } = await adminClient
+      .from("document_signers")
+      .select("id")
+      .eq("document_id", documentId)
+      .eq("user_id", user.id)
+      .limit(1)
+      .maybeSingle();
+
+    if (byUserIdError) {
+      throw new AppError(500, byUserIdError.message);
+    }
+
+    if (byUserId) {
+      return role ?? "signer";
+    }
+
+    const { data: byEmail, error: byEmailError } = await adminClient
+      .from("document_signers")
+      .select("id")
+      .eq("document_id", documentId)
+      .ilike("email", normalizeEmailAddress(user.rawEmail))
+      .limit(1)
+      .maybeSingle();
+
+    if (byEmailError) {
+      throw new AppError(500, byEmailError.message);
+    }
+
+    if (byEmail) {
+      return role ?? "signer";
+    }
+  }
+
+  throw new AppError(403, "You do not have permission to perform this action.");
 }
 
 export async function getSessionFromAuthorizationHeader(authorizationHeader: string | undefined) {
@@ -1702,9 +1828,28 @@ export async function addSignerForAuthorizationHeader(
   input: unknown,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  await assertPermission(documentId, user.id, "manage_signers");
+  await assertPermission(documentId, user, "manage_signers");
   const parsed = addSignerInputSchema.parse(input);
   const adminClient = createServiceRoleClient();
+  const { data: existingSigner, error: existingSignerError } = await adminClient
+    .from("document_signers")
+    .select("id")
+    .eq("document_id", documentId)
+    .ilike("email", parsed.email)
+    .limit(1)
+    .maybeSingle();
+
+  if (existingSignerError) {
+    throw new AppError(500, existingSignerError.message);
+  }
+
+  if (existingSigner) {
+    throw new AppError(
+      409,
+      "This email is already assigned as a signer on the document. Each signer email can only appear once.",
+    );
+  }
+
   const { error } = await adminClient.from("document_signers").insert({
     document_id: documentId,
     name: parsed.name,
@@ -1749,7 +1894,7 @@ export async function updateDocumentRoutingStrategyForAuthorizationHeader(
   input: unknown,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  await assertPermission(documentId, user.id, "manage_signers");
+  await assertPermission(documentId, user, "manage_signers");
   const parsed = updateDocumentRoutingInputSchema.parse(input);
   const adminClient = createServiceRoleClient();
   const { error } = await adminClient
@@ -1787,7 +1932,7 @@ export async function addFieldForAuthorizationHeader(
   input: unknown,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  await assertPermission(documentId, user.id, "edit_document");
+  await assertPermission(documentId, user, "edit_document");
   const parsed = addFieldInputSchema.parse(input);
   const adminClient = createServiceRoleClient();
   const currentFieldRows = await listFieldRowsForDocument(documentId);
@@ -1844,7 +1989,7 @@ export async function inviteCollaboratorForAuthorizationHeader(
   input: unknown,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  await assertPermission(documentId, user.id, "manage_access");
+  await assertPermission(documentId, user, "manage_access");
   const parsed = inviteCollaboratorInputSchema.parse(input);
   const adminClient = createServiceRoleClient();
 
@@ -1883,7 +2028,7 @@ export async function sendDocumentForAuthorizationHeader(
   appOrigin?: string,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  await assertPermission(documentId, user.id, "send_document");
+  await assertPermission(documentId, user, "send_document");
   const adminClient = createServiceRoleClient();
   const currentDocument = await requireDocumentBundle(documentId);
   const sendReadiness = getDocumentSendReadiness(currentDocument);
@@ -1938,7 +2083,7 @@ export async function lockDocumentForAuthorizationHeader(
   documentId: string,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  await assertPermission(documentId, user.id, "lock_document");
+  await assertPermission(documentId, user, "lock_document");
   const adminClient = createServiceRoleClient();
   const now = new Date().toISOString();
   const { error } = await adminClient
@@ -1970,7 +2115,7 @@ export async function reopenDocumentForAuthorizationHeader(
   documentId: string,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  await assertPermission(documentId, user.id, "reopen_document");
+  await assertPermission(documentId, user, "reopen_document");
   const adminClient = createServiceRoleClient();
   const now = new Date().toISOString();
   const { error } = await adminClient
@@ -2004,13 +2149,11 @@ export async function completeFieldForAuthorizationHeader(
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const parsedInput = completeFieldInputSchema.parse(input);
-  await assertPermission(documentId, user.id, "complete_assigned_field");
+  await assertPermission(documentId, user, "complete_assigned_field");
   const adminClient = createServiceRoleClient();
   const document = await requireDocumentBundle(documentId);
   const eligibleSignerIdsBefore = getEligibleSignerIdsForNotifications(document);
-  const signer = document.signers.find(
-    (candidate) => candidate.userId === user.id || candidate.email.toLowerCase() === user.rawEmail.toLowerCase(),
-  );
+  const signer = findSignerForUser(document, user);
 
   if (!signer) {
     throw new AppError(403, "You are not assigned as a signer on this document.");
@@ -2169,7 +2312,7 @@ export async function createDocumentShareLinkForAuthorizationHeader(
   documentId: string,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  await assertPermission(documentId, user.id, "export_document");
+  await assertPermission(documentId, user, "export_document");
   const env = readServerEnv();
   const document = await requireDocumentBundle(documentId);
   const adminClient = createServiceRoleClient();
@@ -2197,7 +2340,7 @@ export async function clearDocumentFieldsForAuthorizationHeader(
   documentId: string,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  await assertPermission(documentId, user.id, "manage_editor_history");
+  await assertPermission(documentId, user, "manage_editor_history");
   const adminClient = createServiceRoleClient();
   const currentFieldRows = await listFieldRowsForDocument(documentId);
   await ensureInitialEditorSnapshot(documentId, user.id, currentFieldRows);
@@ -2226,7 +2369,7 @@ export async function undoDocumentEditorForAuthorizationHeader(
   documentId: string,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  await assertPermission(documentId, user.id, "manage_editor_history");
+  await assertPermission(documentId, user, "manage_editor_history");
   const adminClient = createServiceRoleClient();
   const document = await requireDocumentBundle(documentId);
   const currentFieldRows = await listFieldRowsForDocument(documentId);
@@ -2263,7 +2406,7 @@ export async function redoDocumentEditorForAuthorizationHeader(
   documentId: string,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  await assertPermission(documentId, user.id, "manage_editor_history");
+  await assertPermission(documentId, user, "manage_editor_history");
   const adminClient = createServiceRoleClient();
   const document = await requireDocumentBundle(documentId);
 
@@ -2298,7 +2441,7 @@ export async function duplicateDocumentForAuthorizationHeader(
   documentId: string,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  await assertPermission(documentId, user.id, "edit_document");
+  await assertPermission(documentId, user, "edit_document");
   const adminClient = createServiceRoleClient();
   const sourceDocument = await requireDocumentBundle(documentId);
   const { data: sourceRow, error: sourceError } = await adminClient
@@ -2455,7 +2598,7 @@ export async function deleteDocumentForAuthorizationHeader(
   documentId: string,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  await assertPermission(documentId, user.id, "delete_document");
+  await assertPermission(documentId, user, "delete_document");
   const adminClient = createServiceRoleClient();
   await appendAuditEvent(documentId, user.id, "document.exported", "Document soft deleted from workspace");
   await appendVersion(documentId, user.id, "Deleted document", "Document removed from active workspace view");
@@ -2483,7 +2626,7 @@ export async function requestProcessingJobForAuthorizationHeader(
   jobType: ProcessingJobType,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  await assertPermission(documentId, user.id, "edit_document");
+  await assertPermission(documentId, user, "edit_document");
   const adminClient = createServiceRoleClient();
   const { error } = await adminClient.from("document_processing_jobs").insert({
     document_id: documentId,

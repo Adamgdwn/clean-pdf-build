@@ -61,7 +61,7 @@ export const documentAccessSchema = z.object({
 
 export const signerSchema = z.object({
   id: z.string(),
-  userId: z.string(),
+  userId: z.string().nullable().default(null),
   name: z.string(),
   email: z.string().email(),
   required: z.boolean().default(true),

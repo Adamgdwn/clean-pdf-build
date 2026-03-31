@@ -20,7 +20,6 @@ const permissionMatrix: Record<AccessRole, DocumentAction[]> = {
     "manage_signers",
     "manage_access",
     "send_document",
-    "complete_assigned_field",
     "view_audit_trail",
     "export_document",
     "delete_document",

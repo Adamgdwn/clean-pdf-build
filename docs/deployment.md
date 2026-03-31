@@ -138,6 +138,10 @@ The Dropbox Sign integration is not wired yet, but you can prepare the productio
 
 Recommended callback base: `https://easydraftdocs.app`
 
+## Notifications and processor service
+
+Managed signature emails are attempted inline when notifications are queued and Resend is configured. The separate processor is still useful for retries and for OCR / field-detection workloads.
+
 ## Processor service
 
 The local processor service is still a separate boundary by design. It currently advances queued jobs with mocked OCR and field-detection outputs.
@@ -148,7 +152,7 @@ Near-term production options:
 - point it at the same Supabase project
 - trigger it on a schedule or by webhook
 
-This keeps heavy processing off Vercel while preserving the same workflow state and audit history.
+This keeps OCR, field detection, and notification retries off Vercel while preserving the same workflow state and audit history.
 
 ## Local-to-hosted mapping
 
