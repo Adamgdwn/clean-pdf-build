@@ -66,6 +66,8 @@ Recommended values:
 Recommended production auth values:
 
 - site URL = `https://easydraftdocs.app`
+- for the current internal pilot, email confirmation can stay off so new users land in the app immediately after signup
+- if you turn email confirmation back on later, the web app now passes the current origin as the confirmation return URL
 - allowed redirects include:
   - `https://easydraftdocs.app/**`
   - `https://easydraftdocs.com/**`

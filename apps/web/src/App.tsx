@@ -897,10 +897,11 @@ export default function App() {
           throw error;
         }
       } else {
-        const { error } = await browserSupabase.auth.signUp({
+        const { data, error } = await browserSupabase.auth.signUp({
           email,
           password,
           options: {
+            emailRedirectTo: window.location.origin,
             data: {
               full_name: fullName,
             },
@@ -911,7 +912,11 @@ export default function App() {
           throw error;
         }
 
-        setNoticeMessage("Account created. You can sign in immediately because email confirmation is off by default in local Supabase.");
+        setNoticeMessage(
+          data.session
+            ? "Account created and signed in. You can start using EasyDraft now."
+            : "Account created. Check your email to confirm your address before signing in.",
+        );
       }
     } catch (error) {
       setErrorMessage((error as Error).message);

@@ -20,6 +20,8 @@ Documents now support three operational paths:
 - `internal_use_only`: keep the PDF in EasyDraft, collect signatures from authenticated internal users, and use the built-in audit trail without third-party certification
 - `platform_managed`: keep the PDF in the workspace, send the next signature request from the app, and queue notifications back to the originator when signatures are completed
 
+For the current internal pilot, hosted signup can auto-confirm users so team members reach the app immediately after creating an account. If you later switch email confirmation back on, EasyDraft now sends users back to the current app origin after they confirm.
+
 ## Stack
 
 - `apps/web`: React + Vite client prepared for Vercel
