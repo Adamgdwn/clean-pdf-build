@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import { sendDocumentForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
-import { readAuthorizationHeader, sendError } from "./_utils.js";
+import { getRequestOrigin, readAuthorizationHeader, sendError } from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== "POST") {
@@ -16,6 +16,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         await sendDocumentForAuthorizationHeader(
           readAuthorizationHeader(request),
           request.body.documentId,
+          getRequestOrigin(request),
         ),
       );
   } catch (error) {

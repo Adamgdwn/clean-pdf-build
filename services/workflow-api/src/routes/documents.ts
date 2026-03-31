@@ -29,6 +29,11 @@ function sendError(reply: FastifyReply, error: unknown) {
 }
 
 export const documentRoutes: FastifyPluginAsync = async (app) => {
+  function getOrigin(request: { headers: { origin?: string | string[] }; protocol: string; host: string }) {
+    const originHeader = request.headers.origin;
+    return (Array.isArray(originHeader) ? originHeader[0] : originHeader) ?? `${request.protocol}://${request.host}`;
+  }
+
   app.get("/documents", async (request, reply) => {
     try {
       return await listDocumentsForAuthorizationHeader(request.headers.authorization);
@@ -75,7 +80,11 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
   app.post("/documents/:documentId/send", async (request, reply) => {
     try {
       const { documentId } = request.params as { documentId: string };
-      return await sendDocumentForAuthorizationHeader(request.headers.authorization, documentId);
+      return await sendDocumentForAuthorizationHeader(
+        request.headers.authorization,
+        documentId,
+        getOrigin(request),
+      );
     } catch (error) {
       return sendError(reply, error);
     }
@@ -198,6 +207,7 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
         documentId,
         fieldId,
         request.body,
+        getOrigin(request),
       );
     } catch (error) {
       return sendError(reply, error);

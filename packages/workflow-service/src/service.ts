@@ -906,9 +906,17 @@ function hasResendConfig() {
   return Boolean(env.RESEND_API_KEY && env.EASYDRAFT_NOTIFICATION_FROM_EMAIL);
 }
 
-function buildNotificationEmailContent(notification: NotificationRow, document: DocumentRecord) {
+function getNotificationActionOrigin(notification: NotificationRow) {
   const env = readServerEnv();
-  const actionUrl = `${env.EASYDRAFT_APP_ORIGIN}?documentId=${encodeURIComponent(document.id)}`;
+  const metadataOrigin =
+    typeof notification.metadata?.appOrigin === "string" ? notification.metadata.appOrigin.trim() : "";
+  const candidateOrigin = metadataOrigin || env.EASYDRAFT_APP_ORIGIN;
+
+  return candidateOrigin.replace(/\/+$/, "");
+}
+
+function buildNotificationEmailContent(notification: NotificationRow, document: DocumentRecord) {
+  const actionUrl = `${getNotificationActionOrigin(notification)}?documentId=${encodeURIComponent(document.id)}`;
   const actorLabel =
     typeof notification.metadata?.signerName === "string" ? notification.metadata.signerName : "A signer";
   const fieldLabel =
@@ -1193,7 +1201,7 @@ async function queueEligibleSignerNotifications(
   document: DocumentRecord,
   actorUserId: string,
   eligibleSignerIds: string[],
-  options: { reason: string; actorLabel: string },
+  options: { reason: string; actorLabel: string; appOrigin?: string },
 ) {
   if (document.deliveryMode !== "platform_managed" || eligibleSignerIds.length === 0) {
     return;
@@ -1207,6 +1215,7 @@ async function queueEligibleSignerNotifications(
         recipientUserId: signer.userId || null,
         recipientSignerId: signer.id,
         metadata: {
+          ...(options.appOrigin ? { appOrigin: options.appOrigin } : {}),
           signerName: signer.name,
           reason: options.reason,
         },
@@ -1871,6 +1880,7 @@ export async function inviteCollaboratorForAuthorizationHeader(
 export async function sendDocumentForAuthorizationHeader(
   authorizationHeader: string | undefined,
   documentId: string,
+  appOrigin?: string,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   await assertPermission(documentId, user.id, "send_document");
@@ -1915,6 +1925,7 @@ export async function sendDocumentForAuthorizationHeader(
     await queueEligibleSignerNotifications(document, user.id, eligibleSignerIds, {
       reason: "document_sent",
       actorLabel: user.name,
+      appOrigin,
     });
   }
 
@@ -1989,6 +2000,7 @@ export async function completeFieldForAuthorizationHeader(
   documentId: string,
   fieldId: string,
   input: unknown = {},
+  appOrigin?: string,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const parsedInput = completeFieldInputSchema.parse(input);
@@ -2074,6 +2086,7 @@ export async function completeFieldForAuthorizationHeader(
         recipientUserId: originator.id,
         recipientSignerId: signer.id,
         metadata: {
+          ...(appOrigin ? { appOrigin } : {}),
           signerName: signer.name,
           fieldLabel: field.label,
           fieldKind: field.kind,
@@ -2100,6 +2113,7 @@ export async function completeFieldForAuthorizationHeader(
     await queueEligibleSignerNotifications(updatedDocument, user.id, newlyEligibleSignerIds, {
       reason: "previous_signer_completed",
       actorLabel: signer.name,
+      appOrigin,
     });
   }
 
