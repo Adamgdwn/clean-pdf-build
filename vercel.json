@@ -15,6 +15,61 @@
       ],
       "destination": "https://easydraftdocs.app/$1",
       "permanent": true
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.easydraftdocs.com"
+        }
+      ],
+      "destination": "https://easydraftdocs.app/$1",
+      "permanent": true
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.easydraftdocs.app"
+        }
+      ],
+      "destination": "https://easydraftdocs.app/$1",
+      "permanent": true
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "clean-pdf-build.vercel.app"
+        }
+      ],
+      "destination": "https://easydraftdocs.app/$1",
+      "permanent": true
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "clean-pdf-build-adamgoodwin-8648s-projects.vercel.app"
+        }
+      ],
+      "destination": "https://easydraftdocs.app/$1",
+      "permanent": true
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "clean-pdf-build-adamgoodwin-8648-adamgoodwin-8648s-projects.vercel.app"
+        }
+      ],
+      "destination": "https://easydraftdocs.app/$1",
+      "permanent": true
     }
   ]
 }

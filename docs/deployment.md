@@ -10,6 +10,12 @@
 
 Because the Vercel project root is `apps/web`, the files in `apps/web/api` become the production API surface.
 
+### Domain behavior
+
+- `https://easydraftdocs.app` is the canonical application origin
+- `https://easydraftdocs.com`, `www` variants, and known production `vercel.app` aliases should redirect to the canonical `.app` domain
+- Supabase Auth should keep the same canonical `site_url` so auth flows and notification links stay consistent
+
 ### Required environment variables
 
 Set these in Vercel for Preview and Production:
@@ -21,6 +27,11 @@ Set these in Vercel for Preview and Production:
 - `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_DOCUMENT_BUCKET`
+- `SUPABASE_SIGNATURE_BUCKET`
+- `EASYDRAFT_ADMIN_EMAILS`
+- `EASYDRAFT_APP_ORIGIN`
+- `RESEND_API_KEY`
+- `EASYDRAFT_NOTIFICATION_FROM_EMAIL`
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 
@@ -33,6 +44,11 @@ Recommended values:
 - `SUPABASE_SERVICE_ROLE_KEY` = hosted Supabase service-role secret
 - `VITE_SUPABASE_DOCUMENT_BUCKET` = `documents`
 - `SUPABASE_DOCUMENT_BUCKET` = `documents`
+- `SUPABASE_SIGNATURE_BUCKET` = `signatures`
+- `EASYDRAFT_ADMIN_EMAILS` = `admin@agoperations.ca`
+- `EASYDRAFT_APP_ORIGIN` = `https://easydraftdocs.app`
+- `RESEND_API_KEY` = your Resend API key when notification email delivery is enabled
+- `EASYDRAFT_NOTIFICATION_FROM_EMAIL` = verified sender address for notifications
 - `STRIPE_SECRET_KEY` = your Stripe secret key for the environment
 - `STRIPE_WEBHOOK_SECRET` = the signing secret for the `POST /api/stripe-webhook` endpoint
 
@@ -46,6 +62,16 @@ Recommended values:
 4. Enable Email auth.
 5. Set your site URL and allowed redirect URLs to your Vercel domains.
 6. Set your auth redirect URLs to include both the production Vercel URL and preview domains if you want auth testing on previews.
+
+Recommended production auth values:
+
+- site URL = `https://easydraftdocs.app`
+- allowed redirects include:
+  - `https://easydraftdocs.app/**`
+  - `https://easydraftdocs.com/**`
+  - `https://www.easydraftdocs.app/**`
+  - `https://www.easydraftdocs.com/**`
+  - `https://*-adamgoodwin-8648s-projects.vercel.app/**`
 
 ### What the migration creates
 
@@ -100,6 +126,18 @@ Use Vercel's GitHub integration so each pull request gets a preview deployment a
 
 The current implementation creates recurring Checkout prices inline from the seeded billing plans, so you do not need to pre-create Stripe Price IDs just to get the first subscription flow working.
 
+## Future signing vendor
+
+The Dropbox Sign integration is not wired yet, but you can prepare the production account now. Collect:
+
+- API key
+- client ID
+- client secret
+- webhook signing secret
+- approved callback URL plan using the canonical origin
+
+Recommended callback base: `https://easydraftdocs.app`
+
 ## Processor service
 
 The local processor service is still a separate boundary by design. It currently advances queued jobs with mocked OCR and field-detection outputs.
@@ -117,3 +155,5 @@ This keeps heavy processing off Vercel while preserving the same workflow state 
 - local Supabase -> hosted Supabase project
 - local Fastify workflow API -> Vercel serverless handlers in `apps/web/api`
 - local processor -> containerized worker
+
+Detailed launch prep also lives in [go-live-checklist.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/go-live-checklist.md).

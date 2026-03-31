@@ -90,6 +90,7 @@ npm run processor:run-notifications
 - A separate processor service can be deployed as a container later for heavier OCR and transform workloads
 
 Detailed steps live in [deployment.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/deployment.md).
+Launch prep lives in [go-live-checklist.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/go-live-checklist.md).
 Identity and pricing guidance live in [identity-and-monetization.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/identity-and-monetization.md).
 
 Billing endpoints now live in:
