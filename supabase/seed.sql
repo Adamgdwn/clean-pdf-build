@@ -1,0 +1,2 @@
+-- Intentionally minimal.
+-- Create accounts through Supabase Auth or `supabase studio` so profile rows are synced on first use.

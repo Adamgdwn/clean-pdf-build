@@ -1,0 +1,32 @@
+{
+  "name": "clean-pdf-build",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,api,processor -c blue,green,yellow \"npm:dev:web\" \"npm:dev:api\" \"npm:dev:processor\"",
+    "dev:web": "npm --workspace apps/web run dev",
+    "dev:api": "npm --workspace services/workflow-api run dev",
+    "dev:processor": "npm --workspace services/document-processor run dev",
+    "dev:vercel": "npx vercel dev apps/web",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "supabase:start": "npx supabase start",
+    "supabase:stop": "npx supabase stop",
+    "supabase:db:reset": "npx supabase db reset",
+    "processor:run-queued": "curl -s -X POST http://localhost:4010/jobs/run-queued"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.14",
+    "concurrently": "^9.1.2",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "vercel": "^50.37.3",
+    "vitest": "^3.1.1"
+  }
+}
