@@ -17,6 +17,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
           readAuthorizationHeader(request),
           request.body.documentId,
           request.body.fieldId,
+          request.body,
         ),
       );
   } catch (error) {

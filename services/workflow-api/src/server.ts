@@ -4,6 +4,7 @@ import cors from "@fastify/cors";
 import { billingRoutes } from "./routes/billing";
 import { documentRoutes } from "./routes/documents";
 import { sessionRoutes } from "./routes/session";
+import { signatureRoutes } from "./routes/signatures";
 
 export function buildWorkflowServer() {
   const app = Fastify({ logger: false });
@@ -18,6 +19,7 @@ export function buildWorkflowServer() {
   }));
 
   app.register(sessionRoutes);
+  app.register(signatureRoutes);
   app.register(billingRoutes);
   app.register(documentRoutes);
 

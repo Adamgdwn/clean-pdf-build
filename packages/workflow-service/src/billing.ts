@@ -344,7 +344,7 @@ export async function createCheckoutSessionForAuthorizationHeader(
             interval: "month",
           },
           product_data: {
-            name: `Clean PDF ${selectedPlan.name}`,
+            name: `EasyDraft ${selectedPlan.name}`,
             description: `${selectedPlan.included_completed_docs} completed docs, ${selectedPlan.included_ocr_pages} OCR pages, ${selectedPlan.included_storage_gb} GB storage.`,
             metadata: {
               workspace_id: workspace.id,

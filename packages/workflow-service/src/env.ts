@@ -5,6 +5,7 @@ const serverEnvSchema = z.object({
   SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   SUPABASE_DOCUMENT_BUCKET: z.string().min(1).default("documents"),
+  SUPABASE_SIGNATURE_BUCKET: z.string().min(1).default("signatures"),
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
 });

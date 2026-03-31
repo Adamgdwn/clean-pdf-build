@@ -51,7 +51,20 @@ type BillingOverview = {
   }>;
 };
 
+type SavedSignature = {
+  id: string;
+  label: string;
+  titleText: string | null;
+  signatureType: "typed" | "uploaded";
+  typedText: string | null;
+  storagePath: string | null;
+  previewUrl: string | null;
+  isDefault: boolean;
+  createdAt: string;
+};
+
 const documentBucket = import.meta.env.VITE_SUPABASE_DOCUMENT_BUCKET ?? "documents";
+const signatureBucket = import.meta.env.VITE_SUPABASE_SIGNATURE_BUCKET ?? "signatures";
 
 function formatState(state: string) {
   return state.replaceAll("_", " ");
@@ -74,6 +87,7 @@ export default function App() {
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [documents, setDocuments] = useState<WorkflowDocument[]>([]);
   const [billingOverview, setBillingOverview] = useState<BillingOverview | null>(null);
+  const [savedSignatures, setSavedSignatures] = useState<SavedSignature[]>([]);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
@@ -98,6 +112,11 @@ export default function App() {
   const [fieldAssigneeSignerId, setFieldAssigneeSignerId] = useState<string>("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"editor" | "viewer" | "signer">("viewer");
+  const [savedSignatureLabel, setSavedSignatureLabel] = useState("");
+  const [savedSignatureTitle, setSavedSignatureTitle] = useState("");
+  const [savedSignatureType, setSavedSignatureType] = useState<"typed" | "uploaded">("typed");
+  const [savedSignatureTypedText, setSavedSignatureTypedText] = useState("");
+  const [selectedSavedSignatureId, setSelectedSavedSignatureId] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -106,6 +125,10 @@ export default function App() {
 
   const selectedDocument =
     documents.find((document) => document.id === selectedDocumentId) ?? documents[0] ?? null;
+  const selectedSavedSignature =
+    savedSignatures.find((signature) => signature.id === selectedSavedSignatureId) ??
+    savedSignatures[0] ??
+    null;
   const canEdit =
     selectedDocument?.currentUserRole === "owner" || selectedDocument?.currentUserRole === "editor";
   const canManageAccess = selectedDocument?.currentUserRole === "owner";
@@ -117,6 +140,7 @@ export default function App() {
       setSessionUser(null);
       setDocuments([]);
       setBillingOverview(null);
+      setSavedSignatures([]);
       setSelectedDocumentId(null);
       return;
     }
@@ -128,6 +152,12 @@ export default function App() {
   async function refreshBilling(activeSession: Session) {
     const payload = await apiFetch<BillingOverview>("/billing-overview", activeSession);
     setBillingOverview(payload);
+  }
+
+  async function refreshSavedSignatures(activeSession: Session) {
+    const payload = await apiFetch<{ signatures: SavedSignature[] }>("/saved-signatures", activeSession);
+    setSavedSignatures(payload.signatures);
+    setSelectedSavedSignatureId((currentValue) => currentValue || payload.signatures[0]?.id || "");
   }
 
   async function refreshDocuments(activeSession: Session) {
@@ -217,6 +247,72 @@ export default function App() {
     } catch (error) {
       setErrorMessage((error as Error).message);
       setIsBillingRedirecting(false);
+    }
+  }
+
+  async function handleCreateSavedSignature(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!session || !sessionUser) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      let storagePath: string | null = null;
+
+      if (savedSignatureType === "uploaded") {
+        const uploadInput = document.getElementById("saved-signature-upload") as HTMLInputElement | null;
+        const file = uploadInput?.files?.[0];
+
+        if (!file) {
+          throw new Error("Choose an image file for this saved signature.");
+        }
+
+        storagePath = `${sessionUser.id}/saved-signatures/${crypto.randomUUID()}-${file.name}`;
+        const { error: uploadError } = await browserSupabase.storage
+          .from(signatureBucket)
+          .upload(storagePath, file, {
+            contentType: file.type || "image/png",
+            upsert: false,
+          });
+
+        if (uploadError) {
+          throw uploadError;
+        }
+      }
+
+      const payload = await apiFetch<{ signature: SavedSignature }>("/saved-signatures", session, {
+        method: "POST",
+        body: JSON.stringify({
+          label: savedSignatureLabel,
+          titleText: savedSignatureTitle.trim() || null,
+          signatureType: savedSignatureType,
+          typedText: savedSignatureType === "typed" ? savedSignatureTypedText : null,
+          storagePath,
+          isDefault: savedSignatures.length === 0,
+        }),
+      });
+
+      setSavedSignatureLabel("");
+      setSavedSignatureTitle("");
+      setSavedSignatureTypedText("");
+      setSelectedSavedSignatureId(payload.signature.id);
+
+      const uploadInput = document.getElementById("saved-signature-upload") as HTMLInputElement | null;
+      if (uploadInput) {
+        uploadInput.value = "";
+      }
+
+      await refreshSavedSignatures(session);
+      setNoticeMessage("Saved signature added to your EasyDraft profile.");
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
     }
   }
 
@@ -431,7 +527,7 @@ export default function App() {
       return;
     }
 
-    Promise.all([refreshDocuments(session), refreshBilling(session)]).catch((error) =>
+    Promise.all([refreshDocuments(session), refreshBilling(session), refreshSavedSignatures(session)]).catch((error) =>
       setErrorMessage((error as Error).message),
     );
   }, [session]);
@@ -457,10 +553,10 @@ export default function App() {
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark">CP</span>
+          <span className="brand-mark">ED</span>
           <div>
-            <h1>Clean PDF</h1>
-            <p>Vercel-hosted, Supabase-backed PDF workflows.</p>
+            <h1>EasyDraft</h1>
+            <p>Private document workflows, reusable signatures, and clean handoffs.</p>
           </div>
         </div>
 
@@ -524,6 +620,116 @@ export default function App() {
             </form>
           )}
         </section>
+
+        {sessionUser ? (
+          <section className="card">
+            <div className="section-heading compact">
+              <p className="eyebrow">Signature Library</p>
+              <span>{savedSignatures.length}</span>
+            </div>
+            <div className="stack">
+              {savedSignatures.length === 0 ? (
+                <p className="muted">Save one or more signatures for different titles, roles, or signing contexts.</p>
+              ) : (
+                savedSignatures.map((signature) => (
+                  <button
+                    key={signature.id}
+                    className={`document-button ${selectedSavedSignatureId === signature.id ? "active" : ""}`}
+                    onClick={() => setSelectedSavedSignatureId(signature.id)}
+                    type="button"
+                  >
+                    <span>{signature.label}</span>
+                    <small>
+                      {signature.signatureType}
+                      {signature.titleText ? ` · ${signature.titleText}` : ""}
+                    </small>
+                  </button>
+                ))
+              )}
+
+              {selectedSavedSignature ? (
+                <div className="row-card">
+                  <div>
+                    <strong>{selectedSavedSignature.label}</strong>
+                    <p className="muted">
+                      {selectedSavedSignature.signatureType === "typed"
+                        ? selectedSavedSignature.typedText
+                        : "Uploaded signature image"}
+                    </p>
+                    {selectedSavedSignature.titleText ? (
+                      <p className="muted">{selectedSavedSignature.titleText}</p>
+                    ) : null}
+                  </div>
+                  {selectedSavedSignature.previewUrl ? (
+                    <img
+                      alt={`${selectedSavedSignature.label} preview`}
+                      src={selectedSavedSignature.previewUrl}
+                      style={{
+                        maxHeight: "48px",
+                        maxWidth: "120px",
+                        objectFit: "contain",
+                      }}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+
+              <form className="stack form-block" onSubmit={handleCreateSavedSignature}>
+                <label className="form-field">
+                  <span>Label</span>
+                  <input
+                    required
+                    placeholder="President, Director, Personal"
+                    value={savedSignatureLabel}
+                    onChange={(event) => setSavedSignatureLabel(event.target.value)}
+                  />
+                </label>
+                <label className="form-field">
+                  <span>Title text</span>
+                  <input
+                    placeholder="VP Operations"
+                    value={savedSignatureTitle}
+                    onChange={(event) => setSavedSignatureTitle(event.target.value)}
+                  />
+                </label>
+                <label className="form-field">
+                  <span>Signature type</span>
+                  <select
+                    value={savedSignatureType}
+                    onChange={(event) => setSavedSignatureType(event.target.value as "typed" | "uploaded")}
+                  >
+                    <option value="typed">Typed</option>
+                    <option value="uploaded">Uploaded image</option>
+                  </select>
+                </label>
+                {savedSignatureType === "typed" ? (
+                  <label className="form-field">
+                    <span>Typed signature text</span>
+                    <input
+                      required
+                      placeholder="Adam Goodwin"
+                      value={savedSignatureTypedText}
+                      onChange={(event) => setSavedSignatureTypedText(event.target.value)}
+                    />
+                  </label>
+                ) : (
+                  <label className="form-field">
+                    <span>Signature image</span>
+                    <input
+                      id="saved-signature-upload"
+                      accept="image/png,image/jpeg,image/webp"
+                      required
+                      type="file"
+                    />
+                  </label>
+                )}
+                <button className="ghost-button" disabled={isLoading} type="submit">
+                  Save signature
+                </button>
+              </form>
+            </div>
+          </section>
+        ) : null}
 
         {sessionUser && billingOverview ? (
           <section className="card">
@@ -616,17 +822,16 @@ export default function App() {
         <header className="hero">
           <div>
             <p className="eyebrow">Deployable workflow</p>
-            <h2>Real auth, real storage, real workflow state, still a clean surface.</h2>
+            <h2>EasyDraft keeps document work calm, reusable, and ready to move forward.</h2>
             <p className="hero-copy">
-              This pass swaps the demo store for Supabase auth, database, invites, and private storage.
-              The web client is ready for Vercel, while the workflow rules still live in shared
-              TypeScript.
+              Private storage, reusable profile signatures, managed routing, and audit-friendly
+              workflow state all stay in one place so teams can draft once and move with confidence.
             </p>
           </div>
           <div className="hero-grid">
             <div className="metric">
               <span>Hosting</span>
-              <strong>Vercel</strong>
+              <strong>EasyDraft</strong>
             </div>
             <div className="metric">
               <span>Backend core</span>
@@ -638,7 +843,7 @@ export default function App() {
             </div>
             <div className="metric">
               <span>Distribution</span>
-              <strong>GitHub-ready</strong>
+              <strong>Self or managed</strong>
             </div>
           </div>
         </header>
@@ -695,7 +900,7 @@ export default function App() {
                   }
                 >
                   <option value="self_managed">Store, edit, then distribute it myself</option>
-                  <option value="platform_managed">Store, edit, and let Clean PDF route signatures</option>
+                  <option value="platform_managed">Store, edit, and let EasyDraft route signatures</option>
                 </select>
               </label>
               {deliveryMode === "self_managed" ? (
@@ -809,7 +1014,7 @@ export default function App() {
                   </p>
                   <p className="muted">
                     {selectedDocument.deliveryMode === "platform_managed"
-                      ? "Clean PDF will queue the next signer email and can notify the originator as signatures complete."
+                      ? "EasyDraft will queue the next signer email and can notify the originator as signatures complete."
                       : `This file stays in the workspace while you edit it, then you can download or share it${selectedDocument.distributionTarget ? ` through ${selectedDocument.distributionTarget}` : ""}.`}
                   </p>
                 </div>
@@ -940,9 +1145,27 @@ export default function App() {
                               Page {field.page} · {field.source} ·{" "}
                               {field.assigneeSignerId ?? "unassigned"}
                             </p>
+                            {field.appliedSavedSignatureId ? (
+                              <p className="muted">
+                                Saved signature:{" "}
+                                {savedSignatures.find(
+                                  (signature) => signature.id === field.appliedSavedSignatureId,
+                                )?.label ?? "Applied"}
+                              </p>
+                            ) : null}
                           </div>
                           <div className="field-actions">
                             <span>{field.completedAt ? "Complete" : "Open"}</span>
+                            {!field.completedAt &&
+                            (field.kind === "signature" || field.kind === "initial") &&
+                            selectedSavedSignature ? (
+                              <small className="muted">
+                                Uses {selectedSavedSignature.label}
+                                {selectedSavedSignature.titleText
+                                  ? ` · ${selectedSavedSignature.titleText}`
+                                  : ""}
+                              </small>
+                            ) : null}
                             {!field.completedAt ? (
                               <button
                                 className="ghost-button"
@@ -951,6 +1174,10 @@ export default function App() {
                                   runDocumentAction("/document-field-complete", {
                                     documentId: selectedDocument.id,
                                     fieldId: field.id,
+                                    savedSignatureId:
+                                      field.kind === "signature" || field.kind === "initial"
+                                        ? selectedSavedSignatureId || null
+                                        : null,
                                   })
                                 }
                               >

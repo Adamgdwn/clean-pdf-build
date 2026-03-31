@@ -2,7 +2,7 @@
 
 ## Working title
 
-Clean PDF
+EasyDraft
 
 ## Promise
 

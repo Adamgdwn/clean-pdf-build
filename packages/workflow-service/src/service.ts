@@ -10,6 +10,7 @@ import {
   type DocumentNotification,
   type DocumentVersion,
   type Field,
+  type SavedSignature,
   type Signer,
   type User,
 } from "../../domain/src/index.js";
@@ -82,6 +83,7 @@ type FieldRow = {
   width: number;
   height: number;
   value: string | null;
+  applied_saved_signature_id: string | null;
   completed_at: string | null;
   completed_by_signer_id: string | null;
 };
@@ -117,6 +119,18 @@ type NotificationRow = {
   queued_at: string;
   delivered_at: string | null;
   metadata: Record<string, string | number | boolean | null> | null;
+};
+
+type SavedSignatureRow = {
+  id: string;
+  user_id: string;
+  label: string;
+  title_text: string | null;
+  signature_type: "typed" | "uploaded";
+  typed_text: string | null;
+  storage_path: string | null;
+  is_default: boolean;
+  created_at: string;
 };
 
 type ProcessingJobType = "ocr" | "field_detection";
@@ -175,6 +189,37 @@ const addFieldInputSchema = z.object({
 const inviteCollaboratorInputSchema = z.object({
   email: z.string().email(),
   role: z.enum(["editor", "viewer", "signer"]),
+});
+
+const createSavedSignatureInputSchema = z
+  .object({
+    label: z.string().min(1).max(80),
+    titleText: z.string().trim().max(120).nullable().default(null),
+    signatureType: z.enum(["typed", "uploaded"]),
+    typedText: z.string().trim().max(120).nullable().default(null),
+    storagePath: z.string().min(1).nullable().default(null),
+    isDefault: z.boolean().default(false),
+  })
+  .superRefine((value, context) => {
+    if (value.signatureType === "typed" && !value.typedText?.trim()) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Typed signatures require signature text.",
+        path: ["typedText"],
+      });
+    }
+
+    if (value.signatureType === "uploaded" && !value.storagePath) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Uploaded signatures require a storage path.",
+        path: ["storagePath"],
+      });
+    }
+  });
+
+const completeFieldInputSchema = z.object({
+  savedSignatureId: z.string().uuid().nullable().default(null),
 });
 
 function slugify(value: string) {
@@ -285,6 +330,7 @@ function mapField(row: FieldRow): Field {
     width: row.width,
     height: row.height,
     value: row.value,
+    appliedSavedSignatureId: row.applied_saved_signature_id,
     completedAt: row.completed_at,
     completedBySignerId: row.completed_by_signer_id,
   };
@@ -323,6 +369,31 @@ function mapNotification(row: NotificationRow): DocumentNotification {
     queuedAt: row.queued_at,
     deliveredAt: row.delivered_at,
     metadata: normalizeMetadata(row.metadata),
+  };
+}
+
+async function mapSavedSignature(row: SavedSignatureRow): Promise<SavedSignature> {
+  let previewUrl: string | null = null;
+
+  if (row.signature_type === "uploaded" && row.storage_path) {
+    const env = readServerEnv();
+    const adminClient = createServiceRoleClient();
+    const { data } = await adminClient.storage
+      .from(env.SUPABASE_SIGNATURE_BUCKET)
+      .createSignedUrl(row.storage_path, 60 * 30);
+    previewUrl = data?.signedUrl ?? null;
+  }
+
+  return {
+    id: row.id,
+    label: row.label,
+    titleText: row.title_text,
+    signatureType: row.signature_type,
+    typedText: row.typed_text,
+    storagePath: row.storage_path,
+    previewUrl,
+    isDefault: row.is_default,
+    createdAt: row.created_at,
   };
 }
 
@@ -767,6 +838,67 @@ export async function getSessionFromAuthorizationHeader(authorizationHeader: str
   };
 }
 
+export async function listSavedSignaturesForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("saved_signatures")
+    .select("id, user_id, label, title_text, signature_type, typed_text, storage_path, is_default, created_at")
+    .eq("user_id", user.id)
+    .order("is_default", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return {
+    signatures: await Promise.all(((data ?? []) as SavedSignatureRow[]).map(mapSavedSignature)),
+  };
+}
+
+export async function createSavedSignatureForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const parsed = createSavedSignatureInputSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+  const storagePath = parsed.storagePath?.trim() || null;
+
+  if (parsed.signatureType === "uploaded" && storagePath && !storagePath.startsWith(`${user.id}/`)) {
+    throw new AppError(400, "Signature assets must be stored in the signed-in user's folder.");
+  }
+
+  if (parsed.isDefault) {
+    await adminClient.from("saved_signatures").update({ is_default: false }).eq("user_id", user.id);
+  }
+
+  const { data, error } = await adminClient
+    .from("saved_signatures")
+    .insert({
+      user_id: user.id,
+      label: parsed.label,
+      title_text: parsed.titleText?.trim() || null,
+      signature_type: parsed.signatureType,
+      typed_text: parsed.signatureType === "typed" ? parsed.typedText?.trim() || null : null,
+      storage_path: parsed.signatureType === "uploaded" ? storagePath : null,
+      is_default: parsed.isDefault,
+    })
+    .select("id, user_id, label, title_text, signature_type, typed_text, storage_path, is_default, created_at")
+    .single();
+
+  if (error || !data) {
+    throw new AppError(500, error?.message ?? "Unable to save signature.");
+  }
+
+  return {
+    signature: await mapSavedSignature(data as SavedSignatureRow),
+  };
+}
+
 export async function listDocumentsForAuthorizationHeader(authorizationHeader: string | undefined) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const adminClient = createServiceRoleClient();
@@ -1120,8 +1252,10 @@ export async function completeFieldForAuthorizationHeader(
   authorizationHeader: string | undefined,
   documentId: string,
   fieldId: string,
+  input: unknown = {},
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
+  const parsedInput = completeFieldInputSchema.parse(input);
   await assertPermission(documentId, user.id, "complete_assigned_field");
   const adminClient = createServiceRoleClient();
   const document = await requireDocumentBundle(documentId);
@@ -1144,11 +1278,37 @@ export async function completeFieldForAuthorizationHeader(
     throw new AppError(403, "This field is assigned to another signer.");
   }
 
+  let appliedSavedSignature: SavedSignatureRow | null = null;
+
+  if (parsedInput.savedSignatureId) {
+    const { data: signatureRow, error: signatureError } = await adminClient
+      .from("saved_signatures")
+      .select("id, user_id, label, title_text, signature_type, typed_text, storage_path, is_default, created_at")
+      .eq("id", parsedInput.savedSignatureId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (signatureError) {
+      throw new AppError(500, signatureError.message);
+    }
+
+    if (!signatureRow) {
+      throw new AppError(404, "Saved signature not found.");
+    }
+
+    appliedSavedSignature = signatureRow as SavedSignatureRow;
+  }
+
+  const completionValue =
+    appliedSavedSignature?.signature_type === "typed"
+      ? appliedSavedSignature.typed_text
+      : appliedSavedSignature?.storage_path ?? field.value ?? "completed";
   const completedAt = new Date().toISOString();
   const { error } = await adminClient
     .from("document_fields")
     .update({
-      value: field.value ?? "completed",
+      value: completionValue,
+      applied_saved_signature_id: appliedSavedSignature?.id ?? null,
       completed_at: completedAt,
       completed_by_signer_id: signer.id,
     })
@@ -1160,6 +1320,7 @@ export async function completeFieldForAuthorizationHeader(
 
   await appendAuditEvent(documentId, user.id, "field.completed", `Completed field ${field.label}`, {
     page: field.page,
+    usedSavedSignature: Boolean(appliedSavedSignature),
   });
 
   const updatedDocument = await requireDocumentBundle(documentId);

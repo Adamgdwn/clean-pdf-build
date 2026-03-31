@@ -120,6 +120,7 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
         request.headers.authorization,
         documentId,
         fieldId,
+        request.body,
       );
     } catch (error) {
       return sendError(reply, error);

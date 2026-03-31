@@ -15,6 +15,7 @@ import documentSignersHandler from "../apps/web/api/document-signers.js";
 import documentHandler from "../apps/web/api/document.js";
 import documentsHandler from "../apps/web/api/documents.js";
 import healthHandler from "../apps/web/api/health.js";
+import savedSignaturesHandler from "../apps/web/api/saved-signatures.js";
 import sessionHandler from "../apps/web/api/session.js";
 import stripeWebhookHandler from "../apps/web/api/stripe-webhook.js";
 
@@ -36,6 +37,7 @@ const routeHandlers: Record<string, RouteHandler> = {
   document: documentHandler,
   documents: documentsHandler,
   health: healthHandler,
+  "saved-signatures": savedSignaturesHandler,
   session: sessionHandler,
   "stripe-webhook": stripeWebhookHandler,
 };
