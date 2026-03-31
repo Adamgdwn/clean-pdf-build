@@ -26,6 +26,7 @@ type DocumentRow = {
   file_name: string;
   storage_path: string;
   workspace_id: string | null;
+  editor_history_index: number;
   delivery_mode: DeliveryMode;
   distribution_target: string | null;
   notify_originator_on_each_signature: boolean;
@@ -39,6 +40,8 @@ type DocumentRow = {
   reopened_by_user_id: string | null;
   locked_at: string | null;
   locked_by_user_id: string | null;
+  deleted_at: string | null;
+  deleted_by_user_id: string | null;
   routing_strategy: "sequential" | "parallel";
   is_scanned: boolean;
   is_ocr_complete: boolean;
@@ -133,6 +136,45 @@ type SavedSignatureRow = {
   created_at: string;
 };
 
+type ProfileRow = {
+  id: string;
+  email: string;
+  display_name: string;
+  avatar_url: string | null;
+  company_name: string | null;
+  job_title: string | null;
+  locale: string | null;
+  timezone: string | null;
+  marketing_opt_in: boolean;
+  product_updates_opt_in: boolean;
+  last_seen_at: string | null;
+};
+
+type EditorSnapshotRow = {
+  id: string;
+  document_id: string;
+  history_index: number;
+  action_key: string;
+  label: string;
+  fields: FieldRow[];
+  created_by_user_id: string;
+  created_at: string;
+};
+
+type DigitalSignatureProfileRow = {
+  id: string;
+  user_id: string;
+  label: string;
+  title_text: string | null;
+  provider: "easy_draft_remote" | "qualified_remote" | "organization_hsm";
+  assurance_level: string;
+  status: "setup_required" | "requested" | "verified" | "rejected";
+  certificate_fingerprint: string | null;
+  provider_reference: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 type ProcessingJobType = "ocr" | "field_detection";
 type ProcessingJobStatus = "queued" | "running" | "completed" | "failed";
 type ProcessingJobRow = {
@@ -147,6 +189,41 @@ type WorkflowDocumentResponse = DocumentRecord & {
   workflowState: ReturnType<typeof deriveWorkflowState>;
   signable: boolean;
   completionSummary: ReturnType<typeof getDocumentCompletionSummary>;
+  editorHistory: {
+    currentIndex: number;
+    latestIndex: number;
+    canUndo: boolean;
+    canRedo: boolean;
+  };
+};
+
+type ProfileResponse = {
+  profile: {
+    id: string;
+    email: string;
+    displayName: string;
+    avatarUrl: string | null;
+    companyName: string | null;
+    jobTitle: string | null;
+    locale: string | null;
+    timezone: string | null;
+    marketingOptIn: boolean;
+    productUpdatesOptIn: boolean;
+    lastSeenAt: string | null;
+  };
+};
+
+type DigitalSignatureProfileResponse = {
+  id: string;
+  label: string;
+  titleText: string | null;
+  provider: "easy_draft_remote" | "qualified_remote" | "organization_hsm";
+  assuranceLevel: string;
+  status: "setup_required" | "requested" | "verified" | "rejected";
+  certificateFingerprint: string | null;
+  providerReference: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type AuthenticatedUser = User & {
@@ -171,6 +248,10 @@ const addSignerInputSchema = z.object({
   email: z.string().email(),
   required: z.boolean().default(true),
   signingOrder: z.number().int().positive().nullable().default(null),
+});
+
+const updateDocumentRoutingInputSchema = z.object({
+  routingStrategy: z.enum(["sequential", "parallel"]),
 });
 
 const addFieldInputSchema = z.object({
@@ -222,6 +303,23 @@ const completeFieldInputSchema = z.object({
   savedSignatureId: z.string().uuid().nullable().default(null),
 });
 
+const updateProfileInputSchema = z.object({
+  displayName: z.string().trim().min(1).max(120),
+  companyName: z.string().trim().max(120).nullable().default(null),
+  jobTitle: z.string().trim().max(120).nullable().default(null),
+  locale: z.string().trim().max(20).nullable().default(null),
+  timezone: z.string().trim().max(60).nullable().default(null),
+  marketingOptIn: z.boolean().default(false),
+  productUpdatesOptIn: z.boolean().default(true),
+});
+
+const createDigitalSignatureProfileInputSchema = z.object({
+  label: z.string().trim().min(1).max(80),
+  titleText: z.string().trim().max(120).nullable().default(null),
+  provider: z.enum(["easy_draft_remote", "qualified_remote", "organization_hsm"]),
+  assuranceLevel: z.string().trim().min(1).max(40).default("advanced"),
+});
+
 function slugify(value: string) {
   return value
     .toLowerCase()
@@ -229,6 +327,27 @@ function slugify(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
+}
+
+function getAdminEmailSet() {
+  const env = readServerEnv();
+
+  return new Set(
+    (env.EASYDRAFT_ADMIN_EMAILS ?? "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+function isAdminUser(user: AuthenticatedUser) {
+  return getAdminEmailSet().has(user.rawEmail.toLowerCase());
+}
+
+function assertAdminUser(user: AuthenticatedUser) {
+  if (!isAdminUser(user)) {
+    throw new AppError(403, "You do not have permission to view the EasyDraft admin console.");
+  }
 }
 
 export async function ensureDefaultWorkspaceForUser(user: AuthenticatedUser) {
@@ -397,6 +516,39 @@ async function mapSavedSignature(row: SavedSignatureRow): Promise<SavedSignature
   };
 }
 
+function mapProfile(row: ProfileRow): ProfileResponse["profile"] {
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.display_name,
+    avatarUrl: row.avatar_url,
+    companyName: row.company_name,
+    jobTitle: row.job_title,
+    locale: row.locale,
+    timezone: row.timezone,
+    marketingOptIn: row.marketing_opt_in,
+    productUpdatesOptIn: row.product_updates_opt_in,
+    lastSeenAt: row.last_seen_at,
+  };
+}
+
+function mapDigitalSignatureProfile(
+  row: DigitalSignatureProfileRow,
+): DigitalSignatureProfileResponse {
+  return {
+    id: row.id,
+    label: row.label,
+    titleText: row.title_text,
+    provider: row.provider,
+    assuranceLevel: row.assurance_level,
+    status: row.status,
+    certificateFingerprint: row.certificate_fingerprint,
+    providerReference: row.provider_reference,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function mapDocumentRecord(
   row: DocumentRow,
   accessRows: DocumentAccessRow[],
@@ -405,7 +557,8 @@ function mapDocumentRecord(
   versionRows: DocumentVersionRow[],
   auditRows: AuditEventRow[],
   notificationRows: NotificationRow[],
-): DocumentRecord {
+  latestEditorHistoryIndex: number,
+): DocumentRecord & { editorHistory: { currentIndex: number; latestIndex: number } } {
   return {
     id: row.id,
     name: row.name,
@@ -449,6 +602,10 @@ function mapDocumentRecord(
       .slice()
       .sort((left, right) => right.queued_at.localeCompare(left.queued_at))
       .map(mapNotification),
+    editorHistory: {
+      currentIndex: row.editor_history_index ?? 0,
+      latestIndex: latestEditorHistoryIndex,
+    },
   };
 }
 
@@ -591,8 +748,9 @@ async function requireDocumentBundle(documentId: string) {
     versionResponse,
     auditResponse,
     notificationResponse,
+    snapshotResponse,
   ] = await Promise.all([
-    adminClient.from("documents").select("*").eq("id", documentId).maybeSingle(),
+    adminClient.from("documents").select("*").eq("id", documentId).is("deleted_at", null).maybeSingle(),
     adminClient.from("document_access").select("document_id, user_id, role").eq("document_id", documentId),
     adminClient
       .from("document_signers")
@@ -601,7 +759,7 @@ async function requireDocumentBundle(documentId: string) {
     adminClient
       .from("document_fields")
       .select(
-        "id, document_id, page, kind, label, required, assignee_signer_id, source, x, y, width, height, value, completed_at, completed_by_signer_id",
+        "id, document_id, page, kind, label, required, assignee_signer_id, source, x, y, width, height, value, applied_saved_signature_id, completed_at, completed_by_signer_id",
       )
       .eq("document_id", documentId),
     adminClient
@@ -618,6 +776,13 @@ async function requireDocumentBundle(documentId: string) {
         "id, document_id, event_type, channel, status, recipient_email, recipient_user_id, recipient_signer_id, queued_at, delivered_at, metadata",
       )
       .eq("document_id", documentId),
+    adminClient
+      .from("document_editor_snapshots")
+      .select("history_index")
+      .eq("document_id", documentId)
+      .order("history_index", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   if (documentResponse.error) {
@@ -635,6 +800,7 @@ async function requireDocumentBundle(documentId: string) {
     versionResponse,
     auditResponse,
     notificationResponse,
+    snapshotResponse,
   ]) {
     if (response.error) {
       throw new AppError(500, response.error.message);
@@ -649,16 +815,28 @@ async function requireDocumentBundle(documentId: string) {
     (versionResponse.data ?? []) as DocumentVersionRow[],
     (auditResponse.data ?? []) as AuditEventRow[],
     (notificationResponse.data ?? []) as NotificationRow[],
+    ((snapshotResponse.data as { history_index: number } | null)?.history_index ??
+      (documentResponse.data as DocumentRow).editor_history_index ??
+      0),
   );
 }
 
-function toWorkflowDocumentResponse(document: DocumentRecord, userId: string): WorkflowDocumentResponse {
+function toWorkflowDocumentResponse(
+  document: DocumentRecord & { editorHistory: { currentIndex: number; latestIndex: number } },
+  userId: string,
+): WorkflowDocumentResponse {
   return {
     ...document,
     currentUserRole: document.access.find((entry) => entry.userId === userId)?.role ?? null,
     workflowState: deriveWorkflowState(document),
     signable: isDocumentSignable(document),
     completionSummary: getDocumentCompletionSummary(document),
+    editorHistory: {
+      currentIndex: document.editorHistory.currentIndex,
+      latestIndex: document.editorHistory.latestIndex,
+      canUndo: document.editorHistory.currentIndex > 0,
+      canRedo: document.editorHistory.currentIndex < document.editorHistory.latestIndex,
+    },
   };
 }
 
@@ -708,6 +886,160 @@ async function queueNotification(
 
   if (error) {
     throw new AppError(500, error.message);
+  }
+}
+
+async function listFieldRowsForDocument(documentId: string) {
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("document_fields")
+    .select(
+      "id, document_id, page, kind, label, required, assignee_signer_id, source, x, y, width, height, value, applied_saved_signature_id, completed_at, completed_by_signer_id",
+    )
+    .eq("document_id", documentId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return (data ?? []) as FieldRow[];
+}
+
+async function ensureInitialEditorSnapshot(documentId: string, userId: string, fieldRows: FieldRow[]) {
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("document_editor_snapshots")
+    .select("id")
+    .eq("document_id", documentId)
+    .limit(1);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  if ((data ?? []).length > 0) {
+    return;
+  }
+
+  const { error: insertError } = await adminClient.from("document_editor_snapshots").insert({
+    document_id: documentId,
+    history_index: 0,
+    action_key: "initial",
+    label: "Initial field map",
+    fields: fieldRows,
+    created_by_user_id: userId,
+  });
+
+  if (insertError) {
+    throw new AppError(500, insertError.message);
+  }
+}
+
+async function pushEditorSnapshot(
+  documentId: string,
+  userId: string,
+  actionKey: string,
+  label: string,
+  fieldRows: FieldRow[],
+) {
+  const adminClient = createServiceRoleClient();
+  const { data: documentRow, error: documentError } = await adminClient
+    .from("documents")
+    .select("editor_history_index")
+    .eq("id", documentId)
+    .maybeSingle();
+
+  if (documentError || !documentRow) {
+    throw new AppError(404, documentError?.message ?? "Document not found.");
+  }
+
+  const currentIndex = (documentRow as { editor_history_index: number }).editor_history_index ?? 0;
+  const nextIndex = currentIndex + 1;
+
+  const { error: deleteFutureError } = await adminClient
+    .from("document_editor_snapshots")
+    .delete()
+    .eq("document_id", documentId)
+    .gt("history_index", currentIndex);
+
+  if (deleteFutureError) {
+    throw new AppError(500, deleteFutureError.message);
+  }
+
+  const { error: insertError } = await adminClient.from("document_editor_snapshots").insert({
+    document_id: documentId,
+    history_index: nextIndex,
+    action_key: actionKey,
+    label,
+    fields: fieldRows,
+    created_by_user_id: userId,
+  });
+
+  if (insertError) {
+    throw new AppError(500, insertError.message);
+  }
+
+  const { error: updateError } = await adminClient
+    .from("documents")
+    .update({ editor_history_index: nextIndex })
+    .eq("id", documentId);
+
+  if (updateError) {
+    throw new AppError(500, updateError.message);
+  }
+}
+
+async function restoreEditorSnapshot(
+  documentId: string,
+  snapshot: EditorSnapshotRow,
+) {
+  const adminClient = createServiceRoleClient();
+  const { error: deleteError } = await adminClient
+    .from("document_fields")
+    .delete()
+    .eq("document_id", documentId);
+
+  if (deleteError) {
+    throw new AppError(500, deleteError.message);
+  }
+
+  const fields = Array.isArray(snapshot.fields) ? snapshot.fields : [];
+
+  if (fields.length > 0) {
+    const { error: insertError } = await adminClient.from("document_fields").insert(
+      fields.map((field) => ({
+        id: field.id,
+        document_id: documentId,
+        page: field.page,
+        kind: field.kind,
+        label: field.label,
+        required: field.required,
+        assignee_signer_id: field.assignee_signer_id,
+        source: field.source,
+        x: field.x,
+        y: field.y,
+        width: field.width,
+        height: field.height,
+        value: field.value,
+        applied_saved_signature_id: field.applied_saved_signature_id,
+        completed_at: field.completed_at,
+        completed_by_signer_id: field.completed_by_signer_id,
+      })),
+    );
+
+    if (insertError) {
+      throw new AppError(500, insertError.message);
+    }
+  }
+
+  const { error: updateError } = await adminClient
+    .from("documents")
+    .update({ editor_history_index: snapshot.history_index })
+    .eq("id", documentId);
+
+  if (updateError) {
+    throw new AppError(500, updateError.message);
   }
 }
 
@@ -834,7 +1166,240 @@ export async function getSessionFromAuthorizationHeader(authorizationHeader: str
       id: user.id,
       name: user.name,
       email: user.email,
+      isAdmin: isAdminUser(user),
     },
+  };
+}
+
+export async function getProfileForAuthorizationHeader(authorizationHeader: string | undefined) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("profiles")
+    .select(
+      "id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at",
+    )
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new AppError(500, error?.message ?? "Unable to load account profile.");
+  }
+
+  return {
+    profile: mapProfile(data as ProfileRow),
+  };
+}
+
+export async function updateProfileForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const parsed = updateProfileInputSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+  const payload = {
+    display_name: parsed.displayName,
+    company_name: parsed.companyName?.trim() || null,
+    job_title: parsed.jobTitle?.trim() || null,
+    locale: parsed.locale?.trim() || null,
+    timezone: parsed.timezone?.trim() || null,
+    marketing_opt_in: parsed.marketingOptIn,
+    product_updates_opt_in: parsed.productUpdatesOptIn,
+  };
+
+  const { data, error } = await adminClient
+    .from("profiles")
+    .update(payload)
+    .eq("id", user.id)
+    .select(
+      "id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at",
+    )
+    .single();
+
+  if (error || !data) {
+    throw new AppError(500, error?.message ?? "Unable to update account profile.");
+  }
+
+  return {
+    profile: mapProfile(data as ProfileRow),
+  };
+}
+
+export async function listDigitalSignatureProfilesForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("digital_signature_profiles")
+    .select(
+      "id, user_id, label, title_text, provider, assurance_level, status, certificate_fingerprint, provider_reference, created_at, updated_at",
+    )
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return {
+    profiles: ((data ?? []) as DigitalSignatureProfileRow[]).map(mapDigitalSignatureProfile),
+  };
+}
+
+export async function createDigitalSignatureProfileForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const parsed = createDigitalSignatureProfileInputSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("digital_signature_profiles")
+    .insert({
+      user_id: user.id,
+      label: parsed.label,
+      title_text: parsed.titleText?.trim() || null,
+      provider: parsed.provider,
+      assurance_level: parsed.assuranceLevel,
+      status: "requested",
+    })
+    .select(
+      "id, user_id, label, title_text, provider, assurance_level, status, certificate_fingerprint, provider_reference, created_at, updated_at",
+    )
+    .single();
+
+  if (error || !data) {
+    throw new AppError(500, error?.message ?? "Unable to create digital signature profile request.");
+  }
+
+  return {
+    profile: mapDigitalSignatureProfile(data as DigitalSignatureProfileRow),
+  };
+}
+
+export async function getAdminOverviewForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  assertAdminUser(user);
+  const adminClient = createServiceRoleClient();
+  const [
+    profilesCount,
+    workspacesCount,
+    documentsCount,
+    sentDocumentsCount,
+    completedDocumentsCount,
+    pendingNotificationsCount,
+    queuedJobsCount,
+    subscriptionsResponse,
+    billingCustomersCount,
+    workspacesResponse,
+  ] = await Promise.all([
+    adminClient.from("profiles").select("*", { count: "exact", head: true }),
+    adminClient.from("workspaces").select("*", { count: "exact", head: true }),
+    adminClient.from("documents").select("*", { count: "exact", head: true }).is("deleted_at", null),
+    adminClient
+      .from("documents")
+      .select("*", { count: "exact", head: true })
+      .is("deleted_at", null)
+      .not("sent_at", "is", null),
+    adminClient
+      .from("documents")
+      .select("*", { count: "exact", head: true })
+      .is("deleted_at", null)
+      .not("completed_at", "is", null),
+    adminClient
+      .from("document_notifications")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "queued"),
+    adminClient
+      .from("document_processing_jobs")
+      .select("*", { count: "exact", head: true })
+      .in("status", ["queued", "running"]),
+    adminClient
+      .from("workspace_subscriptions")
+      .select(
+        "id, workspace_id, billing_plan_key, status, seat_count, current_period_end, updated_at",
+      )
+      .order("updated_at", { ascending: false })
+      .limit(8),
+    adminClient.from("workspace_billing_customers").select("*", { count: "exact", head: true }),
+    adminClient
+      .from("workspaces")
+      .select("id, name, slug, workspace_type, owner_user_id, billing_email, created_at")
+      .order("created_at", { ascending: false })
+      .limit(8),
+  ]);
+
+  for (const response of [
+    profilesCount,
+    workspacesCount,
+    documentsCount,
+    sentDocumentsCount,
+    completedDocumentsCount,
+    pendingNotificationsCount,
+    queuedJobsCount,
+    subscriptionsResponse,
+    billingCustomersCount,
+    workspacesResponse,
+  ]) {
+    if (response.error) {
+      throw new AppError(500, response.error.message);
+    }
+  }
+
+  const planRowsResponse = await adminClient
+    .from("billing_plans")
+    .select("key, name, monthly_price_usd")
+    .eq("active", true);
+
+  if (planRowsResponse.error) {
+    throw new AppError(500, planRowsResponse.error.message);
+  }
+
+  const planPriceByKey = new Map(
+    ((planRowsResponse.data ?? []) as Array<{ key: string; name: string; monthly_price_usd: number }>).map(
+      (plan) => [plan.key, plan.monthly_price_usd],
+    ),
+  );
+  const subscriptions = (subscriptionsResponse.data ??
+    []) as Array<{
+    id: string;
+    workspace_id: string;
+    billing_plan_key: string;
+    status: string;
+    seat_count: number;
+    current_period_end: string | null;
+    updated_at: string;
+  }>;
+  const estimatedMrrUsd = subscriptions
+    .filter((subscription) => ["active", "trialing", "past_due"].includes(subscription.status))
+    .reduce((sum, subscription) => sum + (planPriceByKey.get(subscription.billing_plan_key) ?? 0), 0);
+
+  return {
+    metrics: {
+      totalUsers: profilesCount.count ?? 0,
+      totalWorkspaces: workspacesCount.count ?? 0,
+      totalDocuments: documentsCount.count ?? 0,
+      sentDocuments: sentDocumentsCount.count ?? 0,
+      completedDocuments: completedDocumentsCount.count ?? 0,
+      pendingNotifications: pendingNotificationsCount.count ?? 0,
+      queuedProcessingJobs: queuedJobsCount.count ?? 0,
+      billingCustomers: billingCustomersCount.count ?? 0,
+      estimatedMrrUsd,
+    },
+    recentSubscriptions: subscriptions,
+    recentWorkspaces: (workspacesResponse.data ?? []) as Array<{
+      id: string;
+      name: string;
+      slug: string;
+      workspace_type: string;
+      owner_user_id: string;
+      billing_email: string | null;
+      created_at: string;
+    }>,
   };
 }
 
@@ -914,7 +1479,15 @@ export async function listDocumentsForAuthorizationHeader(authorizationHeader: s
   const documentIds = [
     ...new Set(((data ?? []) as Array<{ document_id: string }>).map((entry) => entry.document_id)),
   ];
-  const documents = await Promise.all(documentIds.map((documentId) => requireDocumentBundle(documentId)));
+  const documents = (
+    await Promise.allSettled(documentIds.map((documentId) => requireDocumentBundle(documentId)))
+  )
+    .filter(
+      (result): result is PromiseFulfilledResult<
+        DocumentRecord & { editorHistory: { currentIndex: number; latestIndex: number } }
+      > => result.status === "fulfilled",
+    )
+    .map((result) => result.value);
 
   return {
     documents: documents
@@ -984,6 +1557,7 @@ export async function createDocumentForAuthorizationHeader(
     user_id: user.id,
     role: "owner",
   });
+  await ensureInitialEditorSnapshot(parsed.id, user.id, []);
 
   await appendVersion(parsed.id, user.id, "Uploaded original", "Source PDF uploaded to storage");
   await appendAuditEvent(parsed.id, user.id, "document.uploaded", `Uploaded ${parsed.fileName}`);
@@ -1058,6 +1632,44 @@ export async function addSignerForAuthorizationHeader(
   return { document: toWorkflowDocumentResponse(document, user.id) };
 }
 
+export async function updateDocumentRoutingStrategyForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user.id, "manage_signers");
+  const parsed = updateDocumentRoutingInputSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+  const { error } = await adminClient
+    .from("documents")
+    .update({
+      routing_strategy: parsed.routingStrategy,
+      prepared_at: new Date().toISOString(),
+    })
+    .eq("id", documentId);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  await appendVersion(
+    documentId,
+    user.id,
+    "Updated routing",
+    `Switched routing to ${parsed.routingStrategy}`,
+  );
+  await appendAuditEvent(
+    documentId,
+    user.id,
+    "document.prepared",
+    `Updated routing to ${parsed.routingStrategy}`,
+  );
+
+  const document = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(document, user.id) };
+}
+
 export async function addFieldForAuthorizationHeader(
   authorizationHeader: string | undefined,
   documentId: string,
@@ -1067,28 +1679,44 @@ export async function addFieldForAuthorizationHeader(
   await assertPermission(documentId, user.id, "edit_document");
   const parsed = addFieldInputSchema.parse(input);
   const adminClient = createServiceRoleClient();
-  const { error } = await adminClient.from("document_fields").insert({
-    document_id: documentId,
-    page: parsed.page,
-    kind: parsed.kind,
-    label: parsed.label,
-    required: parsed.required,
-    assignee_signer_id: parsed.assigneeSignerId,
-    source: parsed.source,
-    x: parsed.x,
-    y: parsed.y,
-    width: parsed.width,
-    height: parsed.height,
-  });
+  const currentFieldRows = await listFieldRowsForDocument(documentId);
+  await ensureInitialEditorSnapshot(documentId, user.id, currentFieldRows);
+  const { data, error } = await adminClient
+    .from("document_fields")
+    .insert({
+      document_id: documentId,
+      page: parsed.page,
+      kind: parsed.kind,
+      label: parsed.label,
+      required: parsed.required,
+      assignee_signer_id: parsed.assigneeSignerId,
+      source: parsed.source,
+      x: parsed.x,
+      y: parsed.y,
+      width: parsed.width,
+      height: parsed.height,
+    })
+    .select(
+      "id, document_id, page, kind, label, required, assignee_signer_id, source, x, y, width, height, value, applied_saved_signature_id, completed_at, completed_by_signer_id",
+    )
+    .single();
 
-  if (error) {
-    throw new AppError(500, error.message);
+  if (error || !data) {
+    throw new AppError(500, error?.message ?? "Unable to add field.");
   }
 
   await adminClient
     .from("documents")
     .update({ prepared_at: new Date().toISOString() })
     .eq("id", documentId);
+
+  await pushEditorSnapshot(
+    documentId,
+    user.id,
+    "field_added",
+    `Added field ${parsed.label}`,
+    [...currentFieldRows, data as FieldRow],
+  );
 
   await appendAuditEvent(documentId, user.id, "field.created", `Created field ${parsed.label}`, {
     page: parsed.page,
@@ -1411,6 +2039,319 @@ export async function getDocumentDownloadUrlForAuthorizationHeader(
 
   return {
     signedUrl: data.signedUrl,
+  };
+}
+
+export async function createDocumentShareLinkForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user.id, "export_document");
+  const env = readServerEnv();
+  const document = await requireDocumentBundle(documentId);
+  const adminClient = createServiceRoleClient();
+  const expiresInSeconds = 60 * 60 * 24;
+  const { data, error } = await adminClient.storage
+    .from(env.SUPABASE_DOCUMENT_BUCKET)
+    .createSignedUrl(document.storagePath, expiresInSeconds);
+
+  if (error || !data?.signedUrl) {
+    throw new AppError(500, error?.message ?? "Unable to create a secure share link.");
+  }
+
+  await appendAuditEvent(documentId, user.id, "document.exported", "Generated secure share link", {
+    expiresInSeconds,
+  });
+
+  return {
+    url: data.signedUrl,
+    expiresInSeconds,
+  };
+}
+
+export async function clearDocumentFieldsForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user.id, "manage_editor_history");
+  const adminClient = createServiceRoleClient();
+  const currentFieldRows = await listFieldRowsForDocument(documentId);
+  await ensureInitialEditorSnapshot(documentId, user.id, currentFieldRows);
+
+  const { error } = await adminClient
+    .from("document_fields")
+    .delete()
+    .eq("document_id", documentId);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  await pushEditorSnapshot(documentId, user.id, "fields_cleared", "Cleared field boxes", []);
+  await appendVersion(documentId, user.id, "Cleared field boxes", "Removed all current field placements");
+  await appendAuditEvent(documentId, user.id, "field.created", "Cleared all field boxes", {
+    removedFieldCount: currentFieldRows.length,
+  });
+
+  const document = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(document, user.id) };
+}
+
+export async function undoDocumentEditorForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user.id, "manage_editor_history");
+  const adminClient = createServiceRoleClient();
+  const document = await requireDocumentBundle(documentId);
+  const currentFieldRows = await listFieldRowsForDocument(documentId);
+  await ensureInitialEditorSnapshot(documentId, user.id, currentFieldRows);
+
+  if (document.editorHistory.currentIndex <= 0) {
+    throw new AppError(409, "There is no earlier editor state to undo to.");
+  }
+
+  const targetIndex = document.editorHistory.currentIndex - 1;
+  const { data, error } = await adminClient
+    .from("document_editor_snapshots")
+    .select("id, document_id, history_index, action_key, label, fields, created_by_user_id, created_at")
+    .eq("document_id", documentId)
+    .eq("history_index", targetIndex)
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new AppError(404, error?.message ?? "Undo state not found.");
+  }
+
+  await restoreEditorSnapshot(documentId, data as EditorSnapshotRow);
+  await appendVersion(documentId, user.id, "Undid field edit", `Reverted to editor state ${targetIndex}`);
+  await appendAuditEvent(documentId, user.id, "field.created", "Undid field layout change", {
+    historyIndex: targetIndex,
+  });
+
+  const finalDocument = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(finalDocument, user.id) };
+}
+
+export async function redoDocumentEditorForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user.id, "manage_editor_history");
+  const adminClient = createServiceRoleClient();
+  const document = await requireDocumentBundle(documentId);
+
+  if (document.editorHistory.currentIndex >= document.editorHistory.latestIndex) {
+    throw new AppError(409, "There is no later editor state to redo to.");
+  }
+
+  const targetIndex = document.editorHistory.currentIndex + 1;
+  const { data, error } = await adminClient
+    .from("document_editor_snapshots")
+    .select("id, document_id, history_index, action_key, label, fields, created_by_user_id, created_at")
+    .eq("document_id", documentId)
+    .eq("history_index", targetIndex)
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new AppError(404, error?.message ?? "Redo state not found.");
+  }
+
+  await restoreEditorSnapshot(documentId, data as EditorSnapshotRow);
+  await appendVersion(documentId, user.id, "Redid field edit", `Restored editor state ${targetIndex}`);
+  await appendAuditEvent(documentId, user.id, "field.created", "Redid field layout change", {
+    historyIndex: targetIndex,
+  });
+
+  const finalDocument = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(finalDocument, user.id) };
+}
+
+export async function duplicateDocumentForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user.id, "edit_document");
+  const adminClient = createServiceRoleClient();
+  const sourceDocument = await requireDocumentBundle(documentId);
+  const { data: sourceRow, error: sourceError } = await adminClient
+    .from("documents")
+    .select("*")
+    .eq("id", documentId)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (sourceError || !sourceRow) {
+    throw new AppError(404, sourceError?.message ?? "Document not found.");
+  }
+
+  const newDocumentId = crypto.randomUUID();
+  const nextStoragePath = `${user.id}/${newDocumentId}/${sourceDocument.fileName}`;
+  const env = readServerEnv();
+  const { data: fileBlob, error: downloadError } = await adminClient.storage
+    .from(env.SUPABASE_DOCUMENT_BUCKET)
+    .download(sourceDocument.storagePath);
+
+  if (downloadError || !fileBlob) {
+    throw new AppError(500, downloadError?.message ?? "Unable to copy the source PDF.");
+  }
+
+  const buffer = Buffer.from(await fileBlob.arrayBuffer());
+  const { error: uploadError } = await adminClient.storage
+    .from(env.SUPABASE_DOCUMENT_BUCKET)
+    .upload(nextStoragePath, buffer, {
+      contentType: "application/pdf",
+      upsert: false,
+    });
+
+  if (uploadError) {
+    throw new AppError(500, uploadError.message);
+  }
+
+  const insertedDocument = {
+    id: newDocumentId,
+    name: `${sourceDocument.name} copy`,
+    file_name: sourceDocument.fileName,
+    storage_path: nextStoragePath,
+    workspace_id: (sourceRow as DocumentRow).workspace_id,
+    editor_history_index: 0,
+    delivery_mode: sourceDocument.deliveryMode,
+    distribution_target: sourceDocument.distributionTarget,
+    notify_originator_on_each_signature: sourceDocument.notifyOriginatorOnEachSignature,
+    page_count: sourceDocument.pageCount,
+    uploaded_by_user_id: user.id,
+    prepared_at: sourceDocument.preparedAt,
+    sent_at: null,
+    completed_at: null,
+    reopened_at: null,
+    reopened_by_user_id: null,
+    locked_at: null,
+    locked_by_user_id: null,
+    deleted_at: null,
+    deleted_by_user_id: null,
+    routing_strategy: sourceDocument.routingStrategy,
+    is_scanned: sourceDocument.isScanned,
+    is_ocr_complete: sourceDocument.isOcrComplete,
+    is_field_detection_complete: sourceDocument.isFieldDetectionComplete,
+  };
+
+  const { error: insertDocumentError } = await adminClient.from("documents").insert(insertedDocument);
+
+  if (insertDocumentError) {
+    throw new AppError(500, insertDocumentError.message);
+  }
+
+  await adminClient.from("document_access").insert({
+    document_id: newDocumentId,
+    user_id: user.id,
+    role: "owner",
+  });
+
+  const signerIdMap = new Map<string, string>();
+  if (sourceDocument.signers.length > 0) {
+    const signerPayload = sourceDocument.signers.map((signer) => {
+      const newSignerId = crypto.randomUUID();
+      signerIdMap.set(signer.id, newSignerId);
+      return {
+        id: newSignerId,
+        document_id: newDocumentId,
+        user_id: null,
+        name: signer.name,
+        email: signer.email,
+        required: signer.required,
+        signing_order: signer.signingOrder,
+      };
+    });
+    const { error: signerError } = await adminClient.from("document_signers").insert(signerPayload);
+
+    if (signerError) {
+      throw new AppError(500, signerError.message);
+    }
+  }
+
+  const duplicatedFields: FieldRow[] = sourceDocument.fields.map((field) => ({
+    id: crypto.randomUUID(),
+    document_id: newDocumentId,
+    page: field.page,
+    kind: field.kind,
+    label: field.label,
+    required: field.required,
+    assignee_signer_id: field.assigneeSignerId ? signerIdMap.get(field.assigneeSignerId) ?? null : null,
+    source: field.source,
+    x: field.x,
+    y: field.y,
+    width: field.width,
+    height: field.height,
+    value: null,
+    applied_saved_signature_id: null,
+    completed_at: null,
+    completed_by_signer_id: null,
+  }));
+
+  if (duplicatedFields.length > 0) {
+    const { error: fieldError } = await adminClient.from("document_fields").insert(
+      duplicatedFields.map((field) => ({
+        id: field.id,
+        document_id: field.document_id,
+        page: field.page,
+        kind: field.kind,
+        label: field.label,
+        required: field.required,
+        assignee_signer_id: field.assignee_signer_id,
+        source: field.source,
+        x: field.x,
+        y: field.y,
+        width: field.width,
+        height: field.height,
+        value: field.value,
+        applied_saved_signature_id: field.applied_saved_signature_id,
+        completed_at: field.completed_at,
+        completed_by_signer_id: field.completed_by_signer_id,
+      })),
+    );
+
+    if (fieldError) {
+      throw new AppError(500, fieldError.message);
+    }
+  }
+
+  await ensureInitialEditorSnapshot(newDocumentId, user.id, duplicatedFields);
+  await appendVersion(newDocumentId, user.id, "Saved as copy", `Duplicated from ${sourceDocument.name}`);
+  await appendAuditEvent(newDocumentId, user.id, "document.uploaded", `Duplicated document ${sourceDocument.name}`);
+
+  const finalDocument = await requireDocumentBundle(newDocumentId);
+  return { document: toWorkflowDocumentResponse(finalDocument, user.id) };
+}
+
+export async function deleteDocumentForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user.id, "delete_document");
+  const adminClient = createServiceRoleClient();
+  await appendAuditEvent(documentId, user.id, "document.exported", "Document soft deleted from workspace");
+  await appendVersion(documentId, user.id, "Deleted document", "Document removed from active workspace view");
+
+  const { error } = await adminClient
+    .from("documents")
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by_user_id: user.id,
+    })
+    .eq("id", documentId);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return {
+    deleted: true,
   };
 }
 

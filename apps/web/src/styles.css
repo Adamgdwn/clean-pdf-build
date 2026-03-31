@@ -128,6 +128,7 @@ select {
 .metric,
 .meta-item,
 .completion-card,
+.toolbar-card,
 .row-card,
 .timeline-item,
 .preview-empty {
@@ -212,6 +213,7 @@ select {
 }
 
 .completion-card,
+.toolbar-card,
 .subpanel {
   padding: 18px;
   margin-top: 18px;
@@ -349,6 +351,12 @@ select {
   padding: 8px 12px;
 }
 
+.danger-button {
+  color: var(--danger);
+  border-color: rgba(146, 59, 44, 0.18);
+  background: rgba(146, 59, 44, 0.08);
+}
+
 .secondary-button:hover,
 .primary-button:hover,
 .ghost-button:hover,
@@ -421,6 +429,65 @@ select {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+.field-canvas {
+  position: relative;
+  min-height: 420px;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px dashed rgba(24, 36, 29, 0.2);
+  background:
+    linear-gradient(rgba(24, 36, 29, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(24, 36, 29, 0.06) 1px, transparent 1px),
+    rgba(255, 255, 255, 0.6);
+  background-size: 36px 36px;
+}
+
+.field-canvas-label {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.field-canvas-box {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  border: 2px solid rgba(29, 122, 92, 0.7);
+  background: rgba(29, 122, 92, 0.16);
+  color: #114f3c;
+  cursor: move;
+}
+
+.field-canvas-box-existing {
+  background: rgba(24, 36, 29, 0.08);
+  border-color: rgba(24, 36, 29, 0.22);
+  color: var(--text-muted);
+  cursor: default;
+  justify-content: center;
+}
+
+.field-canvas-handle {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  cursor: nwse-resize;
+}
+
+.admin-metrics {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 @media (max-width: 1080px) {

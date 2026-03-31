@@ -4,7 +4,11 @@ import {
   AppError,
   addFieldForAuthorizationHeader,
   addSignerForAuthorizationHeader,
+  clearDocumentFieldsForAuthorizationHeader,
   createDocumentForAuthorizationHeader,
+  createDocumentShareLinkForAuthorizationHeader,
+  deleteDocumentForAuthorizationHeader,
+  duplicateDocumentForAuthorizationHeader,
   getDocumentDownloadUrlForAuthorizationHeader,
   getDocumentForAuthorizationHeader,
   inviteCollaboratorForAuthorizationHeader,
@@ -12,8 +16,11 @@ import {
   lockDocumentForAuthorizationHeader,
   requestProcessingJobForAuthorizationHeader,
   reopenDocumentForAuthorizationHeader,
+  redoDocumentEditorForAuthorizationHeader,
   completeFieldForAuthorizationHeader,
   sendDocumentForAuthorizationHeader,
+  updateDocumentRoutingStrategyForAuthorizationHeader,
+  undoDocumentEditorForAuthorizationHeader,
 } from "@clean-pdf/workflow-service";
 
 function sendError(reply: FastifyReply, error: unknown) {
@@ -69,6 +76,76 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
     try {
       const { documentId } = request.params as { documentId: string };
       return await sendDocumentForAuthorizationHeader(request.headers.authorization, documentId);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/documents/:documentId/routing", async (request, reply) => {
+    try {
+      const { documentId } = request.params as { documentId: string };
+      return await updateDocumentRoutingStrategyForAuthorizationHeader(
+        request.headers.authorization,
+        documentId,
+        request.body,
+      );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/documents/:documentId/share", async (request, reply) => {
+    try {
+      const { documentId } = request.params as { documentId: string };
+      return await createDocumentShareLinkForAuthorizationHeader(
+        request.headers.authorization,
+        documentId,
+      );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/documents/:documentId/duplicate", async (request, reply) => {
+    try {
+      const { documentId } = request.params as { documentId: string };
+      return await duplicateDocumentForAuthorizationHeader(request.headers.authorization, documentId);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/documents/:documentId/clear", async (request, reply) => {
+    try {
+      const { documentId } = request.params as { documentId: string };
+      return await clearDocumentFieldsForAuthorizationHeader(request.headers.authorization, documentId);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/documents/:documentId/undo", async (request, reply) => {
+    try {
+      const { documentId } = request.params as { documentId: string };
+      return await undoDocumentEditorForAuthorizationHeader(request.headers.authorization, documentId);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/documents/:documentId/redo", async (request, reply) => {
+    try {
+      const { documentId } = request.params as { documentId: string };
+      return await redoDocumentEditorForAuthorizationHeader(request.headers.authorization, documentId);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/documents/:documentId/delete", async (request, reply) => {
+    try {
+      const { documentId } = request.params as { documentId: string };
+      return await deleteDocumentForAuthorizationHeader(request.headers.authorization, documentId);
     } catch (error) {
       return sendError(reply, error);
     }
