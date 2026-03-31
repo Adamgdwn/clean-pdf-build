@@ -75,6 +75,64 @@ export function getDocumentCompletionSummary(document: DocumentRecord) {
   };
 }
 
+export function getDocumentSendReadiness(document: DocumentRecord) {
+  const requiredSigningFields = document.fields.filter(
+    (field) => field.required && isSigningField(field),
+  );
+  const signerIds = new Set(document.signers.map((signer) => signer.id));
+  const signerOrderById = new Map(
+    document.signers.map((signer) => [signer.id, signer.signingOrder]),
+  );
+  const blockers: string[] = [];
+
+  if (document.lockedAt) {
+    blockers.push("Reopen the document before sending it again.");
+  }
+
+  if (document.completedAt) {
+    blockers.push("This document is already complete. Reopen it only if more signing is required.");
+  }
+
+  if (document.signers.length === 0) {
+    blockers.push("Add at least one signer before sending.");
+  }
+
+  if (requiredSigningFields.length === 0) {
+    blockers.push("Add at least one required signature or initial field before sending.");
+  }
+
+  if (requiredSigningFields.some((field) => !field.assigneeSignerId)) {
+    blockers.push("Assign every required signature or initial field to a signer before sending.");
+  }
+
+  if (
+    requiredSigningFields.some(
+      (field) => field.assigneeSignerId && !signerIds.has(field.assigneeSignerId),
+    )
+  ) {
+    blockers.push("Reassign any required signing fields that point to a missing signer.");
+  }
+
+  if (
+    document.routingStrategy === "sequential" &&
+    requiredSigningFields.some(
+      (field) =>
+        field.assigneeSignerId &&
+        signerIds.has(field.assigneeSignerId) &&
+        !signerOrderById.get(field.assigneeSignerId),
+    )
+  ) {
+    blockers.push(
+      "Set a signing order for each signer assigned to a required signature or initial field.",
+    );
+  }
+
+  return {
+    ready: blockers.length === 0,
+    blockers,
+  };
+}
+
 export function completeField(
   document: DocumentRecord,
   fieldId: string,

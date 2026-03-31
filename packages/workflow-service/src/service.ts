@@ -2,6 +2,7 @@ import {
   canPerformDocumentAction,
   deriveWorkflowState,
   getDocumentCompletionSummary,
+  getDocumentSendReadiness,
   isDocumentSignable,
   type AccessRole,
   type AuditEvent,
@@ -1875,6 +1876,12 @@ export async function sendDocumentForAuthorizationHeader(
   await assertPermission(documentId, user.id, "send_document");
   const adminClient = createServiceRoleClient();
   const currentDocument = await requireDocumentBundle(documentId);
+  const sendReadiness = getDocumentSendReadiness(currentDocument);
+
+  if (!sendReadiness.ready) {
+    throw new AppError(400, sendReadiness.blockers.join(" "));
+  }
+
   const now = new Date().toISOString();
   const { error } = await adminClient
     .from("documents")

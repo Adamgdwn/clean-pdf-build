@@ -4,6 +4,7 @@ import {
   areAllRequiredAssignedSigningFieldsComplete,
   deriveWorkflowState,
   getDocumentCompletionSummary,
+  getDocumentSendReadiness,
   isDocumentSignable,
   lockDocument,
   reopenDocument,
@@ -146,5 +147,79 @@ describe("workflow rules", () => {
     expect(isDocumentSignable(reopened)).toBe(true);
     expect(deriveWorkflowState(reopened)).toBe("reopened");
     expect(reopened.reopenedByUserId).toBe("user_owner");
+  });
+
+  it("requires signers and assigned required signing fields before send", () => {
+    const notReady: DocumentRecord = {
+      ...baseDocument,
+      signers: [],
+      fields: [
+        {
+          ...baseDocument.fields[0],
+          completedAt: null,
+          completedBySignerId: null,
+          value: null,
+          assigneeSignerId: null,
+        },
+      ],
+      sentAt: null,
+    };
+
+    expect(getDocumentSendReadiness(notReady)).toEqual({
+      ready: false,
+      blockers: [
+        "Add at least one signer before sending.",
+        "Assign every required signature or initial field to a signer before sending.",
+      ],
+    });
+  });
+
+  it("requires signing order for sequential routing", () => {
+    const notReady: DocumentRecord = {
+      ...baseDocument,
+      sentAt: null,
+      fields: [
+        {
+          ...baseDocument.fields[0],
+          completedAt: null,
+          completedBySignerId: null,
+          value: null,
+        },
+      ],
+      signers: [
+        {
+          ...baseDocument.signers[0],
+          signingOrder: null,
+        },
+      ],
+    };
+
+    expect(getDocumentSendReadiness(notReady)).toEqual({
+      ready: false,
+      blockers: [
+        "Set a signing order for each signer assigned to a required signature or initial field.",
+      ],
+    });
+  });
+
+  it("marks a prepared signing workflow ready to send", () => {
+    const ready: DocumentRecord = {
+      ...baseDocument,
+      sentAt: null,
+      fields: [
+        {
+          ...baseDocument.fields[0],
+          completedAt: null,
+          completedBySignerId: null,
+          value: null,
+        },
+      ],
+      signers: [baseDocument.signers[0]],
+    };
+
+    expect(getDocumentSendReadiness(ready)).toEqual({
+      ready: true,
+      blockers: [],
+    });
   });
 });

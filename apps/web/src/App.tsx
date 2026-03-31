@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import type { Session } from "@supabase/supabase-js";
-import type { DocumentRecord } from "@clean-pdf/domain";
+import { getDocumentSendReadiness, type DocumentRecord } from "@clean-pdf/domain";
 
 import { apiFetch } from "./lib/api";
 import { browserSupabase } from "./lib/supabase";
@@ -149,6 +149,12 @@ function filenameToTitle(fileName: string) {
   return fileName.replace(/\.pdf$/i, "").replace(/[-_]/g, " ");
 }
 
+type ChecklistStep = {
+  label: string;
+  detail: string;
+  done: boolean;
+};
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
@@ -229,6 +235,120 @@ export default function App() {
   const canEdit =
     selectedDocument?.currentUserRole === "owner" || selectedDocument?.currentUserRole === "editor";
   const canManageAccess = selectedDocument?.currentUserRole === "owner";
+  const sendReadiness = selectedDocument ? getDocumentSendReadiness(selectedDocument) : null;
+  const requiredSigningFields =
+    selectedDocument?.fields.filter(
+      (field) => field.required && (field.kind === "signature" || field.kind === "initial"),
+    ) ?? [];
+  const assignedRequiredSigningFields = requiredSigningFields.filter((field) => field.assigneeSignerId);
+  const hasBeenSent = Boolean(selectedDocument?.sentAt);
+  const hasCompletedSigning =
+    (selectedDocument?.completionSummary.completedRequiredAssignedFields ?? 0) > 0;
+  const sendActionLabel = selectedDocument
+    ? selectedDocument.deliveryMode === "platform_managed"
+      ? hasBeenSent
+        ? "Send current routing again"
+        : "Send for signatures"
+      : hasBeenSent
+        ? "Refresh ready state"
+        : "Mark ready to distribute"
+    : "Send";
+  const canLockDocument = Boolean(
+    selectedDocument && selectedDocument.signable && selectedDocument.workflowState !== "draft",
+  );
+  const canReopenDocument = Boolean(
+    selectedDocument &&
+      (selectedDocument.lockedAt ||
+        selectedDocument.completedAt ||
+        selectedDocument.workflowState === "sent" ||
+        selectedDocument.workflowState === "partially_signed"),
+  );
+  const checklistSteps: ChecklistStep[] = selectedDocument
+    ? [
+        {
+          label: "Upload",
+          detail: "PDF stored privately and preview ready.",
+          done: true,
+        },
+        {
+          label: "Add signers",
+          detail:
+            selectedDocument.signers.length > 0
+              ? `${selectedDocument.signers.length} signer${selectedDocument.signers.length === 1 ? "" : "s"} added.`
+              : "Add at least one signer so the workflow has an owner for each signing action.",
+          done: selectedDocument.signers.length > 0,
+        },
+        {
+          label: "Place required fields",
+          detail:
+            requiredSigningFields.length > 0
+              ? `${requiredSigningFields.length} required signature field${requiredSigningFields.length === 1 ? "" : "s"} placed.`
+              : "Add at least one required signature or initial field.",
+          done: requiredSigningFields.length > 0,
+        },
+        {
+          label: "Assign routing",
+          detail:
+            requiredSigningFields.length > 0 &&
+            assignedRequiredSigningFields.length === requiredSigningFields.length
+              ? selectedDocument.routingStrategy === "sequential"
+                ? "Every required signing field is assigned and ordered for sequential routing."
+                : "Every required signing field is assigned for parallel routing."
+              : "Assign every required signature field to a signer before sending.",
+          done:
+            requiredSigningFields.length > 0 &&
+            assignedRequiredSigningFields.length === requiredSigningFields.length &&
+            sendReadiness?.blockers.every(
+              (blocker) =>
+                blocker !==
+                "Set a signing order for each signer assigned to a required signature or initial field.",
+            ) !== false,
+        },
+        {
+          label:
+            selectedDocument.deliveryMode === "platform_managed"
+              ? "Send and route"
+              : "Ready to distribute",
+          detail:
+            selectedDocument.deliveryMode === "platform_managed"
+              ? hasBeenSent
+                ? "The workflow has been sent. Use reopen or send again if routing changes."
+                : "EasyDraft will queue the next eligible signer when you send."
+              : hasBeenSent
+                ? "This document has been marked ready for self-managed distribution."
+                : "Mark the document ready once setup is complete, then share or download it yourself.",
+          done: hasBeenSent,
+        },
+        {
+          label: "Complete",
+          detail:
+            selectedDocument.workflowState === "completed"
+              ? "All required assigned signing fields are complete."
+              : hasCompletedSigning
+                ? `${selectedDocument.completionSummary.remainingRequiredAssignedFields} required field${selectedDocument.completionSummary.remainingRequiredAssignedFields === 1 ? "" : "s"} still open.`
+                : "Signing has not started yet.",
+          done: selectedDocument.workflowState === "completed",
+        },
+      ]
+    : [];
+  const activeChecklistIndex = checklistSteps.findIndex((step) => !step.done);
+  const nextActionMessage = selectedDocument
+    ? selectedDocument.workflowState === "completed"
+      ? "Completed. Download, share, or duplicate this document for the next cycle."
+      : selectedDocument.lockedAt
+        ? "This workflow is locked. Reopen it when you need additional edits or signatures."
+        : !sendReadiness?.ready
+          ? sendReadiness?.blockers[0] ?? "Finish setup before sending."
+          : !hasBeenSent
+            ? selectedDocument.deliveryMode === "platform_managed"
+              ? "Ready to send. EasyDraft will notify the next eligible signer."
+              : "Ready to distribute. Mark it ready, then share or download it on your terms."
+            : hasCompletedSigning
+              ? `In progress. ${selectedDocument.completionSummary.remainingRequiredAssignedFields} required field${selectedDocument.completionSummary.remainingRequiredAssignedFields === 1 ? "" : "s"} still need completion.`
+              : selectedDocument.deliveryMode === "platform_managed"
+                ? "Sent and waiting for the first signer to act."
+                : "Ready for self-managed distribution."
+    : "";
 
   async function refreshSession(currentSession: Session | null) {
     setSession(currentSession);
@@ -1617,6 +1737,58 @@ export default function App() {
                       ? "EasyDraft will queue the next signer email and can notify the originator as signatures complete."
                       : `This file stays in the workspace while you edit it, then you can download or share it${selectedDocument.distributionTarget ? ` through ${selectedDocument.distributionTarget}` : ""}.`}
                   </p>
+                  {sendReadiness ? (
+                    <div className="stack">
+                      <p className="muted">
+                        {sendReadiness.ready
+                          ? selectedDocument.deliveryMode === "platform_managed"
+                            ? "Ready to send. The current routing and required signing fields are set."
+                            : "Ready to mark for self-managed distribution."
+                          : selectedDocument.deliveryMode === "platform_managed"
+                            ? "Before sending for signatures:"
+                            : "Before marking this ready to distribute:"}
+                      </p>
+                      {!sendReadiness.ready
+                        ? sendReadiness.blockers.map((blocker) => (
+                            <div key={blocker} className="row-card">
+                              <p className="muted">{blocker}</p>
+                            </div>
+                          ))
+                        : null}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="toolbar-card">
+                  <div className="section-heading compact">
+                    <p className="eyebrow">Setup checklist</p>
+                    <span>
+                      {checklistSteps.filter((step) => step.done).length}/{checklistSteps.length} complete
+                    </span>
+                  </div>
+                  <p className="muted action-note">{nextActionMessage}</p>
+                  <div className="checklist-grid">
+                    {checklistSteps.map((step, index) => {
+                      const stepState = step.done
+                        ? "done"
+                        : activeChecklistIndex === index
+                          ? "active"
+                          : "pending";
+
+                      return (
+                        <div
+                          key={step.label}
+                          className={`checklist-step checklist-step-${stepState}`}
+                        >
+                          <div className="checklist-step-index">{index + 1}</div>
+                          <div className="checklist-step-copy">
+                            <strong>{step.label}</strong>
+                            <p className="muted">{step.detail}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div className="toolbar-card">
@@ -1638,10 +1810,10 @@ export default function App() {
                     </button>
                     <button
                       className="secondary-button"
-                      disabled={isLoading}
+                      disabled={isLoading || !sendReadiness?.ready}
                       onClick={() => runDocumentAction("/document-send", { documentId: selectedDocument.id })}
                     >
-                      Send for signatures
+                      {sendActionLabel}
                     </button>
                     <button
                       className="secondary-button"
@@ -1668,9 +1840,16 @@ export default function App() {
                       Delete
                     </button>
                   </div>
+                  <p className="muted action-note">
+                    {!sendReadiness?.ready
+                      ? sendReadiness?.blockers[0]
+                      : selectedDocument.deliveryMode === "platform_managed"
+                        ? "Sending keeps the current field map and routing, then notifies the next eligible signer."
+                        : "Marking this ready does not send emails. It simply records that the file is ready for self-managed distribution."}
+                  </p>
                 </div>
 
-                {canEdit ? (
+                {canEdit && selectedDocument.deliveryMode === "platform_managed" ? (
                   <div className="toolbar-card">
                     <div className="section-heading compact">
                       <p className="eyebrow">Next step</p>
@@ -1743,14 +1922,14 @@ export default function App() {
                   ) : null}
                   <button
                     className="secondary-button"
-                    disabled={isLoading}
+                    disabled={isLoading || !canLockDocument}
                     onClick={() => runDocumentAction("/document-lock", { documentId: selectedDocument.id })}
                   >
-                    Lock document
+                    {selectedDocument.lockedAt ? "Document locked" : "Lock document"}
                   </button>
                   <button
                     className="secondary-button"
-                    disabled={isLoading}
+                    disabled={isLoading || !canReopenDocument}
                     onClick={() =>
                       runDocumentAction("/document-reopen", { documentId: selectedDocument.id })
                     }
@@ -1758,6 +1937,13 @@ export default function App() {
                     Reopen document
                   </button>
                 </div>
+                <p className="muted action-note">
+                  {selectedDocument.lockedAt
+                    ? "Locked documents stay closed to signing until they are explicitly reopened."
+                    : canReopenDocument
+                      ? "Reopen is available after send, partial completion, lock, or completion so changes stay explicit and auditable."
+                      : "Lock is available once the document has moved beyond draft. Reopen appears when there is a sent, locked, or completed workflow to resume."}
+                </p>
 
                 <section className="subpanel split">
                   <div>
