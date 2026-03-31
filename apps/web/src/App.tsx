@@ -32,6 +32,7 @@ type WorkflowDocument = DocumentRecord & {
 };
 
 type BillingOverview = {
+  billingMode: "live" | "placeholder";
   workspace: {
     id: string;
     name: string;
@@ -826,10 +827,8 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const checkoutStatus = params.get("checkout");
-
-    if (!checkoutStatus) {
-      return;
-    }
+    const billingStatus = params.get("billing");
+    const checkoutPlan = params.get("plan");
 
     if (checkoutStatus === "success") {
       setNoticeMessage("Billing updated. Stripe redirected back successfully.");
@@ -839,7 +838,19 @@ export default function App() {
       setNoticeMessage("Checkout was cancelled. Your workspace billing did not change.");
     }
 
+    if (checkoutStatus === "placeholder") {
+      setNoticeMessage(
+        `Stripe placeholder opened for ${checkoutPlan ?? "the selected"} plan. Add Stripe keys when you are ready to make billing live.`,
+      );
+    }
+
+    if (billingStatus === "portal_placeholder") {
+      setNoticeMessage("Billing portal placeholder opened. Live billing will activate once Stripe is configured.");
+    }
+
     params.delete("checkout");
+    params.delete("plan");
+    params.delete("billing");
     const query = params.toString();
     window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
   }, []);
@@ -882,6 +893,18 @@ export default function App() {
     setFieldAssigneeSignerId((currentValue) => currentValue || selectedDocument.signers[0]?.id || "");
     loadPreview(selectedDocument.id, session).catch((error) => setErrorMessage((error as Error).message));
   }, [selectedDocument?.id, session]);
+
+  useEffect(() => {
+    const documentId = new URLSearchParams(window.location.search).get("documentId");
+
+    if (!documentId) {
+      return;
+    }
+
+    if (documents.some((document) => document.id === documentId)) {
+      setSelectedDocumentId(documentId);
+    }
+  }, [documents]);
 
   useEffect(() => {
     return () => {
@@ -1272,6 +1295,12 @@ export default function App() {
                 </div>
                 <span>{billingOverview.workspace.internalMemberCount} seats in workspace</span>
               </div>
+              {billingOverview.billingMode === "placeholder" ? (
+                <p className="muted">
+                  Billing is in placeholder mode. Plan buttons stay clickable, but they loop through
+                  a non-live preview until Stripe keys are configured.
+                </p>
+              ) : null}
               {billingOverview.subscription ? (
                 <>
                   <p className="muted">

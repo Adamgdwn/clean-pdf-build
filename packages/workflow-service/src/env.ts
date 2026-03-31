@@ -7,6 +7,13 @@ const serverEnvSchema = z.object({
   SUPABASE_DOCUMENT_BUCKET: z.string().min(1).default("documents"),
   SUPABASE_SIGNATURE_BUCKET: z.string().min(1).default("signatures"),
   EASYDRAFT_ADMIN_EMAILS: z.string().optional(),
+  EASYDRAFT_APP_ORIGIN: z.string().url().default("https://easydraftdocs.app"),
+  EASYDRAFT_NOTIFICATION_FROM_EMAIL: z.string().email().optional(),
+  RESEND_API_KEY: z.string().min(1).optional(),
+  EASYDRAFT_DIGITAL_SIGNING_PROVIDER: z
+    .enum(["qualified_remote", "organization_hsm", "easy_draft_remote"])
+    .optional(),
+  EASYDRAFT_DIGITAL_SIGNING_API_KEY: z.string().min(1).optional(),
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
 });

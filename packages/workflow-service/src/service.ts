@@ -116,6 +116,7 @@ type NotificationRow = {
   event_type: "signature_request" | "signature_progress";
   channel: "email" | "in_app";
   status: "queued" | "sent" | "failed" | "skipped";
+  provider: string;
   recipient_email: string;
   recipient_user_id: string | null;
   recipient_signer_id: string | null;
@@ -773,7 +774,7 @@ async function requireDocumentBundle(documentId: string) {
     adminClient
       .from("document_notifications")
       .select(
-        "id, document_id, event_type, channel, status, recipient_email, recipient_user_id, recipient_signer_id, queued_at, delivered_at, metadata",
+        "id, document_id, event_type, channel, status, provider, recipient_email, recipient_user_id, recipient_signer_id, queued_at, delivered_at, metadata",
       )
       .eq("document_id", documentId),
     adminClient
@@ -872,21 +873,116 @@ async function queueNotification(
   } = {},
 ) {
   const adminClient = createServiceRoleClient();
-  const { error } = await adminClient.from("document_notifications").insert({
-    document_id: documentId,
-    event_type: eventType,
-    channel: "email",
-    status: "queued",
-    recipient_email: recipientEmail,
-    recipient_user_id: options.recipientUserId ?? null,
-    recipient_signer_id: options.recipientSignerId ?? null,
-    provider: "pending",
-    metadata: options.metadata ?? {},
-  });
+  const { data, error } = await adminClient
+    .from("document_notifications")
+    .insert({
+      document_id: documentId,
+      event_type: eventType,
+      channel: "email",
+      status: "queued",
+      recipient_email: recipientEmail,
+      recipient_user_id: options.recipientUserId ?? null,
+      recipient_signer_id: options.recipientSignerId ?? null,
+      provider: "pending",
+      metadata: options.metadata ?? {},
+    })
+    .select(
+      "id, document_id, event_type, channel, status, provider, recipient_email, recipient_user_id, recipient_signer_id, queued_at, delivered_at, metadata",
+    )
+    .single();
 
-  if (error) {
-    throw new AppError(500, error.message);
+  if (error || !data) {
+    throw new AppError(500, error?.message ?? "Unable to queue notification.");
   }
+
+  if (hasResendConfig()) {
+    await deliverNotificationRow(data as NotificationRow);
+  }
+}
+
+function hasResendConfig() {
+  const env = readServerEnv();
+  return Boolean(env.RESEND_API_KEY && env.EASYDRAFT_NOTIFICATION_FROM_EMAIL);
+}
+
+function buildNotificationEmailContent(notification: NotificationRow, document: DocumentRecord) {
+  const env = readServerEnv();
+  const actionUrl = `${env.EASYDRAFT_APP_ORIGIN}?documentId=${encodeURIComponent(document.id)}`;
+  const actorLabel =
+    typeof notification.metadata?.signerName === "string" ? notification.metadata.signerName : "A signer";
+  const fieldLabel =
+    typeof notification.metadata?.fieldLabel === "string" ? notification.metadata.fieldLabel : "a required field";
+
+  if (notification.event_type === "signature_progress") {
+    return {
+      subject: `${actorLabel} signed ${document.name}`,
+      html: `<p>${actorLabel} completed ${fieldLabel} on <strong>${document.name}</strong>.</p><p><a href="${actionUrl}">Open the document in EasyDraft</a></p>`,
+    };
+  }
+
+  return {
+    subject: `Signature requested for ${document.name}`,
+    html: `<p>You have a signature request waiting on <strong>${document.name}</strong>.</p><p><a href="${actionUrl}">Open the document in EasyDraft</a></p>`,
+  };
+}
+
+async function deliverNotificationRow(notification: NotificationRow) {
+  const env = readServerEnv();
+
+  if (!env.RESEND_API_KEY || !env.EASYDRAFT_NOTIFICATION_FROM_EMAIL) {
+    return { delivered: false, reason: "provider_not_configured" } as const;
+  }
+
+  const document = await requireDocumentBundle(notification.document_id);
+  const emailContent = buildNotificationEmailContent(notification, document);
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: env.EASYDRAFT_NOTIFICATION_FROM_EMAIL,
+      to: [notification.recipient_email],
+      subject: emailContent.subject,
+      html: emailContent.html,
+    }),
+  });
+  const responseBody = (await response.json().catch(() => ({}))) as { id?: string; message?: string };
+  const adminClient = createServiceRoleClient();
+
+  if (!response.ok) {
+    await adminClient
+      .from("document_notifications")
+      .update({
+        status: "failed",
+        provider: "resend",
+      })
+      .eq("id", notification.id);
+    throw new AppError(502, responseBody.message ?? "Notification delivery failed.");
+  }
+
+  await adminClient
+    .from("document_notifications")
+    .update({
+      status: "sent",
+      provider: "resend",
+      delivered_at: new Date().toISOString(),
+      metadata: {
+        ...(notification.metadata ?? {}),
+        providerMessageId: responseBody.id ?? "",
+      },
+    })
+    .eq("id", notification.id);
+
+  await appendAuditEvent(
+    notification.document_id,
+    "system",
+    "notification.sent",
+    `Delivered ${notification.event_type.replaceAll("_", " ")} email to ${notification.recipient_email}`,
+  );
+
+  return { delivered: true } as const;
 }
 
 async function listFieldRowsForDocument(documentId: string) {
@@ -1255,6 +1351,10 @@ export async function createDigitalSignatureProfileForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const parsed = createDigitalSignatureProfileInputSchema.parse(input);
   const adminClient = createServiceRoleClient();
+  const env = readServerEnv();
+  const providerConnected =
+    Boolean(env.EASYDRAFT_DIGITAL_SIGNING_API_KEY) &&
+    env.EASYDRAFT_DIGITAL_SIGNING_PROVIDER === parsed.provider;
   const { data, error } = await adminClient
     .from("digital_signature_profiles")
     .insert({
@@ -1263,7 +1363,8 @@ export async function createDigitalSignatureProfileForAuthorizationHeader(
       title_text: parsed.titleText?.trim() || null,
       provider: parsed.provider,
       assurance_level: parsed.assuranceLevel,
-      status: "requested",
+      status: providerConnected ? "setup_required" : "requested",
+      provider_reference: providerConnected ? `${parsed.provider}-${crypto.randomUUID()}` : null,
     })
     .select(
       "id, user_id, label, title_text, provider, assurance_level, status, certificate_fingerprint, provider_reference, created_at, updated_at",
@@ -2491,5 +2592,36 @@ export async function processQueuedJobs(limit = 5) {
 
   return {
     processedJobs,
+  };
+}
+
+export async function processQueuedNotifications(limit = 10) {
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("document_notifications")
+    .select(
+      "id, document_id, event_type, channel, status, provider, recipient_email, recipient_user_id, recipient_signer_id, queued_at, delivered_at, metadata",
+    )
+    .eq("status", "queued")
+    .eq("channel", "email")
+    .order("queued_at", { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  const deliveredNotifications: string[] = [];
+
+  for (const notification of (data ?? []) as NotificationRow[]) {
+    const result = await deliverNotificationRow(notification);
+
+    if (result.delivered) {
+      deliveredNotifications.push(notification.id);
+    }
+  }
+
+  return {
+    deliveredNotifications,
   };
 }

@@ -63,6 +63,11 @@ const checkoutInputSchema = z.object({
 
 let cachedStripeClient: Stripe | null = null;
 
+function isStripeConfigured() {
+  const env = readServerEnv();
+  return Boolean(env.STRIPE_SECRET_KEY);
+}
+
 function getStripeClient() {
   const env = readServerEnv();
 
@@ -263,6 +268,7 @@ export async function getBillingOverviewForAuthorizationHeader(authorizationHead
   ]);
 
   return {
+    billingMode: isStripeConfigured() ? "live" : "placeholder",
     workspace: {
       id: workspace.id,
       name: workspace.name,
@@ -313,6 +319,12 @@ export async function createCheckoutSessionForAuthorizationHeader(
 
   if (!selectedPlan) {
     throw new AppError(404, "Billing plan not found.");
+  }
+
+  if (!isStripeConfigured()) {
+    return {
+      url: `${origin}?checkout=placeholder&plan=${encodeURIComponent(selectedPlan.key)}`,
+    };
   }
 
   const stripe = getStripeClient();
@@ -372,6 +384,13 @@ export async function createBillingPortalSessionForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const { workspace, membership } = await getBillingWorkspaceForUser(user);
   requireBillingPermission(membership);
+
+  if (!isStripeConfigured()) {
+    return {
+      url: `${origin}?billing=portal_placeholder&workspace=${encodeURIComponent(workspace.slug)}`,
+    };
+  }
+
   const customerId = await getOrCreateStripeCustomer(workspace, user);
   const stripe = getStripeClient();
   const session = await stripe.billingPortal.sessions.create({
@@ -403,7 +422,7 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string | u
   const env = readServerEnv();
 
   if (!env.STRIPE_WEBHOOK_SECRET) {
-    throw new AppError(503, "Stripe webhook secret is not configured yet.");
+    return { received: true, placeholder: true };
   }
 
   if (!signature) {

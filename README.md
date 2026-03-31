@@ -73,11 +73,19 @@ To process queued OCR and field-detection jobs locally:
 npm run processor:run-queued
 ```
 
+To retry queued notification emails locally:
+
+```bash
+npm run processor:run-notifications
+```
+
 ## Deployment shape
 
 - Vercel hosts the web app and the `apps/web/api/*` serverless endpoints
 - Supabase provides Auth, Postgres, Storage, and invites-backed collaboration
 - Stripe Checkout and the billing portal drive subscriptions against workspace records
+- Stripe gracefully falls back to placeholder mode until `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are configured
+- Resend can deliver notification emails once `RESEND_API_KEY` and `EASYDRAFT_NOTIFICATION_FROM_EMAIL` are configured
 - GitHub Actions runs CI on each push and PR
 - A separate processor service can be deployed as a container later for heavier OCR and transform workloads
 

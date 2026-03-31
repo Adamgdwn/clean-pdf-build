@@ -2,7 +2,12 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { z } from "zod";
 
-import { AppError, markProcessingJobCompleted, processQueuedJobs } from "@clean-pdf/workflow-service";
+import {
+  AppError,
+  markProcessingJobCompleted,
+  processQueuedJobs,
+  processQueuedNotifications,
+} from "@clean-pdf/workflow-service";
 
 const completeJobSchema = z.object({
   jobId: z.string().uuid(),
@@ -24,6 +29,15 @@ export function buildDocumentProcessorServer() {
   app.post("/jobs/run-queued", async (_, reply) => {
     try {
       return await processQueuedJobs();
+    } catch (error) {
+      const typedError = error as AppError;
+      return reply.code(typedError.statusCode ?? 500).send({ message: typedError.message });
+    }
+  });
+
+  app.post("/notifications/run-queued", async (_, reply) => {
+    try {
+      return await processQueuedNotifications();
     } catch (error) {
       const typedError = error as AppError;
       return reply.code(typedError.statusCode ?? 500).send({ message: typedError.message });
