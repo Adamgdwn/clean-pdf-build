@@ -41,8 +41,11 @@ const routeHandlers: Record<string, RouteHandler> = {
 };
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
-  const routeParam = request.query.route;
-  const route = Array.isArray(routeParam) ? routeParam.join("/") : routeParam ?? "";
+  const requestUrl = request.url ?? "/";
+  const pathname = requestUrl.startsWith("http")
+    ? new URL(requestUrl).pathname
+    : requestUrl.split("?")[0] ?? "/";
+  const route = pathname.replace(/^\/api\/?/, "").replace(/\/+$/, "");
   const routeHandler = routeHandlers[route];
 
   if (!routeHandler) {
