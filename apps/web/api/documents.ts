@@ -5,7 +5,7 @@ import {
   listDocumentsForAuthorizationHeader,
 } from "@clean-pdf/workflow-service";
 
-import { readAuthorizationHeader, sendError } from "./_utils";
+import { readAuthorizationHeader, sendError } from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   try {

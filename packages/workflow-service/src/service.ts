@@ -13,9 +13,9 @@ import {
 } from "@clean-pdf/domain";
 import { z } from "zod";
 
-import { readServerEnv } from "./env";
-import { AppError } from "./errors";
-import { createAuthClient, createServiceRoleClient } from "./supabase";
+import { readServerEnv } from "./env.js";
+import { AppError } from "./errors.js";
+import { createAuthClient, createServiceRoleClient } from "./supabase.js";
 
 type DocumentRow = {
   id: string;
@@ -605,7 +605,9 @@ export async function listDocumentsForAuthorizationHeader(authorizationHeader: s
     throw new AppError(500, error.message);
   }
 
-  const documentIds = [...new Set((data ?? []).map((entry) => entry.document_id as string))];
+  const documentIds = [
+    ...new Set(((data ?? []) as Array<{ document_id: string }>).map((entry) => entry.document_id)),
+  ];
   const documents = await Promise.all(documentIds.map((documentId) => requireDocumentBundle(documentId)));
 
   return {

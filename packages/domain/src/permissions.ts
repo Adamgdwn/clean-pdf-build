@@ -1,4 +1,4 @@
-import type { AccessRole } from "./schema";
+import type { AccessRole } from "./schema.js";
 
 export type DocumentAction =
   | "edit_document"

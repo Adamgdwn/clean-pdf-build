@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-import { readServerEnv } from "./env";
+import { readServerEnv } from "./env.js";
 
 export function createServiceRoleClient() {
   const env = readServerEnv();

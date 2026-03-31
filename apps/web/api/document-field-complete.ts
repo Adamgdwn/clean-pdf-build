@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import { completeFieldForAuthorizationHeader } from "@clean-pdf/workflow-service";
 
-import { readAuthorizationHeader, sendError } from "./_utils";
+import { readAuthorizationHeader, sendError } from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== "POST") {

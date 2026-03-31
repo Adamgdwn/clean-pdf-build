@@ -1,4 +1,4 @@
-import type { DocumentRecord, Field, WorkflowState } from "./schema";
+import type { DocumentRecord, Field, WorkflowState } from "./schema.js";
 
 const signingFieldKinds = new Set(["signature", "initial"]);
 

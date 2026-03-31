@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import { handleStripeWebhook } from "@clean-pdf/workflow-service";
 
-import { readRawBody, sendError } from "./_utils";
+import { readRawBody, sendError } from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== "POST") {

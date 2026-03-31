@@ -1,10 +1,14 @@
 import Stripe from "stripe";
 import { z } from "zod";
 
-import { readServerEnv } from "./env";
-import { AppError } from "./errors";
-import { ensureDefaultWorkspaceForUser, resolveAuthenticatedUser, type AuthenticatedUser } from "./service";
-import { createServiceRoleClient } from "./supabase";
+import { readServerEnv } from "./env.js";
+import { AppError } from "./errors.js";
+import {
+  ensureDefaultWorkspaceForUser,
+  resolveAuthenticatedUser,
+  type AuthenticatedUser,
+} from "./service.js";
+import { createServiceRoleClient } from "./supabase.js";
 
 type BillingPlanRow = {
   key: string;

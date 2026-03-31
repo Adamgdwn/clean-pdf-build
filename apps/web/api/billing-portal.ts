@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import { createBillingPortalSessionForAuthorizationHeader } from "@clean-pdf/workflow-service";
 
-import { getRequestOrigin, readAuthorizationHeader, sendError } from "./_utils";
+import { getRequestOrigin, readAuthorizationHeader, sendError } from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== "POST") {
