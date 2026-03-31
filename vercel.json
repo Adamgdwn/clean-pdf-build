@@ -3,5 +3,18 @@
   "framework": "vite",
   "installCommand": "npm install",
   "buildCommand": "npm run build --workspace apps/web",
-  "outputDirectory": "apps/web/dist"
+  "outputDirectory": "apps/web/dist",
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "easydraftdocs.com"
+        }
+      ],
+      "destination": "https://easydraftdocs.app/$1",
+      "permanent": true
+    }
+  ]
 }
