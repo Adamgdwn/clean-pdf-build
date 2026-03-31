@@ -113,6 +113,15 @@ The current build now includes these workflow and policy improvements:
 - a user can be a collaborator and a signer on the same document without losing their stronger role
 - duplicate signer emails are blocked per document
 - a new `internal_use_only` path for low-cost internal signing inside EasyDraft
+- hosted signup now auto-confirms for the current internal pilot, and the app passes an explicit return URL if email confirmation is re-enabled later
+- the production auth project was cleared back to zero users so Prime Boilers testing can start from a clean slate
+- admin login guidance now appears in the auth card and under the empty Documents state
+- a real admin console now exists for testing and operations
+  - account list
+  - account status
+  - privilege visibility
+  - password reset email action
+  - test-user deletion
 - routed signer notifications are based on required signature and initial fields only
 - managed notification emails are attempted immediately when Resend is configured
 - collaborator invites are now clearly separated from routed signer setup
@@ -125,24 +134,25 @@ There is also a new database migration to apply:
 
 ## Concrete Next Steps For Adam
 
-1. Pull `main` and apply the latest Supabase migration locally and in hosted environments.
-2. Sign in with `admin@agoperations.ca` and run the structured workflow test pass below.
+1. Sign up fresh with `admin@agoperations.ca` at `https://easydraftdocs.app`.
+2. Confirm the admin console appears in the main workspace after sign-in.
 3. Create three realistic test identities:
    - one owner/editor
    - one signer-only user
    - one owner or editor who is also assigned as a signer
-4. Configure Resend when you are ready for live notification delivery:
+4. Run the structured workflow test pass below, starting with `internal_use_only` for Prime Boilers.
+5. Configure Resend when you are ready for live notification delivery:
    - `RESEND_API_KEY`
    - `EASYDRAFT_NOTIFICATION_FROM_EMAIL`
-5. Run one real managed-signing flow with Resend enabled and verify:
+6. Run one real managed-signing flow with Resend enabled and verify:
    - the first email arrives
    - the link opens the correct document
    - the originator progress message arrives after a signature is completed
-6. Keep Stripe in placeholder mode until you are ready to wire live billing:
+7. Keep Stripe in placeholder mode until you are ready to wire live billing:
    - `STRIPE_SECRET_KEY`
    - `STRIPE_WEBHOOK_SECRET`
-7. Continue Dropbox Sign pricing and account setup so the integration handoff is ready when we start that phase.
-8. Keep notes on:
+8. Continue Dropbox Sign pricing and account setup so the integration handoff is ready when we start that phase.
+9. Keep notes on:
    - any wording that still feels internal
    - any moment where the next action is unclear
    - any signer-facing screen that still feels too dense
@@ -158,12 +168,14 @@ There is also a new database migration to apply:
    - clearer "you are next" states
    - a calmer signer-only action area
    - friendlier access and audit labels
-7. Expand admin operations pages for:
-   - user lookup
+7. Expand admin operations pages beyond user management for:
    - workspace lookup
    - subscription placeholders
    - notification health
    - processing-job health
+   - resend history and retry actions
+8. Decide whether admin privilege management should stay env-driven or move into persisted workspace/platform settings.
+9. Begin Dropbox Sign integration once pricing and account setup are confirmed.
 
 ## Document Lifecycle Walkthrough
 
