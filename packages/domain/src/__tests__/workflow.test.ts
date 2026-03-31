@@ -18,6 +18,7 @@ const baseDocument: DocumentRecord = {
   storagePath: "user_owner/doc_1/demo-agreement.pdf",
   deliveryMode: "self_managed",
   distributionTarget: null,
+  lockPolicy: "owner_only",
   notifyOriginatorOnEachSignature: true,
   pageCount: 3,
   uploadedAt: "2026-03-30T18:00:00.000Z",
@@ -44,7 +45,9 @@ const baseDocument: DocumentRecord = {
       userId: "user_signer_1",
       name: "Signer One",
       email: "one@example.com",
+      participantType: "external",
       required: true,
+      routingStage: 1,
       signingOrder: 1,
     },
     {
@@ -52,7 +55,9 @@ const baseDocument: DocumentRecord = {
       userId: "user_signer_2",
       name: "Signer Two",
       email: "two@example.com",
+      participantType: "external",
       required: true,
+      routingStage: 1,
       signingOrder: 2,
     },
   ],
@@ -169,7 +174,7 @@ describe("workflow rules", () => {
       ready: false,
       blockers: [
         "Add at least one signer before sending.",
-        "Assign every required signature or initial field to a signer before sending.",
+        "Assign every required signature, initial, or approval field to a signer before sending.",
       ],
     });
   });
@@ -197,7 +202,7 @@ describe("workflow rules", () => {
     expect(getDocumentSendReadiness(notReady)).toEqual({
       ready: false,
       blockers: [
-        "Set a signing order for each signer assigned to a required signature or initial field.",
+        "Set a signing order for each signer assigned to a required signature, initial, or approval field.",
       ],
     });
   });
@@ -244,5 +249,49 @@ describe("workflow rules", () => {
       blockers: [],
     });
     expect(deriveWorkflowState(ready)).toBe("prepared");
+  });
+
+  it("treats required approval fields as completion blockers", () => {
+    const approvalDocument: DocumentRecord = {
+      ...baseDocument,
+      sentAt: null,
+      fields: [
+        {
+          ...baseDocument.fields[0],
+          id: "field_approval",
+          kind: "approval",
+          label: "Manager approval",
+          value: null,
+          completedAt: null,
+          completedBySignerId: null,
+        },
+      ],
+      signers: [
+        {
+          ...baseDocument.signers[0],
+          signingOrder: 1,
+        },
+      ],
+    };
+
+    expect(getDocumentSendReadiness(approvalDocument)).toEqual({
+      ready: true,
+      blockers: [],
+    });
+    expect(isDocumentSignable(approvalDocument)).toBe(true);
+    expect(deriveWorkflowState(approvalDocument)).toBe("prepared");
+
+    const approved: DocumentRecord = {
+      ...approvalDocument,
+      fields: approvalDocument.fields.map((field) => ({
+        ...field,
+        value: "approved",
+        completedAt: "2026-03-30T18:13:00.000Z",
+        completedBySignerId: "signer_1",
+      })),
+    };
+
+    expect(areAllRequiredAssignedSigningFieldsComplete(approved)).toBe(true);
+    expect(deriveWorkflowState(approved)).toBe("completed");
   });
 });

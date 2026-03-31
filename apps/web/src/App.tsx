@@ -185,6 +185,10 @@ function formatRoleLabel(document: Pick<WorkflowDocument, "currentUserRole" | "c
   return document.currentUserRole;
 }
 
+function isActionFieldKind(kind: WorkflowDocument["fields"][number]["kind"]) {
+  return kind === "signature" || kind === "initial" || kind === "approval";
+}
+
 function getDeliveryModeLabel(deliveryMode: WorkflowDocument["deliveryMode"]) {
   if (deliveryMode === "platform_managed") {
     return "Managed send + notifications";
@@ -197,12 +201,62 @@ function getDeliveryModeLabel(deliveryMode: WorkflowDocument["deliveryMode"]) {
   return "Self-managed distribution";
 }
 
+function getLockPolicyLabel(lockPolicy: WorkflowDocument["lockPolicy"]) {
+  if (lockPolicy === "owner_and_editors") {
+    return "Owner and editors can lock";
+  }
+
+  if (lockPolicy === "owner_editors_and_active_signer") {
+    return "Owner, editors, and the active signer can lock";
+  }
+
+  return "Only the owner can lock";
+}
+
+function getParticipantTypeLabel(participantType: WorkflowDocument["signers"][number]["participantType"]) {
+  return participantType === "internal" ? "Internal" : "External";
+}
+
+function canCurrentUserLockDocument(document: WorkflowDocument | null) {
+  if (!document || !document.signable || document.workflowState === "draft") {
+    return false;
+  }
+
+  if (document.currentUserRole === "owner") {
+    return true;
+  }
+
+  if (
+    document.currentUserRole === "editor" &&
+    (document.lockPolicy === "owner_and_editors" ||
+      document.lockPolicy === "owner_editors_and_active_signer")
+  ) {
+    return true;
+  }
+
+  if (
+    document.lockPolicy === "owner_editors_and_active_signer" &&
+    document.currentUserSignerId &&
+    document.fields.some(
+      (field) =>
+        field.assigneeSignerId === document.currentUserSignerId &&
+        field.required &&
+        isActionFieldKind(field.kind) &&
+        !field.completedAt,
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 function getDeliveryModeActionLabel(
   deliveryMode: WorkflowDocument["deliveryMode"],
   hasBeenSent: boolean,
 ) {
   if (deliveryMode === "platform_managed") {
-    return hasBeenSent ? "Send current routing again" : "Send for signatures";
+    return hasBeenSent ? "Send current routing again" : "Send for actions";
   }
 
   if (deliveryMode === "internal_use_only") {
@@ -214,7 +268,7 @@ function getDeliveryModeActionLabel(
 
 function getDeliveryModeCompletionCopy(document: WorkflowDocument) {
   if (document.deliveryMode === "platform_managed") {
-    return "EasyDraft will queue the next signer email and can notify the originator as signatures complete.";
+    return "EasyDraft will queue the next eligible action request and can notify the originator as signatures or approvals complete.";
   }
 
   if (document.deliveryMode === "internal_use_only") {
@@ -230,7 +284,7 @@ function getDeliveryModeReadyCopy(document: WorkflowDocument, hasBeenSent: boole
   if (document.deliveryMode === "platform_managed") {
     return hasBeenSent
       ? "The workflow has been sent. Use reopen or send again if routing changes."
-      : "EasyDraft will queue the next eligible signer when you send.";
+      : "EasyDraft will queue the next eligible participant when you send.";
   }
 
   if (document.deliveryMode === "internal_use_only") {
@@ -289,13 +343,20 @@ export default function App() {
   const [deliveryMode, setDeliveryMode] =
     useState<"self_managed" | "internal_use_only" | "platform_managed">("self_managed");
   const [distributionTarget, setDistributionTarget] = useState("");
+  const [lockPolicy, setLockPolicy] = useState<
+    "owner_only" | "owner_and_editors" | "owner_editors_and_active_signer"
+  >("owner_only");
   const [notifyOriginatorOnEachSignature, setNotifyOriginatorOnEachSignature] = useState(true);
   const [signerName, setSignerName] = useState("");
   const [signerEmail, setSignerEmail] = useState("");
+  const [signerParticipantType, setSignerParticipantType] = useState<"internal" | "external">(
+    "external",
+  );
+  const [signerStage, setSignerStage] = useState("1");
   const [signerOrder, setSignerOrder] = useState("1");
   const [fieldLabel, setFieldLabel] = useState("");
   const [fieldKind, setFieldKind] =
-    useState<"signature" | "initial" | "date" | "text">("signature");
+    useState<"signature" | "initial" | "approval" | "date" | "text">("signature");
   const [fieldPage, setFieldPage] = useState("1");
   const [fieldAssigneeSignerId, setFieldAssigneeSignerId] = useState<string>("");
   const [inviteEmail, setInviteEmail] = useState("");
@@ -348,17 +409,15 @@ export default function App() {
     selectedDocument?.currentUserRole === "owner" || selectedDocument?.currentUserRole === "editor";
   const canManageAccess = selectedDocument?.currentUserRole === "owner";
   const sendReadiness = selectedDocument ? getDocumentSendReadiness(selectedDocument) : null;
-  const requiredSigningFields =
-    selectedDocument?.fields.filter(
-      (field) => field.required && (field.kind === "signature" || field.kind === "initial"),
-    ) ?? [];
+  const requiredActionFields =
+    selectedDocument?.fields.filter((field) => field.required && isActionFieldKind(field.kind)) ?? [];
   const signerLabelById = new Map(
     (selectedDocument?.signers ?? []).map((signer) => [
       signer.id,
       signer.email ? `${signer.name} (${signer.email})` : signer.name,
     ]),
   );
-  const assignedRequiredSigningFields = requiredSigningFields.filter((field) => field.assigneeSignerId);
+  const assignedRequiredActionFields = requiredActionFields.filter((field) => field.assigneeSignerId);
   const currentUserAssignedOpenFields =
     selectedDocument?.currentUserSignerId
       ? selectedDocument.fields.filter(
@@ -375,9 +434,7 @@ export default function App() {
   const sendActionLabel = selectedDocument
     ? getDeliveryModeActionLabel(selectedDocument.deliveryMode, hasBeenSent)
     : "Send";
-  const canLockDocument = Boolean(
-    selectedDocument && selectedDocument.signable && selectedDocument.workflowState !== "draft",
-  );
+  const canLockDocument = canCurrentUserLockDocument(selectedDocument);
   const canReopenDocument = Boolean(
     selectedDocument &&
       (selectedDocument.lockedAt ||
@@ -403,27 +460,27 @@ export default function App() {
         {
           label: "Place required fields",
           detail:
-            requiredSigningFields.length > 0
-              ? `${requiredSigningFields.length} required signature field${requiredSigningFields.length === 1 ? "" : "s"} placed.`
-              : "Add at least one required signature or initial field.",
-          done: requiredSigningFields.length > 0,
+            requiredActionFields.length > 0
+              ? `${requiredActionFields.length} required action field${requiredActionFields.length === 1 ? "" : "s"} placed.`
+              : "Add at least one required signature, initial, or approval field.",
+          done: requiredActionFields.length > 0,
         },
         {
           label: "Assign routing",
           detail:
-            requiredSigningFields.length > 0 &&
-            assignedRequiredSigningFields.length === requiredSigningFields.length
+            requiredActionFields.length > 0 &&
+            assignedRequiredActionFields.length === requiredActionFields.length
               ? selectedDocument.routingStrategy === "sequential"
-                ? "Every required signing field is assigned and ordered for sequential routing."
-                : "Every required signing field is assigned for parallel routing."
-              : "Assign every required signature field to a signer before sending.",
+                ? "Every required action field is assigned and ordered for sequential routing."
+                : "Every required action field is assigned for parallel routing."
+              : "Assign every required action field to a signer before sending.",
           done:
-            requiredSigningFields.length > 0 &&
-            assignedRequiredSigningFields.length === requiredSigningFields.length &&
+            requiredActionFields.length > 0 &&
+            assignedRequiredActionFields.length === requiredActionFields.length &&
             sendReadiness?.blockers.every(
               (blocker) =>
                 blocker !==
-                "Set a signing order for each signer assigned to a required signature or initial field.",
+                "Set a signing order for each signer assigned to a required signature, initial, or approval field.",
             ) !== false,
         },
         {
@@ -440,10 +497,10 @@ export default function App() {
           label: "Complete",
           detail:
             selectedDocument.workflowState === "completed"
-              ? "All required assigned signing fields are complete."
+              ? "All required assigned action fields are complete."
               : hasCompletedSigning
                 ? `${selectedDocument.completionSummary.remainingRequiredAssignedFields} required field${selectedDocument.completionSummary.remainingRequiredAssignedFields === 1 ? "" : "s"} still open.`
-                : "Signing has not started yet.",
+                : "No required actions have been completed yet.",
           done: selectedDocument.workflowState === "completed",
         },
       ]
@@ -453,21 +510,21 @@ export default function App() {
     ? selectedDocument.workflowState === "completed"
       ? "Completed. Download, share, or duplicate this document for the next cycle."
       : selectedDocument.lockedAt
-        ? "This workflow is locked. Reopen it when you need additional edits or signatures."
+        ? "This workflow is locked. Reopen it when you need additional edits, signatures, or approvals."
         : hasBeenSent && currentUserAssignedOpenFields.length > 0
           ? `You're up next. Complete ${currentUserAssignedOpenFields.length} assigned field${currentUserAssignedOpenFields.length === 1 ? "" : "s"}.`
         : !sendReadiness?.ready
           ? sendReadiness?.blockers[0] ?? "Finish setup before sending."
           : !hasBeenSent
             ? selectedDocument.deliveryMode === "platform_managed"
-              ? "Ready to send. EasyDraft will notify the next eligible signer."
+              ? "Ready to send. EasyDraft will notify the next eligible participant."
               : selectedDocument.deliveryMode === "internal_use_only"
                 ? "Ready to open for internal signing in EasyDraft."
                 : "Ready to distribute. Mark it ready, then share or download it on your terms."
             : hasCompletedSigning
               ? `In progress. ${selectedDocument.completionSummary.remainingRequiredAssignedFields} required field${selectedDocument.completionSummary.remainingRequiredAssignedFields === 1 ? "" : "s"} still need completion.`
               : selectedDocument.deliveryMode === "platform_managed"
-                ? "Sent and waiting for the first signer to act."
+                ? "Sent and waiting for the first participant to act."
                 : selectedDocument.deliveryMode === "internal_use_only"
                   ? "Open for internal signing. Signers can log in and complete their assigned fields."
                 : "Ready for self-managed distribution."
@@ -816,7 +873,10 @@ export default function App() {
           documentId: selectedDocument.id,
           name: nextSignerName,
           email: nextSignerEmail,
+          participantType:
+            selectedDocument.deliveryMode === "internal_use_only" ? "internal" : "external",
           required: true,
+          routingStage: Math.max(1, ...selectedDocument.signers.map((signer) => signer.routingStage ?? 1)),
           signingOrder:
             routeMode === "sequential"
               ? Math.max(
@@ -1050,6 +1110,7 @@ export default function App() {
           routingStrategy: uploadRouting,
           deliveryMode,
           distributionTarget: distributionTarget.trim() || null,
+          lockPolicy,
           notifyOriginatorOnEachSignature,
           isScanned: isScannedUpload,
         }),
@@ -1078,12 +1139,16 @@ export default function App() {
       documentId: selectedDocument.id,
       name: signerName,
       email: signerEmail,
+      participantType: signerParticipantType,
       required: true,
+      routingStage: Number(signerStage),
       signingOrder: signerOrder.trim() ? Number(signerOrder) : null,
     });
 
     setSignerName("");
     setSignerEmail("");
+    setSignerParticipantType(selectedDocument.deliveryMode === "internal_use_only" ? "internal" : "external");
+    setSignerStage("1");
     setSignerOrder(String((selectedDocument.signers.length || 0) + 1));
   }
 
@@ -1188,6 +1253,10 @@ export default function App() {
       ...(sessionUser?.isAdmin ? [refreshAdminOverview(session), refreshAdminUsers(session)] : []),
     ]).catch((error) => setErrorMessage((error as Error).message));
   }, [session, sessionUser?.isAdmin]);
+
+  useEffect(() => {
+    setSignerParticipantType(deliveryMode === "internal_use_only" ? "internal" : "external");
+  }, [deliveryMode]);
 
   useEffect(() => {
     if (!session || !selectedDocument?.id) {
@@ -1946,6 +2015,26 @@ export default function App() {
                   <option value="platform_managed">Store, edit, and let EasyDraft route signatures</option>
                 </select>
               </label>
+              <label className="form-field">
+                <span>Lock policy</span>
+                <select
+                  value={lockPolicy}
+                  onChange={(event) =>
+                    setLockPolicy(
+                      event.target.value as
+                        | "owner_only"
+                        | "owner_and_editors"
+                        | "owner_editors_and_active_signer",
+                    )
+                  }
+                >
+                  <option value="owner_only">Only the owner can lock</option>
+                  <option value="owner_and_editors">Owner and editors can lock</option>
+                  <option value="owner_editors_and_active_signer">
+                    Owner, editors, and the active signer can lock
+                  </option>
+                </select>
+              </label>
               {deliveryMode === "self_managed" ? (
                 <label className="form-field">
                   <span>Shared storage or distribution target</span>
@@ -1962,7 +2051,7 @@ export default function App() {
                     onChange={(event) => setNotifyOriginatorOnEachSignature(event.target.checked)}
                     type="checkbox"
                   />
-                  <span>Notify the originator after each signature is made</span>
+                  <span>Notify the originator after each signature or approval is completed</span>
                 </label>
               ) : (
                 <div className="row-card">
@@ -2056,17 +2145,21 @@ export default function App() {
                         : "Standard e-sign active"}
                     </strong>
                   </div>
+                  <div className="meta-item">
+                    <span>Lock policy</span>
+                    <strong>{getLockPolicyLabel(selectedDocument.lockPolicy)}</strong>
+                  </div>
                 </div>
 
                 <div className="completion-card">
                   <p className="eyebrow">Completion logic</p>
                   <h4>
                     {selectedDocument.completionSummary.completedRequiredAssignedFields}/
-                    {selectedDocument.completionSummary.requiredAssignedFields} required assigned signing
+                    {selectedDocument.completionSummary.requiredAssignedFields} required assigned action
                     fields complete
                   </h4>
                   <p className="muted">
-                    The document remains signable until every required assigned signing field is complete
+                    The document remains signable until every required assigned action field is complete
                     or someone explicitly locks it.
                   </p>
                   <p className="muted">
@@ -2077,12 +2170,12 @@ export default function App() {
                       <p className="muted">
                         {sendReadiness.ready
                           ? selectedDocument.deliveryMode === "platform_managed"
-                            ? "Ready to send. The current routing and required signing fields are set."
+                            ? "Ready to send. The current routing and required action fields are set."
                             : selectedDocument.deliveryMode === "internal_use_only"
                               ? "Ready to open for internal signing in EasyDraft."
                             : "Ready to mark for self-managed distribution."
                           : selectedDocument.deliveryMode === "platform_managed"
-                            ? "Before sending for signatures:"
+                            ? "Before sending for signatures or approvals:"
                             : selectedDocument.deliveryMode === "internal_use_only"
                               ? "Before opening this for internal signing:"
                             : "Before marking this ready to distribute:"}
@@ -2183,7 +2276,7 @@ export default function App() {
                     {!sendReadiness?.ready
                       ? sendReadiness?.blockers[0]
                       : selectedDocument.deliveryMode === "platform_managed"
-                        ? "Sending keeps the current field map and routing, then notifies the next eligible signer."
+                        ? "Sending keeps the current field map and routing, then notifies the next eligible participant."
                         : selectedDocument.deliveryMode === "internal_use_only"
                           ? "Opening this for internal signing keeps the document inside EasyDraft. Signers can complete their assigned fields after they log in."
                         : "Marking this ready does not send emails. It simply records that the file is ready for self-managed distribution."}
@@ -2299,6 +2392,8 @@ export default function App() {
                             <strong>{signer.name}</strong>
                             <p className="muted">
                               {signer.email}
+                              {` · ${getParticipantTypeLabel(signer.participantType)}`}
+                              {` · stage ${signer.routingStage}`}
                               {signer.signingOrder ? ` · order ${signer.signingOrder}` : " · any order"}
                             </p>
                           </div>
@@ -2326,6 +2421,27 @@ export default function App() {
                             onChange={(event) => setSignerEmail(event.target.value)}
                           />
                         </label>
+                        <div className="form-grid compact-grid">
+                          <label className="form-field">
+                            <span>Participant type</span>
+                            <select
+                              value={signerParticipantType}
+                              onChange={(event) =>
+                                setSignerParticipantType(event.target.value as "internal" | "external")
+                              }
+                            >
+                              <option value="internal">Internal</option>
+                              <option value="external">External</option>
+                            </select>
+                          </label>
+                          <label className="form-field">
+                            <span>Stage</span>
+                            <input
+                              value={signerStage}
+                              onChange={(event) => setSignerStage(event.target.value)}
+                            />
+                          </label>
+                        </div>
                         <label className="form-field">
                           <span>Signing order</span>
                           <input
@@ -2350,7 +2466,7 @@ export default function App() {
                         <div key={field.id} className="row-card">
                           <div>
                             <strong>
-                              {field.label} · {field.kind}
+                              {field.label} · {field.kind === "approval" ? "approval" : field.kind}
                             </strong>
                             <p className="muted">
                               Page {field.page} · {field.source} ·{" "}
@@ -2420,12 +2536,13 @@ export default function App() {
                               value={fieldKind}
                               onChange={(event) =>
                                 setFieldKind(
-                                  event.target.value as "signature" | "initial" | "date" | "text",
+                                  event.target.value as "signature" | "initial" | "approval" | "date" | "text",
                                 )
                               }
                             >
                               <option value="signature">Signature</option>
                               <option value="initial">Initial</option>
+                              <option value="approval">Approval</option>
                               <option value="date">Date</option>
                               <option value="text">Text</option>
                             </select>
@@ -2649,10 +2766,10 @@ export default function App() {
                       {selectedDocument.notifications.length === 0 ? (
                         <p className="muted">
                           {selectedDocument.deliveryMode === "platform_managed"
-                            ? "Notifications will appear here once the document is sent or signatures are completed."
+                            ? "Notifications will appear here once the document is sent or actions are completed."
                             : selectedDocument.deliveryMode === "internal_use_only"
-                              ? "Internal-use-only documents do not queue automatic signer emails. Signing progress is still recorded in the audit trail."
-                            : "Self-managed documents do not queue automatic signature emails."}
+                              ? "Internal-use-only documents do not queue automatic participant emails. Progress is still recorded in the audit trail."
+                            : "Self-managed documents do not queue automatic action emails."}
                         </p>
                       ) : (
                         selectedDocument.notifications.slice(0, 8).map((notification) => (
@@ -2690,6 +2807,10 @@ export default function App() {
                       <div className="meta-item">
                         <span>Your role</span>
                         <strong>{formatRoleLabel(selectedDocument)}</strong>
+                      </div>
+                      <div className="meta-item">
+                        <span>Lock policy</span>
+                        <strong>{getLockPolicyLabel(selectedDocument.lockPolicy)}</strong>
                       </div>
                       <div className="meta-item">
                         <span>Distribution target</span>

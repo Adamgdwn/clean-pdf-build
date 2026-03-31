@@ -1,19 +1,32 @@
 import type { DocumentRecord, Field, WorkflowState } from "./schema.js";
 
 const signingFieldKinds = new Set(["signature", "initial"]);
+const actionableFieldKinds = new Set(["signature", "initial", "approval"]);
 
 export function isSigningField(field: Field) {
   return signingFieldKinds.has(field.kind);
 }
 
-export function getRequiredAssignedSigningFields(document: DocumentRecord) {
+export function isActionField(field: Field) {
+  return actionableFieldKinds.has(field.kind);
+}
+
+export function isApprovalField(field: Field) {
+  return field.kind === "approval";
+}
+
+export function getRequiredAssignedActionFields(document: DocumentRecord) {
   return document.fields.filter(
-    (field) => field.required && isSigningField(field) && field.assigneeSignerId,
+    (field) => field.required && isActionField(field) && field.assigneeSignerId,
   );
 }
 
-export function areAllRequiredAssignedSigningFieldsComplete(document: DocumentRecord) {
-  const requiredFields = getRequiredAssignedSigningFields(document);
+export function getRequiredAssignedSigningFields(document: DocumentRecord) {
+  return getRequiredAssignedActionFields(document);
+}
+
+export function areAllRequiredAssignedActionFieldsComplete(document: DocumentRecord) {
+  const requiredFields = getRequiredAssignedActionFields(document);
 
   if (requiredFields.length === 0) {
     return false;
@@ -22,9 +35,13 @@ export function areAllRequiredAssignedSigningFieldsComplete(document: DocumentRe
   return requiredFields.every((field) => Boolean(field.completedAt));
 }
 
+export function areAllRequiredAssignedSigningFieldsComplete(document: DocumentRecord) {
+  return areAllRequiredAssignedActionFieldsComplete(document);
+}
+
 export function hasStartedSigning(document: DocumentRecord) {
   return document.fields.some(
-    (field) => isSigningField(field) && field.required && Boolean(field.completedAt),
+    (field) => isActionField(field) && field.required && Boolean(field.completedAt),
   );
 }
 
@@ -37,11 +54,11 @@ export function isDocumentSignable(document: DocumentRecord) {
     return false;
   }
 
-  return !areAllRequiredAssignedSigningFieldsComplete(document);
+  return !areAllRequiredAssignedActionFieldsComplete(document);
 }
 
 export function deriveWorkflowState(document: DocumentRecord): WorkflowState {
-  if (areAllRequiredAssignedSigningFieldsComplete(document)) {
+  if (areAllRequiredAssignedActionFieldsComplete(document)) {
     return "completed";
   }
 
@@ -65,7 +82,7 @@ export function deriveWorkflowState(document: DocumentRecord): WorkflowState {
 }
 
 export function getDocumentCompletionSummary(document: DocumentRecord) {
-  const requiredFields = getRequiredAssignedSigningFields(document);
+  const requiredFields = getRequiredAssignedActionFields(document);
   const completedFields = requiredFields.filter((field) => Boolean(field.completedAt));
 
   return {
@@ -76,9 +93,7 @@ export function getDocumentCompletionSummary(document: DocumentRecord) {
 }
 
 export function getDocumentSendReadiness(document: DocumentRecord) {
-  const requiredSigningFields = document.fields.filter(
-    (field) => field.required && isSigningField(field),
-  );
+  const requiredActionFields = document.fields.filter((field) => field.required && isActionField(field));
   const signerIds = new Set(document.signers.map((signer) => signer.id));
   const signerOrderById = new Map(
     document.signers.map((signer) => [signer.id, signer.signingOrder]),
@@ -97,25 +112,27 @@ export function getDocumentSendReadiness(document: DocumentRecord) {
     blockers.push("Add at least one signer before sending.");
   }
 
-  if (requiredSigningFields.length === 0) {
-    blockers.push("Add at least one required signature or initial field before sending.");
+  if (requiredActionFields.length === 0) {
+    blockers.push("Add at least one required signature, initial, or approval field before sending.");
   }
 
-  if (requiredSigningFields.some((field) => !field.assigneeSignerId)) {
-    blockers.push("Assign every required signature or initial field to a signer before sending.");
+  if (requiredActionFields.some((field) => !field.assigneeSignerId)) {
+    blockers.push(
+      "Assign every required signature, initial, or approval field to a signer before sending.",
+    );
   }
 
   if (
-    requiredSigningFields.some(
+    requiredActionFields.some(
       (field) => field.assigneeSignerId && !signerIds.has(field.assigneeSignerId),
     )
   ) {
-    blockers.push("Reassign any required signing fields that point to a missing signer.");
+    blockers.push("Reassign any required action fields that point to a missing signer.");
   }
 
   if (
     document.routingStrategy === "sequential" &&
-    requiredSigningFields.some(
+    requiredActionFields.some(
       (field) =>
         field.assigneeSignerId &&
         signerIds.has(field.assigneeSignerId) &&
@@ -123,7 +140,7 @@ export function getDocumentSendReadiness(document: DocumentRecord) {
     )
   ) {
     blockers.push(
-      "Set a signing order for each signer assigned to a required signature or initial field.",
+      "Set a signing order for each signer assigned to a required signature, initial, or approval field.",
     );
   }
 
@@ -141,7 +158,7 @@ export function completeField(
 ) {
   return {
     ...document,
-    completedAt: areAllRequiredAssignedSigningFieldsComplete(document)
+    completedAt: areAllRequiredAssignedActionFieldsComplete(document)
       ? document.completedAt
       : null,
     fields: document.fields.map((field) =>

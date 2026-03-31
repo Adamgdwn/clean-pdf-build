@@ -11,6 +11,8 @@ import {
   type DocumentNotification,
   type DocumentVersion,
   type Field,
+  type LockPolicy,
+  type ParticipantType,
   type SavedSignature,
   type Signer,
   type User,
@@ -30,6 +32,7 @@ type DocumentRow = {
   editor_history_index: number;
   delivery_mode: DeliveryMode;
   distribution_target: string | null;
+  lock_policy: LockPolicy;
   notify_originator_on_each_signature: boolean;
   page_count: number | null;
   uploaded_at: string;
@@ -69,7 +72,9 @@ type SignerRow = {
   user_id: string | null;
   name: string;
   email: string;
+  participant_type: ParticipantType;
   required: boolean;
+  routing_stage: number;
   signing_order: number | null;
 };
 
@@ -263,6 +268,9 @@ const createDocumentInputSchema = z.object({
   storagePath: z.string().min(1),
   deliveryMode: z.enum(["self_managed", "internal_use_only", "platform_managed"]).default("self_managed"),
   distributionTarget: z.string().trim().max(200).nullable().default(null),
+  lockPolicy: z
+    .enum(["owner_only", "owner_and_editors", "owner_editors_and_active_signer"])
+    .default("owner_only"),
   notifyOriginatorOnEachSignature: z.boolean().default(true),
   pageCount: z.number().int().positive().nullable().default(null),
   routingStrategy: z.enum(["sequential", "parallel"]).default("sequential"),
@@ -272,7 +280,9 @@ const createDocumentInputSchema = z.object({
 const addSignerInputSchema = z.object({
   name: z.string().min(1).max(120),
   email: z.string().trim().email().transform((value) => normalizeEmailAddress(value)),
+  participantType: z.enum(["internal", "external"]).default("external"),
   required: z.boolean().default(true),
+  routingStage: z.number().int().positive().default(1),
   signingOrder: z.number().int().positive().nullable().default(null),
 });
 
@@ -282,7 +292,7 @@ const updateDocumentRoutingInputSchema = z.object({
 
 const addFieldInputSchema = z.object({
   page: z.number().int().positive(),
-  kind: z.enum(["text", "image", "signature", "initial", "date", "checkbox"]),
+  kind: z.enum(["text", "image", "signature", "initial", "approval", "date", "checkbox"]),
   label: z.string().min(1).max(120),
   required: z.boolean().default(false),
   assigneeSignerId: z.string().uuid().nullable().default(null),
@@ -366,6 +376,14 @@ function slugify(value: string) {
 
 function normalizeEmailAddress(value: string) {
   return value.trim().toLowerCase();
+}
+
+function isActionFieldKind(kind: Field["kind"]) {
+  return kind === "signature" || kind === "initial" || kind === "approval";
+}
+
+function getActionLabelForFieldKind(kind: Field["kind"]) {
+  return kind === "approval" ? "approval" : "signature";
 }
 
 function describeDeliveryMode(deliveryMode: DeliveryMode) {
@@ -516,7 +534,9 @@ function mapSigner(row: SignerRow): Signer {
     userId: row.user_id,
     name: row.name,
     email: row.email,
+    participantType: row.participant_type,
     required: row.required,
+    routingStage: row.routing_stage,
     signingOrder: row.signing_order,
   };
 }
@@ -658,6 +678,7 @@ function mapDocumentRecord(
     storagePath: row.storage_path,
     deliveryMode: row.delivery_mode,
     distributionTarget: row.distribution_target,
+    lockPolicy: row.lock_policy,
     notifyOriginatorOnEachSignature: row.notify_originator_on_each_signature,
     pageCount: row.page_count,
     uploadedAt: row.uploaded_at,
@@ -687,7 +708,13 @@ function mapDocumentRecord(
     }),
     signers: signerRows
       .slice()
-      .sort((left, right) => (left.signing_order ?? 999) - (right.signing_order ?? 999))
+      .sort((left, right) => {
+        if (left.routing_stage !== right.routing_stage) {
+          return left.routing_stage - right.routing_stage;
+        }
+
+        return (left.signing_order ?? 999) - (right.signing_order ?? 999);
+      })
       .map(mapSigner),
     fields: fieldRows.slice().sort((left, right) => left.page - right.page).map(mapField),
     versions: versionRows
@@ -783,7 +810,7 @@ export async function resolveAuthenticatedUser(authorizationHeader: string | und
 
   const { data: signerRows } = await adminClient
     .from("document_signers")
-    .select("id, document_id, user_id, name, email, required, signing_order")
+    .select("id, document_id, user_id, name, email, participant_type, required, routing_stage, signing_order")
     .ilike("email", normalizedEmail)
     .is("user_id", null);
 
@@ -909,7 +936,7 @@ async function requireDocumentBundle(documentId: string) {
     adminClient.from("document_access").select("document_id, user_id, role").eq("document_id", documentId),
     adminClient
       .from("document_signers")
-      .select("id, document_id, user_id, name, email, required, signing_order")
+      .select("id, document_id, user_id, name, email, participant_type, required, routing_stage, signing_order")
       .eq("document_id", documentId),
     adminClient
       .from("document_fields")
@@ -1120,17 +1147,27 @@ function buildNotificationEmailContent(notification: NotificationRow, document: 
     typeof notification.metadata?.signerName === "string" ? notification.metadata.signerName : "A signer";
   const fieldLabel =
     typeof notification.metadata?.fieldLabel === "string" ? notification.metadata.fieldLabel : "a required field";
+  const actionLabel =
+    typeof notification.metadata?.actionLabel === "string" ? notification.metadata.actionLabel : "signature";
 
   if (notification.event_type === "signature_progress") {
+    const subject =
+      actionLabel === "approval"
+        ? `${actorLabel} approved ${document.name}`
+        : `${actorLabel} completed an action on ${document.name}`;
+
     return {
-      subject: `${actorLabel} signed ${document.name}`,
+      subject,
       html: `<p>${actorLabel} completed ${fieldLabel} on <strong>${document.name}</strong>.</p><p><a href="${actionUrl}">Open the document in EasyDraft</a></p>`,
     };
   }
 
+  const subject =
+    actionLabel === "approval" ? `Approval requested for ${document.name}` : `Action requested for ${document.name}`;
+
   return {
-    subject: `Signature requested for ${document.name}`,
-    html: `<p>You have a signature request waiting on <strong>${document.name}</strong>.</p><p><a href="${actionUrl}">Open the document in EasyDraft</a></p>`,
+    subject,
+    html: `<p>You have a pending ${actionLabel} request on <strong>${document.name}</strong>.</p><p><a href="${actionUrl}">Open the document in EasyDraft</a></p>`,
   };
 }
 
@@ -1367,7 +1404,7 @@ function getPendingRequiredAssignedFields(document: DocumentRecord) {
     (field) =>
       field.required &&
       !!field.assigneeSignerId &&
-      (field.kind === "signature" || field.kind === "initial") &&
+      isActionFieldKind(field.kind) &&
       !field.completedAt,
   );
 }
@@ -1379,22 +1416,49 @@ function getEligibleSignerIdsForNotifications(document: DocumentRecord) {
     return [] as string[];
   }
 
+  const signerById = new Map(document.signers.map((signer) => [signer.id, signer]));
+  const pendingFieldsInCurrentStage = pendingFields
+    .map((field) => ({
+      field,
+      signer: signerById.get(field.assigneeSignerId ?? ""),
+    }))
+    .filter((entry): entry is { field: Field; signer: Signer } => Boolean(entry.signer));
+
+  if (pendingFieldsInCurrentStage.length === 0) {
+    return [] as string[];
+  }
+
+  const nextStage = Math.min(
+    ...pendingFieldsInCurrentStage.map((entry) => entry.signer.routingStage ?? 1),
+  );
+  const stagePendingFields = pendingFieldsInCurrentStage.filter(
+    (entry) => (entry.signer.routingStage ?? 1) === nextStage,
+  );
+
   if (document.routingStrategy === "parallel") {
-    return [...new Set(pendingFields.map((field) => field.assigneeSignerId).filter(Boolean))] as string[];
+    return [
+      ...new Set(stagePendingFields.map((entry) => entry.field.assigneeSignerId).filter(Boolean)),
+    ] as string[];
   }
 
   const signerOrderById = new Map(
     document.signers.map((signer) => [signer.id, signer.signingOrder ?? Number.MAX_SAFE_INTEGER]),
   );
   const nextOrder = Math.min(
-    ...pendingFields.map((field) => signerOrderById.get(field.assigneeSignerId ?? "") ?? Number.MAX_SAFE_INTEGER),
+    ...stagePendingFields.map(
+      (entry) => signerOrderById.get(entry.field.assigneeSignerId ?? "") ?? Number.MAX_SAFE_INTEGER,
+    ),
   );
 
   return [
     ...new Set(
-      pendingFields
-        .filter((field) => (signerOrderById.get(field.assigneeSignerId ?? "") ?? Number.MAX_SAFE_INTEGER) === nextOrder)
-        .map((field) => field.assigneeSignerId)
+      stagePendingFields
+        .filter(
+          (entry) =>
+            (signerOrderById.get(entry.field.assigneeSignerId ?? "") ?? Number.MAX_SAFE_INTEGER) ===
+            nextOrder,
+        )
+        .map((entry) => entry.field.assigneeSignerId)
         .filter(Boolean),
     ),
   ] as string[];
@@ -1411,6 +1475,14 @@ async function queueEligibleSignerNotifications(
   }
 
   const signersToNotify = document.signers.filter((signer) => eligibleSignerIds.includes(signer.id));
+  const pendingFieldsForEligibleSigners = getPendingRequiredAssignedFields(document).filter((field) =>
+    eligibleSignerIds.includes(field.assigneeSignerId ?? ""),
+  );
+  const actionLabel = pendingFieldsForEligibleSigners.some((field) => field.kind === "approval")
+    ? pendingFieldsForEligibleSigners.every((field) => field.kind === "approval")
+      ? "approval"
+      : "action"
+    : "signature";
 
   await Promise.all(
     signersToNotify.map((signer) =>
@@ -1420,6 +1492,7 @@ async function queueEligibleSignerNotifications(
         metadata: {
           ...(options.appOrigin ? { appOrigin: options.appOrigin } : {}),
           signerName: signer.name,
+          actionLabel,
           reason: options.reason,
         },
       }),
@@ -1466,6 +1539,23 @@ async function assertPermission(
 
   if (role && canPerformDocumentAction(role, action)) {
     return role;
+  }
+
+  if (action === "lock_document") {
+    const document = await requireDocumentBundle(documentId);
+
+    if (role === "editor" && document.lockPolicy !== "owner_only") {
+      return role;
+    }
+
+    if (document.lockPolicy === "owner_editors_and_active_signer") {
+      const signer = findSignerForUser(document, user);
+      const eligibleSignerIds = getEligibleSignerIdsForNotifications(document);
+
+      if (signer && eligibleSignerIds.includes(signer.id)) {
+        return role ?? "signer";
+      }
+    }
   }
 
   if (action === "complete_assigned_field") {
@@ -2069,6 +2159,7 @@ export async function createDocumentForAuthorizationHeader(
     workspace_id: workspace.id,
     delivery_mode: parsed.deliveryMode,
     distribution_target: parsed.distributionTarget?.trim() ? parsed.distributionTarget.trim() : null,
+    lock_policy: parsed.lockPolicy,
     notify_originator_on_each_signature: parsed.notifyOriginatorOnEachSignature,
     page_count: parsed.pageCount,
     uploaded_by_user_id: user.id,
@@ -2109,6 +2200,7 @@ export async function createDocumentForAuthorizationHeader(
       deliveryMode: parsed.deliveryMode,
       platformManaged: parsed.deliveryMode === "platform_managed",
       internalUseOnly: parsed.deliveryMode === "internal_use_only",
+      lockPolicy: parsed.lockPolicy,
       hasDistributionTarget: Boolean(parsed.distributionTarget?.trim()),
     },
   );
@@ -2156,7 +2248,9 @@ export async function addSignerForAuthorizationHeader(
     document_id: documentId,
     name: parsed.name,
     email: parsed.email,
+    participant_type: parsed.participantType,
     required: parsed.required,
+    routing_stage: parsed.routingStage,
     signing_order: parsed.signingOrder,
   });
 
@@ -2182,7 +2276,12 @@ export async function addSignerForAuthorizationHeader(
     user.id,
     "field.assigned",
     `Added signer ${parsed.name}`,
-    { required: parsed.required, signingOrder: parsed.signingOrder ?? 0 },
+    {
+      participantType: parsed.participantType,
+      required: parsed.required,
+      routingStage: parsed.routingStage,
+      signingOrder: parsed.signingOrder ?? 0,
+    },
   );
   await appendVersion(documentId, user.id, "Updated signer routing", `Added signer ${parsed.email}`);
 
@@ -2537,7 +2636,7 @@ export async function completeFieldForAuthorizationHeader(
   if (
     updatedDocument.deliveryMode === "platform_managed" &&
     updatedDocument.notifyOriginatorOnEachSignature &&
-    (field.kind === "signature" || field.kind === "initial")
+    isActionFieldKind(field.kind)
   ) {
     const originator = await getProfileById(updatedDocument.uploadedByUserId);
 
@@ -2548,6 +2647,7 @@ export async function completeFieldForAuthorizationHeader(
         metadata: {
           ...(appOrigin ? { appOrigin } : {}),
           signerName: signer.name,
+          actionLabel: getActionLabelForFieldKind(field.kind),
           fieldLabel: field.label,
           fieldKind: field.kind,
         },
@@ -2589,12 +2689,12 @@ export async function completeFieldForAuthorizationHeader(
         locked_by_user_id: null,
       })
       .eq("id", documentId);
-    await appendVersion(documentId, user.id, "Completed document", "All required assigned signing fields completed");
+    await appendVersion(documentId, user.id, "Completed document", "All required assigned action fields completed");
     await appendAuditEvent(
       documentId,
       user.id,
       "document.completed",
-      "Completed all required assigned signing fields",
+      "Completed all required assigned action fields",
     );
   }
 
@@ -2804,6 +2904,7 @@ export async function duplicateDocumentForAuthorizationHeader(
     editor_history_index: 0,
     delivery_mode: sourceDocument.deliveryMode,
     distribution_target: sourceDocument.distributionTarget,
+    lock_policy: sourceDocument.lockPolicy,
     notify_originator_on_each_signature: sourceDocument.notifyOriginatorOnEachSignature,
     page_count: sourceDocument.pageCount,
     uploaded_by_user_id: user.id,
@@ -2845,7 +2946,9 @@ export async function duplicateDocumentForAuthorizationHeader(
         user_id: null,
         name: signer.name,
         email: signer.email,
+        participant_type: signer.participantType,
         required: signer.required,
+        routing_stage: signer.routingStage,
         signing_order: signer.signingOrder,
       };
     });

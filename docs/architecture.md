@@ -22,7 +22,10 @@ Responsibilities:
 - document metadata and workflow state
 - role-based access control
 - field assignment
-- signer routing
+- participant classification and signer routing
+- staged handoffs across internal and external participants
+- approval and signature workflow completion
+- lock policy enforcement
 - audit trail
 - version history
 - export eligibility

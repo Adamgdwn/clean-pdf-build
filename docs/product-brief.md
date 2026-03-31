@@ -18,7 +18,11 @@ Prepare, route, sign, and export everyday PDFs without making the user think lik
 - Manual field editing and assignment
 - Multi-signer wizard
 - Sequential and parallel signing flows
+- Staged handoffs using signer stages
+- Internal, external, and mixed participant routing
+- Approval-only steps alongside signatures and initials
 - Shared access roles: owner, editor, signer, viewer
+- Configurable lock policy per workflow
 - Audit trail and version history
 - Export completed PDF
 
@@ -58,6 +62,7 @@ Locking must record:
 
 - “I need to upload a contract, detect likely fields, fix the mistakes, and send it in minutes.”
 - “I need to know exactly who is blocking completion and which required field is still open.”
+- “I need internal review first, then an external signer or approver, without rebuilding the workflow.”
 - “I need a safe history of edits, sends, signatures, reopen events, and exports.”
 
 ## Success criteria for the bootstrap
