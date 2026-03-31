@@ -190,6 +190,12 @@ type WorkflowDocumentResponse = DocumentRecord & {
   currentUserRole: AccessRole | null;
   currentUserIsSigner: boolean;
   currentUserSignerId: string | null;
+  accessParticipants: Array<{
+    userId: string;
+    role: AccessRole;
+    displayName: string;
+    email: string | null;
+  }>;
   workflowState: ReturnType<typeof deriveWorkflowState>;
   signable: boolean;
   completionSummary: ReturnType<typeof getDocumentCompletionSummary>;
@@ -589,13 +595,19 @@ function mapDigitalSignatureProfile(
 function mapDocumentRecord(
   row: DocumentRow,
   accessRows: DocumentAccessRow[],
+  accessProfiles: ProfileRow[],
   signerRows: SignerRow[],
   fieldRows: FieldRow[],
   versionRows: DocumentVersionRow[],
   auditRows: AuditEventRow[],
   notificationRows: NotificationRow[],
   latestEditorHistoryIndex: number,
-): DocumentRecord & { editorHistory: { currentIndex: number; latestIndex: number } } {
+): DocumentRecord & {
+  editorHistory: { currentIndex: number; latestIndex: number };
+  accessProfileDirectory: Array<{ userId: string; displayName: string; email: string | null }>;
+} {
+  const accessProfileById = new Map(accessProfiles.map((profile) => [profile.id, profile]));
+
   return {
     id: row.id,
     name: row.name,
@@ -622,6 +634,14 @@ function mapDocumentRecord(
       userId: entry.user_id,
       role: entry.role,
     })),
+    accessProfileDirectory: accessRows.map((entry) => {
+      const profile = accessProfileById.get(entry.user_id);
+      return {
+        userId: entry.user_id,
+        displayName: profile?.display_name ?? "Workspace user",
+        email: profile?.email ?? null,
+      };
+    }),
     signers: signerRows
       .slice()
       .sort((left, right) => (left.signing_order ?? 999) - (right.signing_order ?? 999))
@@ -894,14 +914,34 @@ async function requireDocumentBundle(documentId: string) {
     notificationResponse,
     snapshotResponse,
   ]) {
-    if (response.error) {
-      throw new AppError(500, response.error.message);
+	  if (response.error) {
+	      throw new AppError(500, response.error.message);
+	    }
+	  }
+
+  const accessRows = (accessResponse.data ?? []) as DocumentAccessRow[];
+  const accessUserIds = [...new Set(accessRows.map((entry) => entry.user_id))];
+  let accessProfiles: ProfileRow[] = [];
+
+  if (accessUserIds.length > 0) {
+    const { data: profileRows, error: profileError } = await adminClient
+      .from("profiles")
+      .select(
+        "id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at",
+      )
+      .in("id", accessUserIds);
+
+    if (profileError) {
+      throw new AppError(500, profileError.message);
     }
+
+    accessProfiles = (profileRows ?? []) as ProfileRow[];
   }
 
   return mapDocumentRecord(
     documentResponse.data as DocumentRow,
-    (accessResponse.data ?? []) as DocumentAccessRow[],
+    accessRows,
+    accessProfiles,
     (signerResponse.data ?? []) as SignerRow[],
     (fieldResponse.data ?? []) as FieldRow[],
     (versionResponse.data ?? []) as DocumentVersionRow[],
@@ -914,17 +954,30 @@ async function requireDocumentBundle(documentId: string) {
 }
 
 function toWorkflowDocumentResponse(
-  document: DocumentRecord & { editorHistory: { currentIndex: number; latestIndex: number } },
+  document: DocumentRecord & {
+    editorHistory: { currentIndex: number; latestIndex: number };
+    accessProfileDirectory?: Array<{ userId: string; displayName: string; email: string | null }>;
+  },
   userId: string,
 ): WorkflowDocumentResponse {
   const normalizedUserId = userId.trim();
   const currentUserSigner = document.signers.find((signer) => signer.userId === normalizedUserId) ?? null;
+  const accessProfileById = new Map(accessProfilesForDocument(document).map((profile) => [profile.userId, profile]));
 
   return {
     ...document,
     currentUserRole: document.access.find((entry) => entry.userId === normalizedUserId)?.role ?? null,
     currentUserIsSigner: Boolean(currentUserSigner),
     currentUserSignerId: currentUserSigner?.id ?? null,
+    accessParticipants: document.access.map((entry) => {
+      const participant = accessProfileById.get(entry.userId);
+      return {
+        userId: entry.userId,
+        role: entry.role,
+        displayName: participant?.displayName ?? "Workspace user",
+        email: participant?.email ?? null,
+      };
+    }),
     workflowState: deriveWorkflowState(document),
     signable: isDocumentSignable(document),
     completionSummary: getDocumentCompletionSummary(document),
@@ -935,6 +988,14 @@ function toWorkflowDocumentResponse(
       canRedo: document.editorHistory.currentIndex < document.editorHistory.latestIndex,
     },
   };
+}
+
+function accessProfilesForDocument(
+  document: DocumentRecord & {
+    accessProfileDirectory?: Array<{ userId: string; displayName: string; email: string | null }>;
+  },
+) {
+  return document.accessProfileDirectory ?? [];
 }
 
 async function appendAuditEvent(
@@ -1728,15 +1789,12 @@ export async function listDocumentsForAuthorizationHeader(authorizationHeader: s
   const documentIds = [
     ...new Set(((data ?? []) as Array<{ document_id: string }>).map((entry) => entry.document_id)),
   ];
-  const documents = (
-    await Promise.allSettled(documentIds.map((documentId) => requireDocumentBundle(documentId)))
-  )
-    .filter(
-      (result): result is PromiseFulfilledResult<
-        DocumentRecord & { editorHistory: { currentIndex: number; latestIndex: number } }
-      > => result.status === "fulfilled",
-    )
-    .map((result) => result.value);
+  const settledDocuments = await Promise.allSettled(
+    documentIds.map((documentId) => requireDocumentBundle(documentId)),
+  );
+  const documents = settledDocuments.flatMap((result) =>
+    result.status === "fulfilled" ? [result.value] : [],
+  );
 
   return {
     documents: documents

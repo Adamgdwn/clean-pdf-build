@@ -18,6 +18,12 @@ type WorkflowDocument = DocumentRecord & {
   currentUserRole: "owner" | "editor" | "signer" | "viewer" | null;
   currentUserIsSigner: boolean;
   currentUserSignerId: string | null;
+  accessParticipants: Array<{
+    userId: string;
+    role: "owner" | "editor" | "signer" | "viewer";
+    displayName: string;
+    email: string | null;
+  }>;
   workflowState: string;
   signable: boolean;
   completionSummary: {
@@ -222,6 +228,22 @@ function getDeliveryModeReadyCopy(document: WorkflowDocument, hasBeenSent: boole
     : "Mark the document ready once setup is complete, then share or download it yourself.";
 }
 
+function getQuickRouteLabels(deliveryMode: WorkflowDocument["deliveryMode"]) {
+  if (deliveryMode === "internal_use_only") {
+    return {
+      heading: "Internal signer setup",
+      primary: "Add next internal signer",
+      secondary: "Add parallel internal signer",
+    };
+  }
+
+  return {
+    heading: "Next step",
+    primary: "Queue next signature",
+    secondary: "Add parallel signer",
+  };
+}
+
 type ChecklistStep = {
   label: string;
   detail: string;
@@ -330,6 +352,9 @@ export default function App() {
   const hasBeenSent = Boolean(selectedDocument?.sentAt);
   const hasCompletedSigning =
     (selectedDocument?.completionSummary.completedRequiredAssignedFields ?? 0) > 0;
+  const quickRouteLabels = selectedDocument
+    ? getQuickRouteLabels(selectedDocument.deliveryMode)
+    : null;
   const sendActionLabel = selectedDocument
     ? getDeliveryModeActionLabel(selectedDocument.deliveryMode, hasBeenSent)
     : "Send";
@@ -1943,12 +1968,12 @@ export default function App() {
                   </p>
                 </div>
 
-                {canEdit && selectedDocument.deliveryMode !== "self_managed" ? (
-                  <div className="toolbar-card">
-                    <div className="section-heading compact">
-                      <p className="eyebrow">Next step</p>
-                      <span>{selectedDocument.routingStrategy}</span>
-                    </div>
+                    {canEdit && selectedDocument.deliveryMode !== "self_managed" ? (
+                      <div className="toolbar-card">
+                        <div className="section-heading compact">
+                          <p className="eyebrow">{quickRouteLabels?.heading ?? "Next step"}</p>
+                          <span>{selectedDocument.routingStrategy}</span>
+                        </div>
                     <div className="form-grid compact-grid">
                       <label className="form-field">
                         <span>Next signer name</span>
@@ -1972,14 +1997,14 @@ export default function App() {
                         disabled={isLoading || !nextSignerName.trim() || !nextSignerEmail.trim()}
                         onClick={() => handleQuickRoute("sequential").catch((error) => setErrorMessage((error as Error).message))}
                       >
-                        Queue next signature
+                        {quickRouteLabels?.primary ?? "Queue next signature"}
                       </button>
                       <button
                         className="secondary-button"
                         disabled={isLoading || !nextSignerName.trim() || !nextSignerEmail.trim()}
                         onClick={() => handleQuickRoute("parallel").catch((error) => setErrorMessage((error as Error).message))}
                       >
-                        Add parallel signer
+                        {quickRouteLabels?.secondary ?? "Add parallel signer"}
                       </button>
                     </div>
                   </div>
@@ -2310,9 +2335,14 @@ export default function App() {
                       <span>{selectedDocument.access.length} roles</span>
                     </div>
                     <div className="stack">
-                      {selectedDocument.access.map((entry) => (
+                      {selectedDocument.accessParticipants.map((entry) => (
                         <div key={`${entry.userId}-${entry.role}`} className="row-card">
-                          <strong>{entry.userId}</strong>
+                          <div>
+                            <strong>
+                              {entry.userId === sessionUser?.id ? "You" : entry.displayName}
+                            </strong>
+                            <p className="muted">{entry.email ?? entry.userId}</p>
+                          </div>
                           <span>{entry.role}</span>
                         </div>
                       ))}
