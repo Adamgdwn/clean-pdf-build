@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-import { addFieldForAuthorizationHeader } from "@clean-pdf/workflow-service";
+import { addFieldForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
 import { readAuthorizationHeader, sendError } from "./_utils.js";
 

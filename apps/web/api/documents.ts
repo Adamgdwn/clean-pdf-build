@@ -3,7 +3,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   createDocumentForAuthorizationHeader,
   listDocumentsForAuthorizationHeader,
-} from "@clean-pdf/workflow-service";
+} from "../../../packages/workflow-service/src/index.js";
 
 import { readAuthorizationHeader, sendError } from "./_utils.js";
 

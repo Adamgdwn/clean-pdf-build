@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-import { requestProcessingJobForAuthorizationHeader } from "@clean-pdf/workflow-service";
+import { requestProcessingJobForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
 import { readAuthorizationHeader, sendError } from "./_utils.js";
 

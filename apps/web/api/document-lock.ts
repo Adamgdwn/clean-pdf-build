@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-import { lockDocumentForAuthorizationHeader } from "@clean-pdf/workflow-service";
+import { lockDocumentForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
 import { readAuthorizationHeader, sendError } from "./_utils.js";
 

@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-import { createCheckoutSessionForAuthorizationHeader } from "@clean-pdf/workflow-service";
+import { createCheckoutSessionForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
 import { getRequestOrigin, readAuthorizationHeader, sendError } from "./_utils.js";
 

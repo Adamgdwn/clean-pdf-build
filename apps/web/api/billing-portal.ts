@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-import { createBillingPortalSessionForAuthorizationHeader } from "@clean-pdf/workflow-service";
+import { createBillingPortalSessionForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
 import { getRequestOrigin, readAuthorizationHeader, sendError } from "./_utils.js";
 

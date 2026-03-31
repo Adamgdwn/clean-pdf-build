@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-import { handleStripeWebhook } from "@clean-pdf/workflow-service";
+import { handleStripeWebhook } from "../../../packages/workflow-service/src/index.js";
 
 import { readRawBody, sendError } from "./_utils.js";
 

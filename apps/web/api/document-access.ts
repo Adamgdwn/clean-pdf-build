@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-import { inviteCollaboratorForAuthorizationHeader } from "@clean-pdf/workflow-service";
+import { inviteCollaboratorForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
 import { readAuthorizationHeader, sendError } from "./_utils.js";
 

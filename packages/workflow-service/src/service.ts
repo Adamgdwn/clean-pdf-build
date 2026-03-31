@@ -10,7 +10,7 @@ import {
   type Field,
   type Signer,
   type User,
-} from "@clean-pdf/domain";
+} from "../../domain/src/index.js";
 import { z } from "zod";
 
 import { readServerEnv } from "./env.js";

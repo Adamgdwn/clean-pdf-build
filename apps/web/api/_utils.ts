@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-import { AppError } from "@clean-pdf/workflow-service";
+import { AppError } from "../../../packages/workflow-service/src/index.js";
 
 export function readAuthorizationHeader(request: VercelRequest) {
   const authorization = request.headers.authorization;
