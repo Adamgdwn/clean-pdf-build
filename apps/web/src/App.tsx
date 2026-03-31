@@ -138,6 +138,22 @@ type AdminOverview = {
   }>;
 };
 
+type AdminManagedUser = {
+  id: string;
+  email: string;
+  displayName: string;
+  companyName: string | null;
+  createdAt: string;
+  lastSignInAt: string | null;
+  emailConfirmedAt: string | null;
+  status: "confirmed" | "pending_confirmation";
+  isPlatformAdmin: boolean;
+  canDelete: boolean;
+  workspaceCount: number;
+  documentCount: number;
+  privilegeLabels: string[];
+};
+
 const documentBucket = import.meta.env.VITE_SUPABASE_DOCUMENT_BUCKET ?? "documents";
 const signatureBucket = import.meta.env.VITE_SUPABASE_SIGNATURE_BUCKET ?? "signatures";
 
@@ -259,6 +275,7 @@ export default function App() {
   const [accountProfile, setAccountProfile] = useState<AccountProfile | null>(null);
   const [digitalSignatureProfiles, setDigitalSignatureProfiles] = useState<DigitalSignatureProfile[]>([]);
   const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
+  const [adminUsers, setAdminUsers] = useState<AdminManagedUser[]>([]);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
@@ -467,6 +484,7 @@ export default function App() {
       setAccountProfile(null);
       setDigitalSignatureProfiles([]);
       setAdminOverview(null);
+      setAdminUsers([]);
       setSelectedDocumentId(null);
       return;
     }
@@ -509,6 +527,11 @@ export default function App() {
   async function refreshAdminOverview(activeSession: Session) {
     const payload = await apiFetch<AdminOverview>("/admin-overview", activeSession);
     setAdminOverview(payload);
+  }
+
+  async function refreshAdminUsers(activeSession: Session) {
+    const payload = await apiFetch<{ users: AdminManagedUser[] }>("/admin-users", activeSession);
+    setAdminUsers(payload.users);
   }
 
   async function refreshDocuments(activeSession: Session) {
@@ -564,6 +587,56 @@ export default function App() {
 
   async function copyTextToClipboard(value: string) {
     await navigator.clipboard.writeText(value);
+  }
+
+  async function handleAdminSendPasswordReset(userId: string) {
+    if (!session) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      const payload = await apiFetch<{ email: string; redirectTo: string }>("/admin-user-reset", session, {
+        method: "POST",
+        body: JSON.stringify({ userId }),
+      });
+      setNoticeMessage(`Password reset email sent to ${payload.email}.`);
+      await refreshAdminUsers(session);
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleAdminDeleteUser(userId: string) {
+    if (!session) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      const payload = await apiFetch<{ email: string; deletedUserId: string }>(
+        "/admin-user-delete",
+        session,
+        {
+          method: "POST",
+          body: JSON.stringify({ userId }),
+        },
+      );
+      setNoticeMessage(`${payload.email} was deleted from EasyDraft.`);
+      await Promise.all([refreshAdminUsers(session), refreshAdminOverview(session)]);
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   async function handleDownloadDocument() {
@@ -1112,7 +1185,7 @@ export default function App() {
       refreshSavedSignatures(session),
       refreshProfile(session),
       refreshDigitalSignatureProfiles(session),
-      ...(sessionUser?.isAdmin ? [refreshAdminOverview(session)] : []),
+      ...(sessionUser?.isAdmin ? [refreshAdminOverview(session), refreshAdminUsers(session)] : []),
     ]).catch((error) => setErrorMessage((error as Error).message));
   }, [session, sessionUser?.isAdmin]);
 
@@ -1248,6 +1321,10 @@ export default function App() {
               <button className="primary-button" disabled={isLoading} type="submit">
                 {authMode === "sign_in" ? "Continue" : "Create account"}
               </button>
+              <p className="muted">
+                Admin access uses this same sign-in form. Use <strong>admin@agoperations.ca</strong> to
+                unlock admin tools.
+              </p>
             </form>
           )}
         </section>
@@ -1579,7 +1656,7 @@ export default function App() {
           <section className="card">
             <div className="section-heading compact">
               <p className="eyebrow">Admin</p>
-              <span>KPI view</span>
+              <span>{adminUsers.length} accounts</span>
             </div>
             <div className="stack">
               <div className="admin-metrics">
@@ -1600,6 +1677,10 @@ export default function App() {
                   <strong>${adminOverview.metrics.estimatedMrrUsd}</strong>
                 </div>
               </div>
+              <p className="muted">
+                Full admin tools are available in the main workspace, including account status,
+                privilege review, password resets, and delete controls for testing.
+              </p>
               {adminOverview.recentSubscriptions.slice(0, 3).map((subscription) => (
                 <div key={subscription.id} className="row-card">
                   <div>
@@ -1622,7 +1703,14 @@ export default function App() {
           </div>
           <div className="stack">
             {documents.length === 0 ? (
-              <p className="muted">Upload a PDF after signing in to start a workflow.</p>
+              <div className="stack">
+                <p className="muted">Upload a PDF after signing in to start a workflow.</p>
+                {!sessionUser ? (
+                  <p className="muted">
+                    Admin login lives in the Authentication card above. Use <strong>admin@agoperations.ca</strong>.
+                  </p>
+                ) : null}
+              </div>
             ) : (
               documents.map((document) => (
                 <button
@@ -1673,6 +1761,135 @@ export default function App() {
 
         {errorMessage ? <div className="alert">{errorMessage}</div> : null}
         {noticeMessage ? <div className="alert success">{noticeMessage}</div> : null}
+
+        {sessionUser?.isAdmin && adminOverview ? (
+          <section className="panel admin-console-panel">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">Admin console</p>
+                <h3>Review accounts, privileges, and testing access in one place</h3>
+              </div>
+              <button
+                className="secondary-button"
+                disabled={!session || isLoading}
+                onClick={() => {
+                  if (!session) {
+                    return;
+                  }
+
+                  Promise.all([refreshAdminOverview(session), refreshAdminUsers(session)]).catch((error) =>
+                    setErrorMessage((error as Error).message),
+                  );
+                }}
+              >
+                Refresh admin data
+              </button>
+            </div>
+
+            <div className="split admin-console-grid">
+              <div className="stack">
+                <div className="admin-metrics">
+                  <div className="metric">
+                    <span>Users</span>
+                    <strong>{adminOverview.metrics.totalUsers}</strong>
+                  </div>
+                  <div className="metric">
+                    <span>Queued emails</span>
+                    <strong>{adminOverview.metrics.pendingNotifications}</strong>
+                  </div>
+                  <div className="metric">
+                    <span>Workspaces</span>
+                    <strong>{adminOverview.metrics.totalWorkspaces}</strong>
+                  </div>
+                  <div className="metric">
+                    <span>Documents</span>
+                    <strong>{adminOverview.metrics.totalDocuments}</strong>
+                  </div>
+                </div>
+
+                <div className="toolbar-card">
+                  <div className="section-heading compact">
+                    <p className="eyebrow">Recent workspaces</p>
+                    <span>{adminOverview.recentWorkspaces.length}</span>
+                  </div>
+                  <div className="stack">
+                    {adminOverview.recentWorkspaces.slice(0, 4).map((workspace) => (
+                      <div key={workspace.id} className="row-card">
+                        <div>
+                          <strong>{workspace.name}</strong>
+                          <p className="muted">
+                            {workspace.workspace_type} · {workspace.slug}
+                          </p>
+                        </div>
+                        <span>{formatTimestamp(workspace.created_at)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="toolbar-card">
+                <div className="section-heading compact">
+                  <p className="eyebrow">Accounts</p>
+                  <span>{adminUsers.length}</span>
+                </div>
+                <p className="muted action-note">
+                  Use this view to confirm account status, see who has admin access, trigger password resets,
+                  and delete test accounts when you need a clean slate.
+                </p>
+                <div className="stack admin-user-list">
+                  {adminUsers.length === 0 ? (
+                    <p className="muted">No user accounts exist yet.</p>
+                  ) : (
+                    adminUsers.map((adminUser) => (
+                      <div key={adminUser.id} className="row-card admin-user-card">
+                        <div className="admin-user-copy">
+                          <strong>
+                            {adminUser.id === sessionUser.id ? "You" : adminUser.displayName}
+                          </strong>
+                          <p className="muted">{adminUser.email}</p>
+                          <p className="muted">
+                            {adminUser.status === "confirmed" ? "Confirmed" : "Pending confirmation"} ·
+                            created {formatTimestamp(adminUser.createdAt)}
+                          </p>
+                          <p className="muted">
+                            Last sign in: {formatTimestamp(adminUser.lastSignInAt)} · workspaces:{" "}
+                            {adminUser.workspaceCount} · documents: {adminUser.documentCount}
+                          </p>
+                          {adminUser.companyName ? (
+                            <p className="muted">Company: {adminUser.companyName}</p>
+                          ) : null}
+                          <p className="muted">
+                            Privileges: {adminUser.privilegeLabels.join(", ")}
+                          </p>
+                        </div>
+                        <div className="field-actions">
+                          {adminUser.isPlatformAdmin ? <span>Platform admin</span> : null}
+                          <button
+                            className="ghost-button"
+                            disabled={isLoading}
+                            onClick={() => handleAdminSendPasswordReset(adminUser.id)}
+                            type="button"
+                          >
+                            Send reset email
+                          </button>
+                          <button
+                            className="ghost-button danger-button"
+                            disabled={isLoading || !adminUser.canDelete}
+                            onClick={() => handleAdminDeleteUser(adminUser.id)}
+                            type="button"
+                          >
+                            Delete user
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <section className="grid">
           <div className="panel">

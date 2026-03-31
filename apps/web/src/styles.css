@@ -558,6 +558,27 @@ select {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.admin-console-panel {
+  margin-bottom: 20px;
+}
+
+.admin-console-grid {
+  margin-top: 18px;
+}
+
+.admin-user-list {
+  margin-top: 14px;
+}
+
+.admin-user-card {
+  align-items: stretch;
+}
+
+.admin-user-copy {
+  display: grid;
+  gap: 4px;
+}
+
 @media (max-width: 1080px) {
   .shell,
   .grid,

@@ -236,6 +236,22 @@ type DigitalSignatureProfileResponse = {
   updatedAt: string;
 };
 
+type AdminManagedUserResponse = {
+  id: string;
+  email: string;
+  displayName: string;
+  companyName: string | null;
+  createdAt: string;
+  lastSignInAt: string | null;
+  emailConfirmedAt: string | null;
+  status: "confirmed" | "pending_confirmation";
+  isPlatformAdmin: boolean;
+  canDelete: boolean;
+  workspaceCount: number;
+  documentCount: number;
+  privilegeLabels: string[];
+};
+
 export type AuthenticatedUser = User & {
   rawEmail: string;
 };
@@ -323,6 +339,15 @@ const updateProfileInputSchema = z.object({
   productUpdatesOptIn: z.boolean().default(true),
 });
 
+const adminDeleteUserInputSchema = z.object({
+  userId: z.string().uuid(),
+});
+
+const adminResetUserPasswordInputSchema = z.object({
+  userId: z.string().uuid(),
+  redirectTo: z.string().url().nullable().optional(),
+});
+
 const createDigitalSignatureProfileInputSchema = z.object({
   label: z.string().trim().min(1).max(80),
   titleText: z.string().trim().max(120).nullable().default(null),
@@ -391,6 +416,24 @@ function assertAdminUser(user: AuthenticatedUser) {
   if (!isAdminUser(user)) {
     throw new AppError(403, "You do not have permission to view the EasyDraft admin console.");
   }
+}
+
+async function listAdminAuthUsers(adminClient: ReturnType<typeof createServiceRoleClient>) {
+  const { data, error } = await adminClient.auth.admin.listUsers();
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return data.users ?? [];
+}
+
+async function findAdminAuthUserById(
+  adminClient: ReturnType<typeof createServiceRoleClient>,
+  userId: string,
+) {
+  const users = await listAdminAuthUsers(adminClient);
+  return users.find((candidate) => candidate.id === userId) ?? null;
 }
 
 export async function ensureDefaultWorkspaceForUser(user: AuthenticatedUser) {
@@ -1710,6 +1753,195 @@ export async function getAdminOverviewForAuthorizationHeader(
       billing_email: string | null;
       created_at: string;
     }>,
+  };
+}
+
+export async function listAdminUsersForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  assertAdminUser(user);
+  const adminClient = createServiceRoleClient();
+  const authUsers = await listAdminAuthUsers(adminClient);
+  const userIds = authUsers.map((authUser) => authUser.id);
+
+  if (userIds.length === 0) {
+    return { users: [] as AdminManagedUserResponse[] };
+  }
+
+  const [profilesResponse, membershipsResponse, documentsResponse] = await Promise.all([
+    adminClient
+      .from("profiles")
+      .select("id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at")
+      .in("id", userIds),
+    adminClient
+      .from("workspace_memberships")
+      .select("workspace_id, user_id, role")
+      .in("user_id", userIds),
+    adminClient
+      .from("documents")
+      .select("id, uploaded_by_user_id")
+      .is("deleted_at", null)
+      .in("uploaded_by_user_id", userIds),
+  ]);
+
+  for (const response of [profilesResponse, membershipsResponse, documentsResponse]) {
+    if (response.error) {
+      throw new AppError(500, response.error.message);
+    }
+  }
+
+  const memberships = (membershipsResponse.data ?? []) as Array<{
+    workspace_id: string;
+    user_id: string;
+    role: "owner" | "admin" | "member" | "billing_admin";
+  }>;
+  const workspaceIds = [...new Set(memberships.map((membership) => membership.workspace_id))];
+  const workspacesResponse =
+    workspaceIds.length > 0
+      ? await adminClient.from("workspaces").select("id, name").in("id", workspaceIds)
+      : { data: [], error: null };
+
+  if (workspacesResponse.error) {
+    throw new AppError(500, workspacesResponse.error.message);
+  }
+
+  const profileById = new Map(
+    ((profilesResponse.data ?? []) as ProfileRow[]).map((profile) => [profile.id, profile]),
+  );
+  const workspaceById = new Map(
+    ((workspacesResponse.data ?? []) as Array<{ id: string; name: string }>).map((workspace) => [
+      workspace.id,
+      workspace,
+    ]),
+  );
+  const membershipsByUserId = new Map<string, typeof memberships>();
+
+  for (const membership of memberships) {
+    const list = membershipsByUserId.get(membership.user_id) ?? [];
+    list.push(membership);
+    membershipsByUserId.set(membership.user_id, list);
+  }
+
+  const documentCountByUserId = new Map<string, number>();
+
+  for (const row of (documentsResponse.data ?? []) as Array<{ id: string; uploaded_by_user_id: string }>) {
+    documentCountByUserId.set(
+      row.uploaded_by_user_id,
+      (documentCountByUserId.get(row.uploaded_by_user_id) ?? 0) + 1,
+    );
+  }
+
+  const adminEmails = getAdminEmailSet();
+  const users: AdminManagedUserResponse[] = authUsers
+    .map((authUser) => {
+      const profile = profileById.get(authUser.id);
+      const email = authUser.email ?? profile?.email ?? "";
+      const normalizedEmail = email.toLowerCase();
+      const workspaceMemberships = membershipsByUserId.get(authUser.id) ?? [];
+      const status: AdminManagedUserResponse["status"] = authUser.email_confirmed_at
+        ? "confirmed"
+        : "pending_confirmation";
+      const privilegeLabels = [
+        ...(adminEmails.has(normalizedEmail) ? ["platform admin"] : []),
+        ...workspaceMemberships.map((membership) => {
+          const workspace = workspaceById.get(membership.workspace_id);
+          return `${membership.role} @ ${workspace?.name ?? membership.workspace_id}`;
+        }),
+      ];
+
+      return {
+        id: authUser.id,
+        email,
+        displayName:
+          profile?.display_name ??
+          authUser.user_metadata?.full_name ??
+          authUser.user_metadata?.name ??
+          email.split("@")[0] ??
+          "Unknown user",
+        companyName: profile?.company_name ?? null,
+        createdAt: authUser.created_at,
+        lastSignInAt: authUser.last_sign_in_at ?? null,
+        emailConfirmedAt: authUser.email_confirmed_at ?? null,
+        status,
+        isPlatformAdmin: adminEmails.has(normalizedEmail),
+        canDelete: authUser.id !== user.id && !adminEmails.has(normalizedEmail),
+        workspaceCount: workspaceMemberships.length,
+        documentCount: documentCountByUserId.get(authUser.id) ?? 0,
+        privilegeLabels: privilegeLabels.length > 0 ? privilegeLabels : ["workspace member pending"],
+      };
+    })
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
+  return { users };
+}
+
+export async function sendAdminPasswordResetForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  assertAdminUser(user);
+  const parsed = adminResetUserPasswordInputSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+  const authUser = await findAdminAuthUserById(adminClient, parsed.userId);
+
+  if (!authUser?.email) {
+    throw new AppError(404, "That user account could not be found.");
+  }
+
+  const authClient = createAuthClient();
+  const { error } = await authClient.auth.resetPasswordForEmail(authUser.email, {
+    redirectTo: parsed.redirectTo ?? readServerEnv().EASYDRAFT_APP_ORIGIN,
+  });
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return {
+    email: authUser.email,
+    redirectTo: parsed.redirectTo ?? readServerEnv().EASYDRAFT_APP_ORIGIN,
+  };
+}
+
+export async function deleteAdminUserForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  assertAdminUser(user);
+  const parsed = adminDeleteUserInputSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+  const authUser = await findAdminAuthUserById(adminClient, parsed.userId);
+
+  if (!authUser?.email) {
+    throw new AppError(404, "That user account could not be found.");
+  }
+
+  if (authUser.id === user.id) {
+    throw new AppError(400, "Use another admin account before deleting your own access.");
+  }
+
+  if (getAdminEmailSet().has(authUser.email.toLowerCase())) {
+    throw new AppError(400, "Platform admin accounts cannot be deleted from the UI.");
+  }
+
+  const { error: authDeleteError } = await adminClient.auth.admin.deleteUser(parsed.userId, false);
+
+  if (authDeleteError) {
+    throw new AppError(500, authDeleteError.message);
+  }
+
+  const { error: profileDeleteError } = await adminClient.from("profiles").delete().eq("id", parsed.userId);
+
+  if (profileDeleteError) {
+    throw new AppError(500, profileDeleteError.message);
+  }
+
+  return {
+    deletedUserId: parsed.userId,
+    email: authUser.email,
   };
 }
 

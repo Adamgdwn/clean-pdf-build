@@ -22,6 +22,8 @@ Documents now support three operational paths:
 
 For the current internal pilot, hosted signup can auto-confirm users so team members reach the app immediately after creating an account. If you later switch email confirmation back on, EasyDraft now sends users back to the current app origin after they confirm.
 
+Admin access uses the same sign-in form as every other user. Sign up or sign in with `admin@agoperations.ca` to unlock the EasyDraft admin console, which now includes account status review, privilege visibility, password-reset email actions, and test-user deletion.
+
 ## Stack
 
 - `apps/web`: React + Vite client prepared for Vercel
