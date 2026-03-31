@@ -84,6 +84,10 @@ export default function App() {
   const [fullName, setFullName] = useState("");
   const [isScannedUpload, setIsScannedUpload] = useState(false);
   const [uploadRouting, setUploadRouting] = useState<"sequential" | "parallel">("sequential");
+  const [deliveryMode, setDeliveryMode] =
+    useState<"self_managed" | "platform_managed">("self_managed");
+  const [distributionTarget, setDistributionTarget] = useState("");
+  const [notifyOriginatorOnEachSignature, setNotifyOriginatorOnEachSignature] = useState(true);
   const [signerName, setSignerName] = useState("");
   const [signerEmail, setSignerEmail] = useState("");
   const [signerOrder, setSignerOrder] = useState("1");
@@ -306,6 +310,9 @@ export default function App() {
           storagePath,
           pageCount: null,
           routingStrategy: uploadRouting,
+          deliveryMode,
+          distributionTarget: distributionTarget.trim() || null,
+          notifyOriginatorOnEachSignature,
           isScanned: isScannedUpload,
         }),
       });
@@ -313,6 +320,7 @@ export default function App() {
       setSelectedDocumentId(payload.document.id);
       await refreshDocuments(session);
       await loadPreview(payload.document.id, session);
+      setDistributionTarget("");
       setNoticeMessage("PDF uploaded and document created.");
     } catch (error) {
       setErrorMessage((error as Error).message);
@@ -677,6 +685,40 @@ export default function App() {
               </label>
             </div>
 
+            <div className="form-grid">
+              <label className="form-field">
+                <span>Workflow path</span>
+                <select
+                  value={deliveryMode}
+                  onChange={(event) =>
+                    setDeliveryMode(event.target.value as "self_managed" | "platform_managed")
+                  }
+                >
+                  <option value="self_managed">Store, edit, then distribute it myself</option>
+                  <option value="platform_managed">Store, edit, and let Clean PDF route signatures</option>
+                </select>
+              </label>
+              {deliveryMode === "self_managed" ? (
+                <label className="form-field">
+                  <span>Shared storage or distribution target</span>
+                  <input
+                    placeholder="Dropbox, SharePoint, network folder, email, etc."
+                    value={distributionTarget}
+                    onChange={(event) => setDistributionTarget(event.target.value)}
+                  />
+                </label>
+              ) : (
+                <label className="checkbox-row">
+                  <input
+                    checked={notifyOriginatorOnEachSignature}
+                    onChange={(event) => setNotifyOriginatorOnEachSignature(event.target.checked)}
+                    type="checkbox"
+                  />
+                  <span>Notify the originator after each signature is made</span>
+                </label>
+              )}
+            </div>
+
             <input
               ref={fileInputRef}
               accept="application/pdf"
@@ -731,6 +773,14 @@ export default function App() {
                     <strong>{formatState(selectedDocument.workflowState)}</strong>
                   </div>
                   <div className="meta-item">
+                    <span>Path</span>
+                    <strong>
+                      {selectedDocument.deliveryMode === "platform_managed"
+                        ? "Managed send + notifications"
+                        : "Self-managed distribution"}
+                    </strong>
+                  </div>
+                  <div className="meta-item">
                     <span>Routing</span>
                     <strong>{selectedDocument.routingStrategy}</strong>
                   </div>
@@ -756,6 +806,11 @@ export default function App() {
                   <p className="muted">
                     The document remains signable until every required assigned signing field is complete
                     or someone explicitly locks it.
+                  </p>
+                  <p className="muted">
+                    {selectedDocument.deliveryMode === "platform_managed"
+                      ? "Clean PDF will queue the next signer email and can notify the originator as signatures complete."
+                      : `This file stays in the workspace while you edit it, then you can download or share it${selectedDocument.distributionTarget ? ` through ${selectedDocument.distributionTarget}` : ""}.`}
                   </p>
                 </div>
 
@@ -1049,6 +1104,33 @@ export default function App() {
 
                   <div>
                     <div className="section-heading">
+                      <p className="eyebrow">Notifications</p>
+                      <span>{selectedDocument.notifications.length}</span>
+                    </div>
+                    <div className="stack">
+                      {selectedDocument.notifications.length === 0 ? (
+                        <p className="muted">
+                          {selectedDocument.deliveryMode === "platform_managed"
+                            ? "Notifications will appear here once the document is sent or signatures are completed."
+                            : "Self-managed documents do not queue automatic signature emails."}
+                        </p>
+                      ) : (
+                        selectedDocument.notifications.slice(0, 8).map((notification) => (
+                          <div key={notification.id} className="timeline-item">
+                            <strong>
+                              {notification.eventType.replaceAll("_", " ")} · {notification.status}
+                            </strong>
+                            <p className="muted">
+                              {notification.recipientEmail} · {formatTimestamp(notification.queuedAt)}
+                            </p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="section-heading">
                       <p className="eyebrow">Lock metadata</p>
                       <span>{selectedDocument.lockedAt ? "Explicitly locked" : "Open"}</span>
                     </div>
@@ -1068,6 +1150,16 @@ export default function App() {
                       <div className="meta-item">
                         <span>Your role</span>
                         <strong>{selectedDocument.currentUserRole ?? "none"}</strong>
+                      </div>
+                      <div className="meta-item">
+                        <span>Distribution target</span>
+                        <strong>{selectedDocument.distributionTarget ?? "Managed in app"}</strong>
+                      </div>
+                      <div className="meta-item">
+                        <span>Originator updates</span>
+                        <strong>
+                          {selectedDocument.notifyOriginatorOnEachSignature ? "Enabled" : "Off"}
+                        </strong>
                       </div>
                     </div>
                   </div>

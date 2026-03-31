@@ -6,10 +6,18 @@ Deployable foundation for a cloud-processed PDF workflow product focused on the 
 - PDF upload and preview
 - shared document access
 - signer and field assignment
+- self-managed distribution and platform-managed signing paths
 - audit trail and version history
 - queued OCR and field-detection jobs
 - Stripe-backed workspace billing bootstrap
 - explicit lock and reopen behavior
+
+## Workflow paths
+
+Documents now support two operational paths:
+
+- `self_managed`: keep the PDF in the workspace while you edit it, then download it or distribute it through your own shared storage
+- `platform_managed`: keep the PDF in the workspace, send the next signature request from the app, and queue notifications back to the originator when signatures are completed
 
 ## Stack
 

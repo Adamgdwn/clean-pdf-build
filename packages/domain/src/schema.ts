@@ -11,6 +11,7 @@ export const workflowStateSchema = z.enum([
 
 export const accessRoleSchema = z.enum(["owner", "editor", "signer", "viewer"]);
 export const routingStrategySchema = z.enum(["sequential", "parallel"]);
+export const deliveryModeSchema = z.enum(["self_managed", "platform_managed"]);
 export const fieldKindSchema = z.enum([
   "text",
   "image",
@@ -35,7 +36,16 @@ export const auditEventTypeSchema = z.enum([
   "processing.ocr.completed",
   "processing.field_detection.requested",
   "processing.field_detection.completed",
+  "document.delivery_mode.updated",
+  "notification.queued",
+  "notification.sent",
 ]);
+export const notificationEventTypeSchema = z.enum([
+  "signature_request",
+  "signature_progress",
+]);
+export const notificationChannelSchema = z.enum(["email", "in_app"]);
+export const notificationStatusSchema = z.enum(["queued", "sent", "failed", "skipped"]);
 
 export const userSchema = z.object({
   id: z.string(),
@@ -91,11 +101,27 @@ export const auditEventSchema = z.object({
   metadata: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
 });
 
+export const documentNotificationSchema = z.object({
+  id: z.string(),
+  eventType: notificationEventTypeSchema,
+  channel: notificationChannelSchema,
+  status: notificationStatusSchema,
+  recipientEmail: z.string().email(),
+  recipientUserId: z.string().nullable().default(null),
+  recipientSignerId: z.string().nullable().default(null),
+  queuedAt: z.string().datetime(),
+  deliveredAt: z.string().datetime().nullable().default(null),
+  metadata: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
+});
+
 export const documentSchema = z.object({
   id: z.string(),
   name: z.string(),
   fileName: z.string(),
   storagePath: z.string(),
+  deliveryMode: deliveryModeSchema.default("self_managed"),
+  distributionTarget: z.string().nullable().default(null),
+  notifyOriginatorOnEachSignature: z.boolean().default(true),
   pageCount: z.number().int().positive().nullable(),
   uploadedAt: z.string().datetime(),
   uploadedByUserId: z.string(),
@@ -115,11 +141,13 @@ export const documentSchema = z.object({
   fields: z.array(fieldSchema),
   versions: z.array(documentVersionSchema),
   auditTrail: z.array(auditEventSchema),
+  notifications: z.array(documentNotificationSchema),
 });
 
 export type WorkflowState = z.infer<typeof workflowStateSchema>;
 export type AccessRole = z.infer<typeof accessRoleSchema>;
 export type RoutingStrategy = z.infer<typeof routingStrategySchema>;
+export type DeliveryMode = z.infer<typeof deliveryModeSchema>;
 export type FieldKind = z.infer<typeof fieldKindSchema>;
 export type User = z.infer<typeof userSchema>;
 export type DocumentAccess = z.infer<typeof documentAccessSchema>;
@@ -127,4 +155,5 @@ export type Signer = z.infer<typeof signerSchema>;
 export type Field = z.infer<typeof fieldSchema>;
 export type DocumentVersion = z.infer<typeof documentVersionSchema>;
 export type AuditEvent = z.infer<typeof auditEventSchema>;
+export type DocumentNotification = z.infer<typeof documentNotificationSchema>;
 export type DocumentRecord = z.infer<typeof documentSchema>;

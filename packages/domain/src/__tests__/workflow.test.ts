@@ -15,6 +15,9 @@ const baseDocument: DocumentRecord = {
   name: "Demo agreement",
   fileName: "demo-agreement.pdf",
   storagePath: "user_owner/doc_1/demo-agreement.pdf",
+  deliveryMode: "self_managed",
+  distributionTarget: null,
+  notifyOriginatorOnEachSignature: true,
   pageCount: 3,
   uploadedAt: "2026-03-30T18:00:00.000Z",
   uploadedByUserId: "user_owner",
@@ -88,6 +91,7 @@ const baseDocument: DocumentRecord = {
   ],
   versions: [],
   auditTrail: [],
+  notifications: [],
 };
 
 describe("workflow rules", () => {

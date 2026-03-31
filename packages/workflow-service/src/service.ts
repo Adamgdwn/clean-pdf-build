@@ -5,7 +5,9 @@ import {
   isDocumentSignable,
   type AccessRole,
   type AuditEvent,
+  type DeliveryMode,
   type DocumentRecord,
+  type DocumentNotification,
   type DocumentVersion,
   type Field,
   type Signer,
@@ -23,6 +25,9 @@ type DocumentRow = {
   file_name: string;
   storage_path: string;
   workspace_id: string | null;
+  delivery_mode: DeliveryMode;
+  distribution_target: string | null;
+  notify_originator_on_each_signature: boolean;
   page_count: number | null;
   uploaded_at: string;
   uploaded_by_user_id: string;
@@ -100,6 +105,20 @@ type AuditEventRow = {
   metadata: Record<string, string | number | boolean | null> | null;
 };
 
+type NotificationRow = {
+  id: string;
+  document_id: string;
+  event_type: "signature_request" | "signature_progress";
+  channel: "email" | "in_app";
+  status: "queued" | "sent" | "failed" | "skipped";
+  recipient_email: string;
+  recipient_user_id: string | null;
+  recipient_signer_id: string | null;
+  queued_at: string;
+  delivered_at: string | null;
+  metadata: Record<string, string | number | boolean | null> | null;
+};
+
 type ProcessingJobType = "ocr" | "field_detection";
 type ProcessingJobStatus = "queued" | "running" | "completed" | "failed";
 type ProcessingJobRow = {
@@ -125,6 +144,9 @@ const createDocumentInputSchema = z.object({
   name: z.string().min(1).max(200),
   fileName: z.string().min(1).max(200),
   storagePath: z.string().min(1),
+  deliveryMode: z.enum(["self_managed", "platform_managed"]).default("self_managed"),
+  distributionTarget: z.string().trim().max(200).nullable().default(null),
+  notifyOriginatorOnEachSignature: z.boolean().default(true),
   pageCount: z.number().int().positive().nullable().default(null),
   routingStrategy: z.enum(["sequential", "parallel"]).default("sequential"),
   isScanned: z.boolean().default(false),
@@ -289,6 +311,21 @@ function mapAuditEvent(row: AuditEventRow): AuditEvent {
   };
 }
 
+function mapNotification(row: NotificationRow): DocumentNotification {
+  return {
+    id: row.id,
+    eventType: row.event_type,
+    channel: row.channel,
+    status: row.status,
+    recipientEmail: row.recipient_email,
+    recipientUserId: row.recipient_user_id,
+    recipientSignerId: row.recipient_signer_id,
+    queuedAt: row.queued_at,
+    deliveredAt: row.delivered_at,
+    metadata: normalizeMetadata(row.metadata),
+  };
+}
+
 function mapDocumentRecord(
   row: DocumentRow,
   accessRows: DocumentAccessRow[],
@@ -296,12 +333,16 @@ function mapDocumentRecord(
   fieldRows: FieldRow[],
   versionRows: DocumentVersionRow[],
   auditRows: AuditEventRow[],
+  notificationRows: NotificationRow[],
 ): DocumentRecord {
   return {
     id: row.id,
     name: row.name,
     fileName: row.file_name,
     storagePath: row.storage_path,
+    deliveryMode: row.delivery_mode,
+    distributionTarget: row.distribution_target,
+    notifyOriginatorOnEachSignature: row.notify_originator_on_each_signature,
     pageCount: row.page_count,
     uploadedAt: row.uploaded_at,
     uploadedByUserId: row.uploaded_by_user_id,
@@ -333,6 +374,10 @@ function mapDocumentRecord(
       .slice()
       .sort((left, right) => right.created_at.localeCompare(left.created_at))
       .map(mapAuditEvent),
+    notifications: notificationRows
+      .slice()
+      .sort((left, right) => right.queued_at.localeCompare(left.queued_at))
+      .map(mapNotification),
   };
 }
 
@@ -474,6 +519,7 @@ async function requireDocumentBundle(documentId: string) {
     fieldResponse,
     versionResponse,
     auditResponse,
+    notificationResponse,
   ] = await Promise.all([
     adminClient.from("documents").select("*").eq("id", documentId).maybeSingle(),
     adminClient.from("document_access").select("document_id, user_id, role").eq("document_id", documentId),
@@ -495,6 +541,12 @@ async function requireDocumentBundle(documentId: string) {
       .from("document_audit_events")
       .select("id, document_id, type, created_at, actor_user_id, summary, metadata")
       .eq("document_id", documentId),
+    adminClient
+      .from("document_notifications")
+      .select(
+        "id, document_id, event_type, channel, status, recipient_email, recipient_user_id, recipient_signer_id, queued_at, delivered_at, metadata",
+      )
+      .eq("document_id", documentId),
   ]);
 
   if (documentResponse.error) {
@@ -505,7 +557,14 @@ async function requireDocumentBundle(documentId: string) {
     throw new AppError(404, "Document not found.");
   }
 
-  for (const response of [accessResponse, signerResponse, fieldResponse, versionResponse, auditResponse]) {
+  for (const response of [
+    accessResponse,
+    signerResponse,
+    fieldResponse,
+    versionResponse,
+    auditResponse,
+    notificationResponse,
+  ]) {
     if (response.error) {
       throw new AppError(500, response.error.message);
     }
@@ -518,6 +577,7 @@ async function requireDocumentBundle(documentId: string) {
     (fieldResponse.data ?? []) as FieldRow[],
     (versionResponse.data ?? []) as DocumentVersionRow[],
     (auditResponse.data ?? []) as AuditEventRow[],
+    (notificationResponse.data ?? []) as NotificationRow[],
   );
 }
 
@@ -550,6 +610,120 @@ async function appendAuditEvent(
   if (error) {
     throw new AppError(500, error.message);
   }
+}
+
+async function queueNotification(
+  documentId: string,
+  eventType: NotificationRow["event_type"],
+  recipientEmail: string,
+  options: {
+    recipientUserId?: string | null;
+    recipientSignerId?: string | null;
+    metadata?: Record<string, string | number | boolean>;
+  } = {},
+) {
+  const adminClient = createServiceRoleClient();
+  const { error } = await adminClient.from("document_notifications").insert({
+    document_id: documentId,
+    event_type: eventType,
+    channel: "email",
+    status: "queued",
+    recipient_email: recipientEmail,
+    recipient_user_id: options.recipientUserId ?? null,
+    recipient_signer_id: options.recipientSignerId ?? null,
+    provider: "pending",
+    metadata: options.metadata ?? {},
+  });
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+}
+
+async function getProfileById(userId: string) {
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("profiles")
+    .select("id, email, display_name")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return data as { id: string; email: string; display_name: string } | null;
+}
+
+function getPendingRequiredAssignedFields(document: DocumentRecord) {
+  return document.fields.filter(
+    (field) => field.required && !!field.assigneeSignerId && !field.completedAt,
+  );
+}
+
+function getEligibleSignerIdsForNotifications(document: DocumentRecord) {
+  const pendingFields = getPendingRequiredAssignedFields(document);
+
+  if (pendingFields.length === 0) {
+    return [] as string[];
+  }
+
+  if (document.routingStrategy === "parallel") {
+    return [...new Set(pendingFields.map((field) => field.assigneeSignerId).filter(Boolean))] as string[];
+  }
+
+  const signerOrderById = new Map(
+    document.signers.map((signer) => [signer.id, signer.signingOrder ?? Number.MAX_SAFE_INTEGER]),
+  );
+  const nextOrder = Math.min(
+    ...pendingFields.map((field) => signerOrderById.get(field.assigneeSignerId ?? "") ?? Number.MAX_SAFE_INTEGER),
+  );
+
+  return [
+    ...new Set(
+      pendingFields
+        .filter((field) => (signerOrderById.get(field.assigneeSignerId ?? "") ?? Number.MAX_SAFE_INTEGER) === nextOrder)
+        .map((field) => field.assigneeSignerId)
+        .filter(Boolean),
+    ),
+  ] as string[];
+}
+
+async function queueEligibleSignerNotifications(
+  document: DocumentRecord,
+  actorUserId: string,
+  eligibleSignerIds: string[],
+  options: { reason: string; actorLabel: string },
+) {
+  if (document.deliveryMode !== "platform_managed" || eligibleSignerIds.length === 0) {
+    return;
+  }
+
+  const signersToNotify = document.signers.filter((signer) => eligibleSignerIds.includes(signer.id));
+
+  await Promise.all(
+    signersToNotify.map((signer) =>
+      queueNotification(document.id, "signature_request", signer.email, {
+        recipientUserId: signer.userId || null,
+        recipientSignerId: signer.id,
+        metadata: {
+          signerName: signer.name,
+          reason: options.reason,
+        },
+      }),
+    ),
+  );
+
+  await appendAuditEvent(
+    document.id,
+    actorUserId,
+    "notification.queued",
+    `${options.actorLabel} queued ${signersToNotify.length} signer notification${signersToNotify.length === 1 ? "" : "s"}`,
+    {
+      recipients: signersToNotify.length,
+      sequential: document.routingStrategy === "sequential",
+    },
+  );
 }
 
 async function appendVersion(
@@ -649,6 +823,9 @@ export async function createDocumentForAuthorizationHeader(
     file_name: parsed.fileName,
     storage_path: parsed.storagePath,
     workspace_id: workspace.id,
+    delivery_mode: parsed.deliveryMode,
+    distribution_target: parsed.distributionTarget?.trim() ? parsed.distributionTarget.trim() : null,
+    notify_originator_on_each_signature: parsed.notifyOriginatorOnEachSignature,
     page_count: parsed.pageCount,
     uploaded_by_user_id: user.id,
     prepared_at: null,
@@ -678,6 +855,18 @@ export async function createDocumentForAuthorizationHeader(
 
   await appendVersion(parsed.id, user.id, "Uploaded original", "Source PDF uploaded to storage");
   await appendAuditEvent(parsed.id, user.id, "document.uploaded", `Uploaded ${parsed.fileName}`);
+  await appendAuditEvent(
+    parsed.id,
+    user.id,
+    "document.delivery_mode.updated",
+    parsed.deliveryMode === "platform_managed"
+      ? "Configured platform-managed signing path"
+      : "Configured self-managed distribution path",
+    {
+      platformManaged: parsed.deliveryMode === "platform_managed",
+      hasDistributionTarget: Boolean(parsed.distributionTarget?.trim()),
+    },
+  );
 
   if (parsed.isScanned) {
     await requestProcessingJobForAuthorizationHeader(authorizationHeader, parsed.id, "ocr");
@@ -824,6 +1013,7 @@ export async function sendDocumentForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   await assertPermission(documentId, user.id, "send_document");
   const adminClient = createServiceRoleClient();
+  const currentDocument = await requireDocumentBundle(documentId);
   const now = new Date().toISOString();
   const { error } = await adminClient
     .from("documents")
@@ -841,10 +1031,27 @@ export async function sendDocumentForAuthorizationHeader(
   }
 
   await appendVersion(documentId, user.id, "Sent for signing", "Document sent to assigned participants");
-  await appendAuditEvent(documentId, user.id, "document.sent", "Sent document for signing");
+  await appendAuditEvent(
+    documentId,
+    user.id,
+    "document.sent",
+    currentDocument.deliveryMode === "platform_managed"
+      ? "Sent document for signing with managed notifications"
+      : "Marked document ready for self-managed distribution",
+  );
 
   const document = await requireDocumentBundle(documentId);
-  return { document: toWorkflowDocumentResponse(document, user.id) };
+
+  if (document.deliveryMode === "platform_managed") {
+    const eligibleSignerIds = getEligibleSignerIdsForNotifications(document);
+    await queueEligibleSignerNotifications(document, user.id, eligibleSignerIds, {
+      reason: "document_sent",
+      actorLabel: user.name,
+    });
+  }
+
+  const finalDocument = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(finalDocument, user.id) };
 }
 
 export async function lockDocumentForAuthorizationHeader(
@@ -918,6 +1125,7 @@ export async function completeFieldForAuthorizationHeader(
   await assertPermission(documentId, user.id, "complete_assigned_field");
   const adminClient = createServiceRoleClient();
   const document = await requireDocumentBundle(documentId);
+  const eligibleSignerIdsBefore = getEligibleSignerIdsForNotifications(document);
   const signer = document.signers.find(
     (candidate) => candidate.userId === user.id || candidate.email.toLowerCase() === user.rawEmail.toLowerCase(),
   );
@@ -955,6 +1163,49 @@ export async function completeFieldForAuthorizationHeader(
   });
 
   const updatedDocument = await requireDocumentBundle(documentId);
+  const eligibleSignerIdsAfter = getEligibleSignerIdsForNotifications(updatedDocument);
+
+  if (
+    updatedDocument.deliveryMode === "platform_managed" &&
+    updatedDocument.notifyOriginatorOnEachSignature &&
+    (field.kind === "signature" || field.kind === "initial")
+  ) {
+    const originator = await getProfileById(updatedDocument.uploadedByUserId);
+
+    if (originator?.email) {
+      await queueNotification(documentId, "signature_progress", originator.email, {
+        recipientUserId: originator.id,
+        recipientSignerId: signer.id,
+        metadata: {
+          signerName: signer.name,
+          fieldLabel: field.label,
+          fieldKind: field.kind,
+        },
+      });
+
+      await appendAuditEvent(
+        documentId,
+        user.id,
+        "notification.queued",
+        `Queued originator update after ${signer.name} completed ${field.label}`,
+        {
+          originatorNotified: true,
+        },
+      );
+    }
+  }
+
+  const newlyEligibleSignerIds = eligibleSignerIdsAfter.filter(
+    (signerId) => !eligibleSignerIdsBefore.includes(signerId),
+  );
+
+  if (newlyEligibleSignerIds.length > 0) {
+    await queueEligibleSignerNotifications(updatedDocument, user.id, newlyEligibleSignerIds, {
+      reason: "previous_signer_completed",
+      actorLabel: signer.name,
+    });
+  }
+
   const workflowState = deriveWorkflowState(updatedDocument);
 
   if (workflowState === "completed") {
