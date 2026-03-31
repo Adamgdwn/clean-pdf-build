@@ -222,4 +222,27 @@ describe("workflow rules", () => {
       blockers: [],
     });
   });
+
+  it("treats internal-use-only workflows as standard in-app signing flows", () => {
+    const ready: DocumentRecord = {
+      ...baseDocument,
+      deliveryMode: "internal_use_only",
+      sentAt: null,
+      fields: [
+        {
+          ...baseDocument.fields[0],
+          completedAt: null,
+          completedBySignerId: null,
+          value: null,
+        },
+      ],
+      signers: [baseDocument.signers[0]],
+    };
+
+    expect(getDocumentSendReadiness(ready)).toEqual({
+      ready: true,
+      blockers: [],
+    });
+    expect(deriveWorkflowState(ready)).toBe("prepared");
+  });
 });

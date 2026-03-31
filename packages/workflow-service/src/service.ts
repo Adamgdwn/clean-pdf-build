@@ -239,7 +239,7 @@ const createDocumentInputSchema = z.object({
   name: z.string().min(1).max(200),
   fileName: z.string().min(1).max(200),
   storagePath: z.string().min(1),
-  deliveryMode: z.enum(["self_managed", "platform_managed"]).default("self_managed"),
+  deliveryMode: z.enum(["self_managed", "internal_use_only", "platform_managed"]).default("self_managed"),
   distributionTarget: z.string().trim().max(200).nullable().default(null),
   notifyOriginatorOnEachSignature: z.boolean().default(true),
   pageCount: z.number().int().positive().nullable().default(null),
@@ -335,6 +335,18 @@ function slugify(value: string) {
 
 function normalizeEmailAddress(value: string) {
   return value.trim().toLowerCase();
+}
+
+function describeDeliveryMode(deliveryMode: DeliveryMode) {
+  if (deliveryMode === "platform_managed") {
+    return "platform-managed signing path";
+  }
+
+  if (deliveryMode === "internal_use_only") {
+    return "internal-use-only signing path";
+  }
+
+  return "self-managed distribution path";
 }
 
 const accessRolePriority: Record<AccessRole, number> = {
@@ -1802,11 +1814,11 @@ export async function createDocumentForAuthorizationHeader(
     parsed.id,
     user.id,
     "document.delivery_mode.updated",
-    parsed.deliveryMode === "platform_managed"
-      ? "Configured platform-managed signing path"
-      : "Configured self-managed distribution path",
+    `Configured ${describeDeliveryMode(parsed.deliveryMode)}`,
     {
+      deliveryMode: parsed.deliveryMode,
       platformManaged: parsed.deliveryMode === "platform_managed",
+      internalUseOnly: parsed.deliveryMode === "internal_use_only",
       hasDistributionTarget: Boolean(parsed.distributionTarget?.trim()),
     },
   );
@@ -2053,14 +2065,29 @@ export async function sendDocumentForAuthorizationHeader(
     throw new AppError(500, error.message);
   }
 
-  await appendVersion(documentId, user.id, "Sent for signing", "Document sent to assigned participants");
+  await appendVersion(
+    documentId,
+    user.id,
+    currentDocument.deliveryMode === "platform_managed"
+      ? "Sent for signing"
+      : currentDocument.deliveryMode === "internal_use_only"
+        ? "Opened for internal signing"
+        : "Marked ready for distribution",
+    currentDocument.deliveryMode === "platform_managed"
+      ? "Document sent to assigned participants"
+      : currentDocument.deliveryMode === "internal_use_only"
+        ? "Document opened for internal EasyDraft signing"
+        : "Document marked ready for self-managed distribution",
+  );
   await appendAuditEvent(
     documentId,
     user.id,
     "document.sent",
     currentDocument.deliveryMode === "platform_managed"
       ? "Sent document for signing with managed notifications"
-      : "Marked document ready for self-managed distribution",
+      : currentDocument.deliveryMode === "internal_use_only"
+        ? "Marked document ready for internal EasyDraft signing"
+        : "Marked document ready for self-managed distribution",
   );
 
   const document = await requireDocumentBundle(documentId);

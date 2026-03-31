@@ -138,6 +138,8 @@ The Dropbox Sign integration is not wired yet, but you can prepare the productio
 
 Recommended callback base: `https://easydraftdocs.app`
 
+Until that integration is wired, `internal_use_only` is the built-in low-cost signing path for authenticated internal users. It relies on EasyDraft accounts, saved signatures, and the audit trail rather than third-party certificate-backed signing.
+
 ## Notifications and processor service
 
 Managed signature emails are attempted inline when notifications are queued and Resend is configured. The separate processor is still useful for retries and for OCR / field-detection workloads.

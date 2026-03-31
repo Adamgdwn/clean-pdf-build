@@ -92,6 +92,7 @@ Store the future values in your secret manager or Vercel using these names for c
 2. Create at least one non-admin owner account and two signer accounts for smoke tests.
 3. Verify:
    - upload
+   - internal-use-only signing
    - field placement
    - self-managed sharing
    - managed send

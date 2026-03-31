@@ -11,7 +11,7 @@ export const workflowStateSchema = z.enum([
 
 export const accessRoleSchema = z.enum(["owner", "editor", "signer", "viewer"]);
 export const routingStrategySchema = z.enum(["sequential", "parallel"]);
-export const deliveryModeSchema = z.enum(["self_managed", "platform_managed"]);
+export const deliveryModeSchema = z.enum(["self_managed", "internal_use_only", "platform_managed"]);
 export const fieldKindSchema = z.enum([
   "text",
   "image",

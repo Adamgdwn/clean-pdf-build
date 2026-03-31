@@ -163,6 +163,65 @@ function formatRoleLabel(document: Pick<WorkflowDocument, "currentUserRole" | "c
   return document.currentUserRole;
 }
 
+function getDeliveryModeLabel(deliveryMode: WorkflowDocument["deliveryMode"]) {
+  if (deliveryMode === "platform_managed") {
+    return "Managed send + notifications";
+  }
+
+  if (deliveryMode === "internal_use_only") {
+    return "Internal EasyDraft signing";
+  }
+
+  return "Self-managed distribution";
+}
+
+function getDeliveryModeActionLabel(
+  deliveryMode: WorkflowDocument["deliveryMode"],
+  hasBeenSent: boolean,
+) {
+  if (deliveryMode === "platform_managed") {
+    return hasBeenSent ? "Send current routing again" : "Send for signatures";
+  }
+
+  if (deliveryMode === "internal_use_only") {
+    return hasBeenSent ? "Refresh internal ready state" : "Open for internal signing";
+  }
+
+  return hasBeenSent ? "Refresh ready state" : "Mark ready to distribute";
+}
+
+function getDeliveryModeCompletionCopy(document: WorkflowDocument) {
+  if (document.deliveryMode === "platform_managed") {
+    return "EasyDraft will queue the next signer email and can notify the originator as signatures complete.";
+  }
+
+  if (document.deliveryMode === "internal_use_only") {
+    return "Internal-use-only documents are signed by authenticated EasyDraft users. They stay inside EasyDraft and are not third-party certified.";
+  }
+
+  return `This file stays in the workspace while you edit it, then you can download or share it${
+    document.distributionTarget ? ` through ${document.distributionTarget}` : ""
+  }.`;
+}
+
+function getDeliveryModeReadyCopy(document: WorkflowDocument, hasBeenSent: boolean) {
+  if (document.deliveryMode === "platform_managed") {
+    return hasBeenSent
+      ? "The workflow has been sent. Use reopen or send again if routing changes."
+      : "EasyDraft will queue the next eligible signer when you send.";
+  }
+
+  if (document.deliveryMode === "internal_use_only") {
+    return hasBeenSent
+      ? "This document is open for internal signing inside EasyDraft."
+      : "Open the document for internal signing once setup is complete, then ask signers to log in and sign.";
+  }
+
+  return hasBeenSent
+    ? "This document has been marked ready for self-managed distribution."
+    : "Mark the document ready once setup is complete, then share or download it yourself.";
+}
+
 type ChecklistStep = {
   label: string;
   detail: string;
@@ -189,7 +248,7 @@ export default function App() {
   const [isScannedUpload, setIsScannedUpload] = useState(false);
   const [uploadRouting, setUploadRouting] = useState<"sequential" | "parallel">("sequential");
   const [deliveryMode, setDeliveryMode] =
-    useState<"self_managed" | "platform_managed">("self_managed");
+    useState<"self_managed" | "internal_use_only" | "platform_managed">("self_managed");
   const [distributionTarget, setDistributionTarget] = useState("");
   const [notifyOriginatorOnEachSignature, setNotifyOriginatorOnEachSignature] = useState(true);
   const [signerName, setSignerName] = useState("");
@@ -272,13 +331,7 @@ export default function App() {
   const hasCompletedSigning =
     (selectedDocument?.completionSummary.completedRequiredAssignedFields ?? 0) > 0;
   const sendActionLabel = selectedDocument
-    ? selectedDocument.deliveryMode === "platform_managed"
-      ? hasBeenSent
-        ? "Send current routing again"
-        : "Send for signatures"
-      : hasBeenSent
-        ? "Refresh ready state"
-        : "Mark ready to distribute"
+    ? getDeliveryModeActionLabel(selectedDocument.deliveryMode, hasBeenSent)
     : "Send";
   const canLockDocument = Boolean(
     selectedDocument && selectedDocument.signable && selectedDocument.workflowState !== "draft",
@@ -335,15 +388,10 @@ export default function App() {
           label:
             selectedDocument.deliveryMode === "platform_managed"
               ? "Send and route"
-              : "Ready to distribute",
-          detail:
-            selectedDocument.deliveryMode === "platform_managed"
-              ? hasBeenSent
-                ? "The workflow has been sent. Use reopen or send again if routing changes."
-                : "EasyDraft will queue the next eligible signer when you send."
-              : hasBeenSent
-                ? "This document has been marked ready for self-managed distribution."
-                : "Mark the document ready once setup is complete, then share or download it yourself.",
+              : selectedDocument.deliveryMode === "internal_use_only"
+                ? "Open internal signing"
+                : "Ready to distribute",
+          detail: getDeliveryModeReadyCopy(selectedDocument, hasBeenSent),
           done: hasBeenSent,
         },
         {
@@ -371,11 +419,15 @@ export default function App() {
           : !hasBeenSent
             ? selectedDocument.deliveryMode === "platform_managed"
               ? "Ready to send. EasyDraft will notify the next eligible signer."
-              : "Ready to distribute. Mark it ready, then share or download it on your terms."
+              : selectedDocument.deliveryMode === "internal_use_only"
+                ? "Ready to open for internal signing in EasyDraft."
+                : "Ready to distribute. Mark it ready, then share or download it on your terms."
             : hasCompletedSigning
               ? `In progress. ${selectedDocument.completionSummary.remainingRequiredAssignedFields} required field${selectedDocument.completionSummary.remainingRequiredAssignedFields === 1 ? "" : "s"} still need completion.`
               : selectedDocument.deliveryMode === "platform_managed"
                 ? "Sent and waiting for the first signer to act."
+                : selectedDocument.deliveryMode === "internal_use_only"
+                  ? "Open for internal signing. Signers can log in and complete their assigned fields."
                 : "Ready for self-managed distribution."
     : "";
 
@@ -1584,7 +1636,7 @@ export default function App() {
             </div>
             <div className="metric">
               <span>Distribution</span>
-              <strong>Self or managed</strong>
+              <strong>Self, internal, or managed</strong>
             </div>
           </div>
         </header>
@@ -1637,10 +1689,13 @@ export default function App() {
                 <select
                   value={deliveryMode}
                   onChange={(event) =>
-                    setDeliveryMode(event.target.value as "self_managed" | "platform_managed")
+                    setDeliveryMode(
+                      event.target.value as "self_managed" | "internal_use_only" | "platform_managed",
+                    )
                   }
                 >
                   <option value="self_managed">Store, edit, then distribute it myself</option>
+                  <option value="internal_use_only">Store, edit, and collect internal signatures in EasyDraft</option>
                   <option value="platform_managed">Store, edit, and let EasyDraft route signatures</option>
                 </select>
               </label>
@@ -1653,7 +1708,7 @@ export default function App() {
                     onChange={(event) => setDistributionTarget(event.target.value)}
                   />
                 </label>
-              ) : (
+              ) : deliveryMode === "platform_managed" ? (
                 <label className="checkbox-row">
                   <input
                     checked={notifyOriginatorOnEachSignature}
@@ -1662,6 +1717,14 @@ export default function App() {
                   />
                   <span>Notify the originator after each signature is made</span>
                 </label>
+              ) : (
+                <div className="row-card">
+                  <strong>Internal use only</strong>
+                  <p className="muted">
+                    Signers complete assigned fields inside EasyDraft after signing in. This path is
+                    intended for internal documents and is not third-party certified.
+                  </p>
+                </div>
               )}
             </div>
 
@@ -1720,11 +1783,7 @@ export default function App() {
                   </div>
                   <div className="meta-item">
                     <span>Path</span>
-                    <strong>
-                      {selectedDocument.deliveryMode === "platform_managed"
-                        ? "Managed send + notifications"
-                        : "Self-managed distribution"}
-                    </strong>
+                    <strong>{getDeliveryModeLabel(selectedDocument.deliveryMode)}</strong>
                   </div>
                   <div className="meta-item">
                     <span>Routing</span>
@@ -1743,7 +1802,9 @@ export default function App() {
                   <div className="meta-item">
                     <span>Signature security</span>
                     <strong>
-                      {digitalSignatureProfiles.some((profile) => profile.status === "verified")
+                      {selectedDocument.deliveryMode === "internal_use_only"
+                        ? "Internal-use-only approval trail"
+                        : digitalSignatureProfiles.some((profile) => profile.status === "verified")
                         ? "Verified digital profile available"
                         : "Standard e-sign active"}
                     </strong>
@@ -1762,9 +1823,7 @@ export default function App() {
                     or someone explicitly locks it.
                   </p>
                   <p className="muted">
-                    {selectedDocument.deliveryMode === "platform_managed"
-                      ? "EasyDraft will queue the next signer email and can notify the originator as signatures complete."
-                      : `This file stays in the workspace while you edit it, then you can download or share it${selectedDocument.distributionTarget ? ` through ${selectedDocument.distributionTarget}` : ""}.`}
+                    {getDeliveryModeCompletionCopy(selectedDocument)}
                   </p>
                   {sendReadiness ? (
                     <div className="stack">
@@ -1772,9 +1831,13 @@ export default function App() {
                         {sendReadiness.ready
                           ? selectedDocument.deliveryMode === "platform_managed"
                             ? "Ready to send. The current routing and required signing fields are set."
+                            : selectedDocument.deliveryMode === "internal_use_only"
+                              ? "Ready to open for internal signing in EasyDraft."
                             : "Ready to mark for self-managed distribution."
                           : selectedDocument.deliveryMode === "platform_managed"
                             ? "Before sending for signatures:"
+                            : selectedDocument.deliveryMode === "internal_use_only"
+                              ? "Before opening this for internal signing:"
                             : "Before marking this ready to distribute:"}
                       </p>
                       {!sendReadiness.ready
@@ -1874,11 +1937,13 @@ export default function App() {
                       ? sendReadiness?.blockers[0]
                       : selectedDocument.deliveryMode === "platform_managed"
                         ? "Sending keeps the current field map and routing, then notifies the next eligible signer."
+                        : selectedDocument.deliveryMode === "internal_use_only"
+                          ? "Opening this for internal signing keeps the document inside EasyDraft. Signers can complete their assigned fields after they log in."
                         : "Marking this ready does not send emails. It simply records that the file is ready for self-managed distribution."}
                   </p>
                 </div>
 
-                {canEdit && selectedDocument.deliveryMode === "platform_managed" ? (
+                {canEdit && selectedDocument.deliveryMode !== "self_managed" ? (
                   <div className="toolbar-card">
                     <div className="section-heading compact">
                       <p className="eyebrow">Next step</p>
@@ -2333,6 +2398,8 @@ export default function App() {
                         <p className="muted">
                           {selectedDocument.deliveryMode === "platform_managed"
                             ? "Notifications will appear here once the document is sent or signatures are completed."
+                            : selectedDocument.deliveryMode === "internal_use_only"
+                              ? "Internal-use-only documents do not queue automatic signer emails. Signing progress is still recorded in the audit trail."
                             : "Self-managed documents do not queue automatic signature emails."}
                         </p>
                       ) : (

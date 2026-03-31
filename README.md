@@ -14,9 +14,10 @@ Deployable foundation for a cloud-processed PDF workflow product focused on the 
 
 ## Workflow paths
 
-Documents now support two operational paths:
+Documents now support three operational paths:
 
 - `self_managed`: keep the PDF in the workspace while you edit it, then download it or distribute it through your own shared storage
+- `internal_use_only`: keep the PDF in EasyDraft, collect signatures from authenticated internal users, and use the built-in audit trail without third-party certification
 - `platform_managed`: keep the PDF in the workspace, send the next signature request from the app, and queue notifications back to the originator when signatures are completed
 
 ## Stack
@@ -107,6 +108,7 @@ The current build now includes these workflow and policy improvements:
 
 - a user can be a collaborator and a signer on the same document without losing their stronger role
 - duplicate signer emails are blocked per document
+- a new `internal_use_only` path for low-cost internal signing inside EasyDraft
 - routed signer notifications are based on required signature and initial fields only
 - managed notification emails are attempted immediately when Resend is configured
 - collaborator invites are now clearly separated from routed signer setup
@@ -174,6 +176,7 @@ The intended lifecycle should be treated as field-centric and audit-centric, not
    - The document moves into `prepared` once usable structure exists.
 3. Send
    - In `self_managed`, the owner downloads or shares the file themselves.
+   - In `internal_use_only`, internal signers log in to EasyDraft and complete assigned fields inside the app.
    - In `platform_managed`, EasyDraft queues signer notifications and owner progress updates.
    - The document moves into `sent`.
 4. Partial completion
@@ -256,6 +259,20 @@ Expected:
 - sent -> partially signed or completed depending on remaining required fields
 - originator gets progress notification when configured
 - completed state appears only when all required assigned signing fields are done
+
+### 2B. Single Signer Internal-Only Flow
+
+1. Upload one PDF in `internal_use_only`.
+2. Add one internal signer and one required signature field.
+3. Open it for internal signing.
+4. Sign in as that user and complete the field.
+
+Expected:
+
+- the document stays inside EasyDraft
+- no automatic signer email is required
+- the audit trail records the internal signing activity
+- the document reaches `completed` when all required assigned signing fields are done
 
 ### 3. Sequential Multi-Signer Flow
 
