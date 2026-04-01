@@ -105,11 +105,11 @@ export function getDocumentSendReadiness(document: DocumentRecord) {
   }
 
   if (document.completedAt) {
-    blockers.push("This document is already complete. Reopen it only if more signing is required.");
+    blockers.push("This document is already complete. Reopen it only if more workflow actions are required.");
   }
 
   if (document.signers.length === 0) {
-    blockers.push("Add at least one signer before sending.");
+    blockers.push("Add at least one participant before sending.");
   }
 
   if (requiredActionFields.length === 0) {
@@ -118,7 +118,7 @@ export function getDocumentSendReadiness(document: DocumentRecord) {
 
   if (requiredActionFields.some((field) => !field.assigneeSignerId)) {
     blockers.push(
-      "Assign every required signature, initial, or approval field to a signer before sending.",
+      "Assign every required signature, initial, or approval field to a participant before sending.",
     );
   }
 
@@ -127,7 +127,7 @@ export function getDocumentSendReadiness(document: DocumentRecord) {
       (field) => field.assigneeSignerId && !signerIds.has(field.assigneeSignerId),
     )
   ) {
-    blockers.push("Reassign any required action fields that point to a missing signer.");
+    blockers.push("Reassign any required action fields that point to a missing participant.");
   }
 
   if (
@@ -140,7 +140,7 @@ export function getDocumentSendReadiness(document: DocumentRecord) {
     )
   ) {
     blockers.push(
-      "Set a signing order for each signer assigned to a required signature, initial, or approval field.",
+      "Set an action order for each participant assigned to a required signature, initial, or approval field.",
     );
   }
 

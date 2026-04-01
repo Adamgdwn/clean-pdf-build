@@ -191,11 +191,11 @@ function isActionFieldKind(kind: WorkflowDocument["fields"][number]["kind"]) {
 
 function getDeliveryModeLabel(deliveryMode: WorkflowDocument["deliveryMode"]) {
   if (deliveryMode === "platform_managed") {
-    return "Managed send + notifications";
+    return "Managed routing + notifications";
   }
 
   if (deliveryMode === "internal_use_only") {
-    return "Internal EasyDraft signing";
+    return "Internal EasyDraft actions";
   }
 
   return "Self-managed distribution";
@@ -260,7 +260,7 @@ function getDeliveryModeActionLabel(
   }
 
   if (deliveryMode === "internal_use_only") {
-    return hasBeenSent ? "Refresh internal ready state" : "Open for internal signing";
+    return hasBeenSent ? "Refresh internal ready state" : "Open for internal actions";
   }
 
   return hasBeenSent ? "Refresh ready state" : "Mark ready to distribute";
@@ -272,7 +272,7 @@ function getDeliveryModeCompletionCopy(document: WorkflowDocument) {
   }
 
   if (document.deliveryMode === "internal_use_only") {
-    return "Internal-use-only documents are signed by authenticated EasyDraft users. They stay inside EasyDraft and are not third-party certified.";
+    return "Internal-use-only documents are completed by authenticated EasyDraft users. They stay inside EasyDraft and are not third-party certified.";
   }
 
   return `This file stays in the workspace while you edit it, then you can download or share it${
@@ -290,7 +290,7 @@ function getDeliveryModeReadyCopy(document: WorkflowDocument, hasBeenSent: boole
   if (document.deliveryMode === "internal_use_only") {
     return hasBeenSent
       ? "This document is open for internal signing inside EasyDraft."
-      : "Open the document for internal signing once setup is complete, then ask signers to log in and sign.";
+      : "Open the document for internal actions once setup is complete, then ask participants to log in and complete their assigned fields.";
   }
 
   return hasBeenSent
@@ -301,16 +301,16 @@ function getDeliveryModeReadyCopy(document: WorkflowDocument, hasBeenSent: boole
 function getQuickRouteLabels(deliveryMode: WorkflowDocument["deliveryMode"]) {
   if (deliveryMode === "internal_use_only") {
     return {
-      heading: "Internal signer setup",
-      primary: "Add next internal signer",
-      secondary: "Add parallel internal signer",
+      heading: "Internal participant setup",
+      primary: "Add next internal participant",
+      secondary: "Add parallel internal participant",
     };
   }
 
   return {
     heading: "Next step",
-    primary: "Queue next signature",
-    secondary: "Add parallel signer",
+    primary: "Queue next participant",
+    secondary: "Add parallel participant",
   };
 }
 
@@ -352,11 +352,13 @@ export default function App() {
   const [signerParticipantType, setSignerParticipantType] = useState<"internal" | "external">(
     "external",
   );
+  const [signerRequired, setSignerRequired] = useState(true);
   const [signerStage, setSignerStage] = useState("1");
   const [signerOrder, setSignerOrder] = useState("1");
   const [fieldLabel, setFieldLabel] = useState("");
   const [fieldKind, setFieldKind] =
     useState<"signature" | "initial" | "approval" | "date" | "text">("signature");
+  const [fieldRequired, setFieldRequired] = useState(true);
   const [fieldPage, setFieldPage] = useState("1");
   const [fieldAssigneeSignerId, setFieldAssigneeSignerId] = useState<string>("");
   const [inviteEmail, setInviteEmail] = useState("");
@@ -450,11 +452,11 @@ export default function App() {
           done: true,
         },
         {
-          label: "Add signers",
+          label: "Add participants",
           detail:
             selectedDocument.signers.length > 0
-              ? `${selectedDocument.signers.length} signer${selectedDocument.signers.length === 1 ? "" : "s"} added.`
-              : "Add at least one signer so the workflow has an owner for each signing action.",
+              ? `${selectedDocument.signers.length} participant${selectedDocument.signers.length === 1 ? "" : "s"} added.`
+              : "Add at least one participant so the workflow has an owner for each signing action.",
           done: selectedDocument.signers.length > 0,
         },
         {
@@ -473,14 +475,14 @@ export default function App() {
               ? selectedDocument.routingStrategy === "sequential"
                 ? "Every required action field is assigned and ordered for sequential routing."
                 : "Every required action field is assigned for parallel routing."
-              : "Assign every required action field to a signer before sending.",
+              : "Assign every required action field to a participant before sending.",
           done:
             requiredActionFields.length > 0 &&
             assignedRequiredActionFields.length === requiredActionFields.length &&
             sendReadiness?.blockers.every(
               (blocker) =>
                 blocker !==
-                "Set a signing order for each signer assigned to a required signature, initial, or approval field.",
+                "Set an action order for each participant assigned to a required signature, initial, or approval field.",
             ) !== false,
         },
         {
@@ -488,7 +490,7 @@ export default function App() {
             selectedDocument.deliveryMode === "platform_managed"
               ? "Send and route"
               : selectedDocument.deliveryMode === "internal_use_only"
-                ? "Open internal signing"
+                ? "Open internal actions"
                 : "Ready to distribute",
           detail: getDeliveryModeReadyCopy(selectedDocument, hasBeenSent),
           done: hasBeenSent,
@@ -519,14 +521,14 @@ export default function App() {
             ? selectedDocument.deliveryMode === "platform_managed"
               ? "Ready to send. EasyDraft will notify the next eligible participant."
               : selectedDocument.deliveryMode === "internal_use_only"
-                ? "Ready to open for internal signing in EasyDraft."
+                ? "Ready to open for internal actions in EasyDraft."
                 : "Ready to distribute. Mark it ready, then share or download it on your terms."
             : hasCompletedSigning
               ? `In progress. ${selectedDocument.completionSummary.remainingRequiredAssignedFields} required field${selectedDocument.completionSummary.remainingRequiredAssignedFields === 1 ? "" : "s"} still need completion.`
               : selectedDocument.deliveryMode === "platform_managed"
                 ? "Sent and waiting for the first participant to act."
                 : selectedDocument.deliveryMode === "internal_use_only"
-                  ? "Open for internal signing. Signers can log in and complete their assigned fields."
+                  ? "Open for internal actions. Participants can log in and complete their assigned fields."
                 : "Ready for self-managed distribution."
     : "";
 
@@ -876,13 +878,13 @@ export default function App() {
           participantType:
             selectedDocument.deliveryMode === "internal_use_only" ? "internal" : "external",
           required: true,
-          routingStage: Math.max(1, ...selectedDocument.signers.map((signer) => signer.routingStage ?? 1)),
+          routingStage:
+            routeMode === "sequential"
+              ? Math.max(0, ...selectedDocument.signers.map((signer) => signer.routingStage ?? 1)) + 1
+              : Math.max(1, ...selectedDocument.signers.map((signer) => signer.routingStage ?? 1)),
           signingOrder:
             routeMode === "sequential"
-              ? Math.max(
-                  0,
-                  ...selectedDocument.signers.map((signer) => signer.signingOrder ?? 0),
-                ) + 1
+              ? 1
               : null,
         }),
       });
@@ -898,8 +900,8 @@ export default function App() {
       setNextSignerEmail("");
       setNoticeMessage(
         routeMode === "sequential"
-          ? "Next sequential signer added and routing updated."
-          : "Parallel signer added and parallel routing updated.",
+          ? "Next-stage participant added and routing updated."
+          : "Parallel participant added and parallel routing updated.",
       );
     } catch (error) {
       setErrorMessage((error as Error).message);
@@ -1140,7 +1142,7 @@ export default function App() {
       name: signerName,
       email: signerEmail,
       participantType: signerParticipantType,
-      required: true,
+      required: signerRequired,
       routingStage: Number(signerStage),
       signingOrder: signerOrder.trim() ? Number(signerOrder) : null,
     });
@@ -1148,6 +1150,7 @@ export default function App() {
     setSignerName("");
     setSignerEmail("");
     setSignerParticipantType(selectedDocument.deliveryMode === "internal_use_only" ? "internal" : "external");
+    setSignerRequired(true);
     setSignerStage("1");
     setSignerOrder(String((selectedDocument.signers.length || 0) + 1));
   }
@@ -1164,7 +1167,7 @@ export default function App() {
       page: Number(fieldPage),
       kind: fieldKind,
       label: fieldLabel,
-      required: true,
+      required: fieldRequired,
       assigneeSignerId: fieldAssigneeSignerId || null,
       source: "manual",
       x: Number(fieldX),
@@ -1174,6 +1177,7 @@ export default function App() {
     });
 
     setFieldLabel("");
+    setFieldRequired(true);
   }
 
   async function handleInviteCollaborator(event: FormEvent<HTMLFormElement>) {
@@ -1674,8 +1678,8 @@ export default function App() {
               </div>
               {billingOverview.billingMode === "placeholder" ? (
                 <p className="muted">
-                  Billing is in placeholder mode. Plan buttons stay clickable, but they loop through
-                  a non-live preview until Stripe keys are configured.
+                  Billing is in testing mode. No live charges occur right now. Plan buttons stay clickable,
+                  but they loop through a non-live preview until Stripe keys are configured.
                 </p>
               ) : null}
               {billingOverview.subscription ? (
@@ -2011,8 +2015,8 @@ export default function App() {
                   }
                 >
                   <option value="self_managed">Store, edit, then distribute it myself</option>
-                  <option value="internal_use_only">Store, edit, and collect internal signatures in EasyDraft</option>
-                  <option value="platform_managed">Store, edit, and let EasyDraft route signatures</option>
+                  <option value="internal_use_only">Store, edit, and collect internal signatures or approvals in EasyDraft</option>
+                  <option value="platform_managed">Store, edit, and let EasyDraft route signatures and approvals</option>
                 </select>
               </label>
               <label className="form-field">
@@ -2057,7 +2061,7 @@ export default function App() {
                 <div className="row-card">
                   <strong>Internal use only</strong>
                   <p className="muted">
-                    Signers complete assigned fields inside EasyDraft after signing in. This path is
+                    Participants complete assigned fields inside EasyDraft after signing in. This path is
                     intended for internal documents and is not third-party certified.
                   </p>
                 </div>
@@ -2172,12 +2176,12 @@ export default function App() {
                           ? selectedDocument.deliveryMode === "platform_managed"
                             ? "Ready to send. The current routing and required action fields are set."
                             : selectedDocument.deliveryMode === "internal_use_only"
-                              ? "Ready to open for internal signing in EasyDraft."
+                              ? "Ready to open for internal actions in EasyDraft."
                             : "Ready to mark for self-managed distribution."
                           : selectedDocument.deliveryMode === "platform_managed"
                             ? "Before sending for signatures or approvals:"
                             : selectedDocument.deliveryMode === "internal_use_only"
-                              ? "Before opening this for internal signing:"
+                              ? "Before opening this for internal actions:"
                             : "Before marking this ready to distribute:"}
                       </p>
                       {!sendReadiness.ready
@@ -2278,7 +2282,7 @@ export default function App() {
                       : selectedDocument.deliveryMode === "platform_managed"
                         ? "Sending keeps the current field map and routing, then notifies the next eligible participant."
                         : selectedDocument.deliveryMode === "internal_use_only"
-                          ? "Opening this for internal signing keeps the document inside EasyDraft. Signers can complete their assigned fields after they log in."
+                          ? "Opening this for internal actions keeps the document inside EasyDraft. Participants can complete their assigned fields after they log in."
                         : "Marking this ready does not send emails. It simply records that the file is ready for self-managed distribution."}
                   </p>
                 </div>
@@ -2291,14 +2295,14 @@ export default function App() {
                         </div>
                     <div className="form-grid compact-grid">
                       <label className="form-field">
-                        <span>Next signer name</span>
+                        <span>Next participant name</span>
                         <input
                           value={nextSignerName}
                           onChange={(event) => setNextSignerName(event.target.value)}
                         />
                       </label>
                       <label className="form-field">
-                        <span>Next signer email</span>
+                        <span>Next participant email</span>
                         <input
                           type="email"
                           value={nextSignerEmail}
@@ -2312,14 +2316,14 @@ export default function App() {
                         disabled={isLoading || !nextSignerName.trim() || !nextSignerEmail.trim()}
                         onClick={() => handleQuickRoute("sequential").catch((error) => setErrorMessage((error as Error).message))}
                       >
-                        {quickRouteLabels?.primary ?? "Queue next signature"}
+                        {quickRouteLabels?.primary ?? "Queue next participant"}
                       </button>
                       <button
                         className="secondary-button"
                         disabled={isLoading || !nextSignerName.trim() || !nextSignerEmail.trim()}
                         onClick={() => handleQuickRoute("parallel").catch((error) => setErrorMessage((error as Error).message))}
                       >
-                        {quickRouteLabels?.secondary ?? "Add parallel signer"}
+                        {quickRouteLabels?.secondary ?? "Add parallel participant"}
                       </button>
                     </div>
                   </div>
@@ -2373,7 +2377,7 @@ export default function App() {
                 </div>
                 <p className="muted action-note">
                   {selectedDocument.lockedAt
-                    ? "Locked documents stay closed to signing until they are explicitly reopened."
+                    ? "Locked documents stay closed to workflow actions until they are explicitly reopened."
                     : canReopenDocument
                       ? "Reopen is available after send, partial completion, lock, or completion so changes stay explicit and auditable."
                       : "Lock is available once the document has moved beyond draft. Reopen appears when there is a sent, locked, or completed workflow to resume."}
@@ -2382,7 +2386,7 @@ export default function App() {
                 <section className="subpanel split">
                   <div>
                     <div className="section-heading">
-                      <p className="eyebrow">Signers</p>
+                      <p className="eyebrow">Participants</p>
                       <span>{selectedDocument.signers.length}</span>
                     </div>
                     <div className="stack">
@@ -2442,15 +2446,23 @@ export default function App() {
                             />
                           </label>
                         </div>
+                        <label className="checkbox-row">
+                          <input
+                            checked={signerRequired}
+                            onChange={(event) => setSignerRequired(event.target.checked)}
+                            type="checkbox"
+                          />
+                          <span>Required participant</span>
+                        </label>
                         <label className="form-field">
-                          <span>Signing order</span>
+                          <span>Action order</span>
                           <input
                             value={signerOrder}
                             onChange={(event) => setSignerOrder(event.target.value)}
                           />
                         </label>
                         <button className="ghost-button" disabled={isLoading} type="submit">
-                          Add signer
+                          Add participant
                         </button>
                       </form>
                     ) : null}
@@ -2471,7 +2483,7 @@ export default function App() {
                             <p className="muted">
                               Page {field.page} · {field.source} ·{" "}
                               {field.assigneeSignerId
-                                ? signerLabelById.get(field.assigneeSignerId) ?? "assigned signer"
+                                ? signerLabelById.get(field.assigneeSignerId) ?? "assigned participant"
                                 : "unassigned"}
                             </p>
                             {field.appliedSavedSignatureId ? (
@@ -2556,8 +2568,16 @@ export default function App() {
                             />
                           </label>
                         </div>
+                        <label className="checkbox-row">
+                          <input
+                            checked={fieldRequired}
+                            onChange={(event) => setFieldRequired(event.target.checked)}
+                            type="checkbox"
+                          />
+                          <span>Required field</span>
+                        </label>
                         <label className="form-field">
-                          <span>Assign to signer</span>
+                          <span>Assign to participant</span>
                           <select
                             value={fieldAssigneeSignerId}
                             onChange={(event) => setFieldAssigneeSignerId(event.target.value)}
@@ -2690,8 +2710,8 @@ export default function App() {
                     {canManageAccess ? (
                       <form className="stack form-block" onSubmit={handleInviteCollaborator}>
                         <p className="muted">
-                          Invite collaborators here for review or editing. Add routed signers in the
-                          Signers section above.
+                          Invite collaborators here for review or editing. Add routed participants in the
+                          Participants section above.
                         </p>
                         <label className="form-field">
                           <span>Invite email</span>

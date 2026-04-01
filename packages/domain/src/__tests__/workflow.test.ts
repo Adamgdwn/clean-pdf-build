@@ -173,8 +173,8 @@ describe("workflow rules", () => {
     expect(getDocumentSendReadiness(notReady)).toEqual({
       ready: false,
       blockers: [
-        "Add at least one signer before sending.",
-        "Assign every required signature, initial, or approval field to a signer before sending.",
+        "Add at least one participant before sending.",
+        "Assign every required signature, initial, or approval field to a participant before sending.",
       ],
     });
   });
@@ -202,7 +202,7 @@ describe("workflow rules", () => {
     expect(getDocumentSendReadiness(notReady)).toEqual({
       ready: false,
       blockers: [
-        "Set a signing order for each signer assigned to a required signature, initial, or approval field.",
+        "Set an action order for each participant assigned to a required signature, initial, or approval field.",
       ],
     });
   });

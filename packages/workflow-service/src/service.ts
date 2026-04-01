@@ -17,6 +17,7 @@ import {
   type Signer,
   type User,
 } from "../../domain/src/index.js";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { z } from "zod";
 
 import { readServerEnv } from "./env.js";
@@ -384,6 +385,28 @@ function isActionFieldKind(kind: Field["kind"]) {
 
 function getActionLabelForFieldKind(kind: Field["kind"]) {
   return kind === "approval" ? "approval" : "signature";
+}
+
+function looksLikeStoredImagePath(value: string | null) {
+  if (!value) {
+    return false;
+  }
+
+  return /\/.+\.(png|jpg|jpeg|webp)$/i.test(value);
+}
+
+function formatCompletedAtLabel(timestamp: string | null) {
+  if (!timestamp) {
+    return "";
+  }
+
+  return new Date(timestamp).toLocaleString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function describeDeliveryMode(deliveryMode: DeliveryMode) {
@@ -1511,6 +1534,156 @@ async function queueEligibleSignerNotifications(
   );
 }
 
+async function renderDocumentExportToStorage(document: DocumentRecord) {
+  const env = readServerEnv();
+  const adminClient = createServiceRoleClient();
+  const { data: sourceBlob, error: sourceDownloadError } = await adminClient.storage
+    .from(env.SUPABASE_DOCUMENT_BUCKET)
+    .download(document.storagePath);
+
+  if (sourceDownloadError || !sourceBlob) {
+    throw new AppError(500, sourceDownloadError?.message ?? "Unable to load the source PDF.");
+  }
+
+  const sourceBytes = await sourceBlob.arrayBuffer();
+  const pdfDocument = await PDFDocument.load(sourceBytes);
+  const regularFont = await pdfDocument.embedFont(StandardFonts.Helvetica);
+  const italicFont = await pdfDocument.embedFont(StandardFonts.HelveticaOblique);
+  const signerById = new Map(document.signers.map((signer) => [signer.id, signer]));
+
+  for (const field of document.fields) {
+    if (!field.completedAt) {
+      continue;
+    }
+
+    const page = pdfDocument.getPage(field.page - 1);
+
+    if (!page) {
+      continue;
+    }
+
+    const pageHeight = page.getHeight();
+    const x = Math.max(0, field.x);
+    const y = Math.max(0, pageHeight - field.y - field.height);
+    const width = Math.max(24, field.width);
+    const height = Math.max(16, field.height);
+    const signer = field.completedBySignerId ? signerById.get(field.completedBySignerId) : null;
+
+    if ((field.kind === "signature" || field.kind === "initial") && looksLikeStoredImagePath(field.value)) {
+      const storedImagePath = field.value as string;
+      const { data: imageBlob, error: imageDownloadError } = await adminClient.storage
+        .from(env.SUPABASE_SIGNATURE_BUCKET)
+        .download(storedImagePath);
+
+      if (!imageDownloadError && imageBlob) {
+        const imageBytes = await imageBlob.arrayBuffer();
+
+        try {
+          const image = await pdfDocument.embedPng(imageBytes);
+          page.drawImage(image, { x, y, width, height });
+          continue;
+        } catch {
+          try {
+            const image = await pdfDocument.embedJpg(imageBytes);
+            page.drawImage(image, { x, y, width, height });
+            continue;
+          } catch {
+            // Fall back to text rendering below if image embedding fails.
+          }
+        }
+      }
+    }
+
+    const primaryText =
+      field.kind === "approval"
+        ? signer?.name
+          ? `Approved by ${signer.name}`
+          : "Approved"
+        : field.value && field.value !== "completed"
+          ? field.value
+          : signer?.name ?? "Signed";
+    const secondaryText =
+      field.kind === "approval"
+        ? formatCompletedAtLabel(field.completedAt)
+        : signer?.name && primaryText !== signer.name
+          ? signer.name
+          : formatCompletedAtLabel(field.completedAt);
+    const tertiaryText =
+      secondaryText && secondaryText !== formatCompletedAtLabel(field.completedAt)
+        ? formatCompletedAtLabel(field.completedAt)
+        : "";
+    const primaryFontSize = Math.max(10, Math.min(18, height * (field.kind === "initial" ? 0.5 : 0.6)));
+    const secondaryFontSize = Math.max(7, Math.min(10, height * 0.22));
+    const tertiaryFontSize = Math.max(7, Math.min(9, height * 0.2));
+    const textX = x + 3;
+    const primaryY = y + Math.max(4, height - primaryFontSize - 4);
+
+    page.drawText(primaryText, {
+      x: textX,
+      y: primaryY,
+      size: primaryFontSize,
+      font: field.kind === "signature" || field.kind === "initial" ? italicFont : regularFont,
+      color: rgb(0.12, 0.12, 0.16),
+      maxWidth: Math.max(12, width - 6),
+    });
+
+    if (secondaryText) {
+      page.drawText(secondaryText, {
+        x: textX,
+        y: y + Math.max(2, height * 0.26),
+        size: secondaryFontSize,
+        font: regularFont,
+        color: rgb(0.35, 0.35, 0.42),
+        maxWidth: Math.max(12, width - 6),
+      });
+    }
+
+    if (tertiaryText) {
+      page.drawText(tertiaryText, {
+        x: textX,
+        y: y + 2,
+        size: tertiaryFontSize,
+        font: regularFont,
+        color: rgb(0.42, 0.42, 0.48),
+        maxWidth: Math.max(12, width - 6),
+      });
+    }
+  }
+
+  const exportBytes = await pdfDocument.save();
+  const exportPath = `${document.uploadedByUserId}/${document.id}/exports/latest.pdf`;
+  const { error: uploadError } = await adminClient.storage
+    .from(env.SUPABASE_DOCUMENT_BUCKET)
+    .upload(exportPath, Buffer.from(exportBytes), {
+      contentType: "application/pdf",
+      upsert: true,
+    });
+
+  if (uploadError) {
+    throw new AppError(500, uploadError.message);
+  }
+
+  return exportPath;
+}
+
+async function createExportSignedUrl(document: DocumentRecord, expiresInSeconds: number) {
+  const env = readServerEnv();
+  const adminClient = createServiceRoleClient();
+  const exportPath = await renderDocumentExportToStorage(document);
+  const { data, error } = await adminClient.storage
+    .from(env.SUPABASE_DOCUMENT_BUCKET)
+    .createSignedUrl(exportPath, expiresInSeconds);
+
+  if (error || !data?.signedUrl) {
+    throw new AppError(500, error?.message ?? "Unable to create a signed document URL.");
+  }
+
+  return {
+    signedUrl: data.signedUrl,
+    exportPath,
+  };
+}
+
 async function appendVersion(
   documentId: string,
   createdByUserId: string,
@@ -2585,6 +2758,13 @@ export async function completeFieldForAuthorizationHeader(
     throw new AppError(403, "This field is assigned to another signer.");
   }
 
+  if (field.required && isActionFieldKind(field.kind) && !eligibleSignerIdsBefore.includes(signer.id)) {
+    throw new AppError(
+      409,
+      "This signer is not active yet. Complete the current stage or signing order before continuing.",
+    );
+  }
+
   let appliedSavedSignature: SavedSignatureRow | null = null;
 
   if (parsedInput.savedSignatureId) {
@@ -2708,19 +2888,11 @@ export async function getDocumentDownloadUrlForAuthorizationHeader(
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   await requireDocumentRole(documentId, user.id);
-  const env = readServerEnv();
   const document = await requireDocumentBundle(documentId);
-  const adminClient = createServiceRoleClient();
-  const { data, error } = await adminClient.storage
-    .from(env.SUPABASE_DOCUMENT_BUCKET)
-    .createSignedUrl(document.storagePath, 60 * 10);
-
-  if (error || !data?.signedUrl) {
-    throw new AppError(500, error?.message ?? "Unable to create a signed document URL.");
-  }
+  const { signedUrl } = await createExportSignedUrl(document, 60 * 10);
 
   return {
-    signedUrl: data.signedUrl,
+    signedUrl,
   };
 }
 
@@ -2730,24 +2902,16 @@ export async function createDocumentShareLinkForAuthorizationHeader(
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   await assertPermission(documentId, user, "export_document");
-  const env = readServerEnv();
   const document = await requireDocumentBundle(documentId);
-  const adminClient = createServiceRoleClient();
   const expiresInSeconds = 60 * 60 * 24;
-  const { data, error } = await adminClient.storage
-    .from(env.SUPABASE_DOCUMENT_BUCKET)
-    .createSignedUrl(document.storagePath, expiresInSeconds);
-
-  if (error || !data?.signedUrl) {
-    throw new AppError(500, error?.message ?? "Unable to create a secure share link.");
-  }
+  const { signedUrl } = await createExportSignedUrl(document, expiresInSeconds);
 
   await appendAuditEvent(documentId, user.id, "document.exported", "Generated secure share link", {
     expiresInSeconds,
   });
 
   return {
-    url: data.signedUrl,
+    url: signedUrl,
     expiresInSeconds,
   };
 }
