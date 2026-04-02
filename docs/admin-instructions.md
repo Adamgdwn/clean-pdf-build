@@ -186,6 +186,86 @@ Then send a real test notification and verify:
 - the document link opens correctly
 - email wording is acceptable for testers
 
+## Google Workspace SMTP setup
+
+Current recommended setup for `agoperations.ca`:
+
+- use Google Workspace SMTP
+- use `admin@agoperations.ca` as the first sender mailbox
+- use one mail system for both Supabase Auth emails and EasyDraft workflow emails
+
+Google Workspace SMTP values:
+
+- host: `smtp.gmail.com`
+- port: `587`
+- secure: `false`
+- username: `admin@agoperations.ca`
+- password: Google app password for that mailbox
+
+Important rules:
+
+- do not use the normal Gmail password
+- turn on 2-Step Verification for `admin@agoperations.ca`
+- generate a Google app password and use that as the SMTP password
+
+### Copy-paste Vercel env block
+
+Use these values in Vercel for EasyDraft workflow emails:
+
+```bash
+EASYDRAFT_EMAIL_PROVIDER=smtp
+EASYDRAFT_NOTIFICATION_FROM_EMAIL=admin@agoperations.ca
+EASYDRAFT_NOTIFICATION_FROM_NAME=EasyDraft
+EASYDRAFT_NOTIFICATION_REPLY_TO=admin@agoperations.ca
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=admin@agoperations.ca
+SMTP_PASSWORD=replace-with-google-app-password
+EASYDRAFT_ADMIN_EMAILS=admin@agoperations.ca
+EASYDRAFT_APP_ORIGIN=https://easydraftdocs.app
+```
+
+If you prefer SMTPS instead of STARTTLS, you can use:
+
+- `SMTP_PORT=465`
+- `SMTP_SECURE=true`
+
+### Supabase Auth email setup
+
+To send invites, confirmations, and password resets through the same Gmail mailbox:
+
+1. Open Supabase `Authentication -> Email`.
+2. Enable custom SMTP.
+3. Set sender email to `admin@agoperations.ca`.
+4. Set sender name to `EasyDraft`.
+5. Set host to `smtp.gmail.com`.
+6. Set port to `587`.
+7. Set username to `admin@agoperations.ca`.
+8. Set password to the same Google app password used in Vercel.
+9. Set `site_url` to your live EasyDraft domain.
+10. Confirm redirect URLs include your live domain.
+
+Pilot recommendation:
+
+- keep email confirmation off if you want testers in the app immediately after signup
+- keep it on only if you want stricter invite and confirmation control
+
+### First live test sequence
+
+After the Gmail SMTP values are saved in both Vercel and Supabase:
+
+1. Send yourself a tester invite from the admin console.
+2. Confirm the Supabase invite email arrives.
+3. Sign up or sign in with the invited email.
+4. Upload a document.
+5. Add a signer using a real test email.
+6. Send a `platform_managed` workflow.
+7. Confirm the workflow email arrives.
+8. Open the document from the email link.
+9. Complete the action and confirm the workflow advances.
+10. Confirm the notification record shows as sent in EasyDraft.
+
 ## Test-user and pilot management
 
 For the free tester month, keep operations lightweight and controlled.
