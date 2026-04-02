@@ -58,14 +58,25 @@ Use this after workflow testing passes and before you present EasyDraft as produ
    - `customer.subscription.deleted`
 5. Run one checkout test and one billing-portal test after the keys are added.
 
-## Resend
+## Notification Email
 
-1. Create and verify the sending domain or sender identity.
+1. Choose the workflow email provider:
+   - SMTP
+   - Resend
 2. Add to Vercel:
-   - `RESEND_API_KEY`
+   - `EASYDRAFT_EMAIL_PROVIDER`
    - `EASYDRAFT_NOTIFICATION_FROM_EMAIL`
-3. Send one real notification to verify deliverability and link behavior.
-4. Decide whether you also want the processor deployed for notification retries and queued OCR / field-detection jobs.
+   - `EASYDRAFT_NOTIFICATION_FROM_NAME`
+3. If using SMTP, also add:
+   - `SMTP_HOST`
+   - `SMTP_PORT`
+   - `SMTP_SECURE`
+   - `SMTP_USER`
+   - `SMTP_PASSWORD`
+4. If using Resend, also add:
+   - `RESEND_API_KEY`
+5. Send one real notification to verify deliverability and link behavior.
+6. Decide whether you also want the processor deployed for notification retries and queued OCR / field-detection jobs.
 
 ## Dropbox Sign
 
@@ -110,6 +121,6 @@ Only claim production readiness after all of these are true:
 - HTTPS domain behavior is correct
 - auth redirects are correct
 - Stripe live checkout works
-- Resend notifications work
+- notification delivery works with your chosen provider
 - managed signing flow passes with real users
 - you have chosen and integrated the real signature vendor path

@@ -24,6 +24,7 @@ import { z } from "zod";
 
 import { readServerEnv } from "./env.js";
 import { AppError } from "./errors.js";
+import { deliverNotificationEmail, getConfiguredNotificationEmailProvider } from "./notifications.js";
 import { createAuthClient, createServiceRoleClient } from "./supabase.js";
 
 type DocumentRow = {
@@ -1413,14 +1414,14 @@ async function queueNotification(
     throw new AppError(500, error?.message ?? "Unable to queue notification.");
   }
 
-  if (hasResendConfig()) {
+  if (hasNotificationEmailConfig()) {
     await deliverNotificationRow(data as NotificationRow);
   }
 }
 
-function hasResendConfig() {
+function hasNotificationEmailConfig() {
   const env = readServerEnv();
-  return Boolean(env.RESEND_API_KEY && env.EASYDRAFT_NOTIFICATION_FROM_EMAIL);
+  return Boolean(getConfiguredNotificationEmailProvider(env));
 }
 
 function getNotificationActionOrigin(notification: NotificationRow) {
@@ -1473,61 +1474,61 @@ function buildNotificationEmailContent(notification: NotificationRow, document: 
 
 async function deliverNotificationRow(notification: NotificationRow) {
   const env = readServerEnv();
+  const configuredProvider = getConfiguredNotificationEmailProvider(env);
 
-  if (!env.RESEND_API_KEY || !env.EASYDRAFT_NOTIFICATION_FROM_EMAIL) {
+  if (!configuredProvider) {
     return { delivered: false, reason: "provider_not_configured" } as const;
   }
 
   const document = await requireDocumentBundle(notification.document_id);
   const emailContent = buildNotificationEmailContent(notification, document);
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: env.EASYDRAFT_NOTIFICATION_FROM_EMAIL,
-      to: [notification.recipient_email],
-      subject: emailContent.subject,
-      html: emailContent.html,
-    }),
-  });
-  const responseBody = (await response.json().catch(() => ({}))) as { id?: string; message?: string };
   const adminClient = createServiceRoleClient();
 
-  if (!response.ok) {
+  try {
+    const delivery = await deliverNotificationEmail(env, {
+      to: notification.recipient_email,
+      subject: emailContent.subject,
+      html: emailContent.html,
+    });
+
+    if (!delivery) {
+      return { delivered: false, reason: "provider_not_configured" } as const;
+    }
+
+    await adminClient
+      .from("document_notifications")
+      .update({
+        status: "sent",
+        provider: delivery.provider,
+        delivered_at: new Date().toISOString(),
+        metadata: {
+          ...(notification.metadata ?? {}),
+          providerMessageId: delivery.messageId ?? "",
+        },
+      })
+      .eq("id", notification.id);
+
+    await appendAuditEvent(
+      notification.document_id,
+      "system",
+      "notification.sent",
+      `Delivered ${notification.event_type.replaceAll("_", " ")} email to ${notification.recipient_email}`,
+      {
+        provider: delivery.provider,
+      },
+    );
+
+    return { delivered: true } as const;
+  } catch (error) {
     await adminClient
       .from("document_notifications")
       .update({
         status: "failed",
-        provider: "resend",
+        provider: configuredProvider,
       })
       .eq("id", notification.id);
-    throw new AppError(502, responseBody.message ?? "Notification delivery failed.");
+    throw error;
   }
-
-  await adminClient
-    .from("document_notifications")
-    .update({
-      status: "sent",
-      provider: "resend",
-      delivered_at: new Date().toISOString(),
-      metadata: {
-        ...(notification.metadata ?? {}),
-        providerMessageId: responseBody.id ?? "",
-      },
-    })
-    .eq("id", notification.id);
-
-  await appendAuditEvent(
-    notification.document_id,
-    "system",
-    "notification.sent",
-    `Delivered ${notification.event_type.replaceAll("_", " ")} email to ${notification.recipient_email}`,
-  );
-
-  return { delivered: true } as const;
 }
 
 async function listFieldRowsForDocument(documentId: string) {

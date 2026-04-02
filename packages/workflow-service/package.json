@@ -12,8 +12,12 @@
   "dependencies": {
     "@clean-pdf/domain": "0.1.0",
     "@supabase/supabase-js": "^2.57.4",
+    "nodemailer": "^8.0.4",
     "pdf-lib": "^1.17.1",
     "stripe": "^18.4.0",
     "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^7.0.11"
   }
 }

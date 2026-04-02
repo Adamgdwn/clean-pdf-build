@@ -79,7 +79,7 @@ Current recommended tester onboarding flow:
 Important distinction:
 
 - Supabase Auth handles tester invite and account emails
-- Resend handles workflow emails when enabled
+- EasyDraft workflow emails use the configured SMTP or Resend provider when enabled
 
 ## Billing status
 
@@ -174,8 +174,11 @@ Current limitations:
 
 If enabling live email delivery, configure:
 
-- `RESEND_API_KEY`
+- `EASYDRAFT_EMAIL_PROVIDER`
 - `EASYDRAFT_NOTIFICATION_FROM_EMAIL`
+- `EASYDRAFT_NOTIFICATION_FROM_NAME`
+- `RESEND_API_KEY` if the provider is `resend`
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, and `SMTP_PASSWORD` if the provider is `smtp`
 
 Then send a real test notification and verify:
 

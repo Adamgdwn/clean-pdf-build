@@ -30,8 +30,16 @@ Set these in Vercel for Preview and Production:
 - `SUPABASE_SIGNATURE_BUCKET`
 - `EASYDRAFT_ADMIN_EMAILS`
 - `EASYDRAFT_APP_ORIGIN`
+- `EASYDRAFT_EMAIL_PROVIDER`
 - `RESEND_API_KEY`
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_SECURE`
+- `SMTP_USER`
+- `SMTP_PASSWORD`
 - `EASYDRAFT_NOTIFICATION_FROM_EMAIL`
+- `EASYDRAFT_NOTIFICATION_FROM_NAME`
+- `EASYDRAFT_NOTIFICATION_REPLY_TO`
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 
@@ -47,8 +55,16 @@ Recommended values:
 - `SUPABASE_SIGNATURE_BUCKET` = `signatures`
 - `EASYDRAFT_ADMIN_EMAILS` = `admin@agoperations.ca`
 - `EASYDRAFT_APP_ORIGIN` = `https://easydraftdocs.app`
-- `RESEND_API_KEY` = your Resend API key when notification email delivery is enabled
+- `EASYDRAFT_EMAIL_PROVIDER` = `smtp` for a normal mail server or `resend` if you still want the API provider path
+- `RESEND_API_KEY` = your Resend API key if `EASYDRAFT_EMAIL_PROVIDER=resend`
+- `SMTP_HOST` = your SMTP server host if `EASYDRAFT_EMAIL_PROVIDER=smtp`
+- `SMTP_PORT` = your SMTP server port such as `587`
+- `SMTP_SECURE` = `false` for STARTTLS on port `587` or `true` for SMTPS on port `465`
+- `SMTP_USER` = your SMTP username if auth is required
+- `SMTP_PASSWORD` = your SMTP password if auth is required
 - `EASYDRAFT_NOTIFICATION_FROM_EMAIL` = verified sender address for notifications
+- `EASYDRAFT_NOTIFICATION_FROM_NAME` = optional human-friendly sender name such as `EasyDraft`
+- `EASYDRAFT_NOTIFICATION_REPLY_TO` = optional reply-to mailbox for notification responses
 - `STRIPE_SECRET_KEY` = your Stripe secret key for the environment
 - `STRIPE_WEBHOOK_SECRET` = the signing secret for the `POST /api/stripe-webhook` endpoint
 
@@ -144,7 +160,7 @@ Until that integration is wired, `internal_use_only` is the built-in low-cost si
 
 ## Notifications and processor service
 
-Managed signature emails are attempted inline when notifications are queued and Resend is configured. The separate processor is still useful for retries and for OCR / field-detection workloads.
+Managed signature emails are attempted inline when notifications are queued and a supported email provider is configured. SMTP is now the recommended default if you want to avoid Resend. The separate processor is still useful for retries and for OCR / field-detection workloads.
 
 ## Processor service
 

@@ -32,9 +32,9 @@ For the current internal pilot, hosted signup can auto-confirm users so team mem
 Important distinction:
 
 - Supabase Auth handles account invite, signup, confirmation, and password reset emails
-- Resend handles workflow emails such as routed action requests and progress updates when enabled
+- EasyDraft workflow emails can now use SMTP or Resend for routed action requests and progress updates when enabled
 
-That means testers can still be invited into the app and create accounts even if workflow email delivery is not enabled yet.
+That means testers can still be invited into the app and create accounts even if workflow email delivery is not enabled yet, and you are no longer locked to Resend for managed notifications.
 
 Admin access uses the same sign-in form as every other user. Sign up or sign in with `admin@agoperations.ca` to unlock the EasyDraft admin console, which now includes account status review, privilege visibility, password-reset email actions, and test-user deletion.
 
@@ -104,8 +104,8 @@ npm run processor:run-notifications
 - Supabase provides Auth, Postgres, Storage, and invites-backed collaboration
 - Stripe Checkout and the billing portal drive subscriptions against workspace records
 - Stripe gracefully falls back to placeholder mode until `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are configured
-- Resend can deliver notification emails once `RESEND_API_KEY` and `EASYDRAFT_NOTIFICATION_FROM_EMAIL` are configured
-- When Resend is configured, managed signature emails are attempted immediately during send and completion events
+- Workflow notifications can use SMTP or Resend once the matching email settings and `EASYDRAFT_NOTIFICATION_FROM_EMAIL` are configured
+- When a supported email provider is configured, managed signature emails are attempted immediately during send and completion events
 - GitHub Actions runs CI on each push and PR
 - A separate processor service can be deployed as a container later for heavier OCR and transform workloads
 
@@ -150,7 +150,7 @@ The current build now includes these workflow and policy improvements:
   - password reset email action
   - test-user deletion
 - routed signer notifications are based on required signature and initial fields only
-- managed notification emails are attempted immediately when Resend is configured
+- managed notification emails are attempted immediately when SMTP or Resend is configured
 - collaborator invites are now clearly separated from routed signer setup
 - the document UI shows clearer role labels like `owner + signer`
 - signer-facing actions are less noisy and only show completion controls when the current user is the assigned signer
@@ -213,7 +213,7 @@ The current build now includes these workflow and policy improvements:
    - one demo workflow PDF set
    - a short tester onboarding email
 9. Only after the workflow pass feels stable, enable one live external service at a time:
-   - Resend first if notification testing becomes necessary
+   - SMTP first if notification testing becomes necessary
    - Stripe later when pricing and billing are ready for real users
    - Dropbox Sign only when certificate-backed external signing becomes a real requirement
 
@@ -247,7 +247,7 @@ Keep the product sharp by being selective about where money and complexity go.
 - Default to `internal_use_only` for internal teams during the pilot. It gives strong workflow coverage without third-party signing costs.
 - Treat `platform_managed` as a product capability, but do not pay for certificate-backed external signing until you have real demand that justifies it.
 - Leave Stripe in placeholder mode until the workflow, packaging, and pricing story feel stable. Billing complexity is easy to add later and expensive to rethink early.
-- Leave Resend off until you need real inbox testing. During early testing, in-app progress and shared test accounts are cheaper and faster.
+- Leave notification delivery off until you need real inbox testing. During early testing, in-app progress and shared test accounts are cheaper and faster.
 - Keep OCR and field detection lightweight. Use the current queued processor and manual triggers before paying for always-on heavy document infrastructure.
 - Avoid creating a new workflow type for every customer request. Reuse the current dimensions:
   - participant type
@@ -469,7 +469,7 @@ Expected:
 ## Suggested Testing Order
 
 1. Validate local UX and workflow transitions.
-2. Validate notification timing with live Resend credentials.
+2. Validate notification timing with live SMTP or Resend credentials.
 3. Validate multi-signer routing in production.
 4. Validate request-changes, reject, cancel, due-date, and reassignment behavior.
 5. Validate reopen, edit, and resend-for-changes behavior.
