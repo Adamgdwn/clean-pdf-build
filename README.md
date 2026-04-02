@@ -132,6 +132,18 @@ The product is in a strong pilot and tester-readiness stage:
 
 That means the current build is suitable for a free 30-day tester cohort, but not yet positioned as a fully commercialized paid product.
 
+## Current Rollout Status
+
+Current known live status:
+
+- `https://easydraftdocs.app` is live
+- `https://easydraftdocs.app/api/health` is responding from the Vercel API
+- Gmail SMTP support is implemented in the app
+- Gmail SMTP values are already set in Vercel for `Production` and `Development`
+- the remaining email blocker is adding `SMTP_PASSWORD` in Vercel and matching custom SMTP values in Supabase Auth
+
+That means the app is live and the workflow email layer is ready, but production email delivery is not fully active until the Gmail app password is added and Supabase Auth is pointed at the same mailbox.
+
 ## Latest Workflow Updates
 
 The current build now includes these workflow and policy improvements:
@@ -170,27 +182,38 @@ The current build now includes these workflow and policy improvements:
    - complete business profile and payout details
    - create the initial product and monthly price
    - decide what the free tester month looks like before billing begins
-2. Keep billing in placeholder mode until the above is finished, then wire:
+2. Finish Gmail SMTP activation:
+   - add `SMTP_PASSWORD` to Vercel using the Google app password for `admin@agoperations.ca`
+   - set Supabase Auth custom SMTP to `smtp.gmail.com`
+   - use `admin@agoperations.ca` as sender email and username
+   - use port `587`
+   - use the same Google app password in Supabase
+3. Run one live email smoke test:
+   - send yourself a tester invite from the admin console
+   - confirm the Supabase invite email arrives
+   - send one `platform_managed` workflow
+   - confirm the workflow email arrives and opens back into EasyDraft
+4. Keep billing in placeholder mode until Stripe is finished, then wire:
    - `STRIPE_SECRET_KEY`
    - `STRIPE_WEBHOOK_SECRET`
    - pricing copy and plan naming that match the real offer
-3. Define the first tester offer clearly:
+5. Define the first tester offer clearly:
    - free for 30 days
    - who it is for
    - what kind of support they can expect
    - what feedback you want from them
-4. Create a small pilot test set:
+6. Create a small pilot test set:
    - one admin or owner
    - one editor
    - one internal signer
    - one external signer using a real outside email if available
-5. Run the structured workflow test pass below in this order:
+7. Run the structured workflow test pass below in this order:
    - `internal_use_only`
    - `self_managed`
    - `platform_managed`
    - staged internal then external
    - approval-only path
-6. For each run, verify:
+8. For each run, verify:
    - sign up and sign in
    - saved signatures
    - PDF upload
@@ -201,18 +224,18 @@ The current build now includes these workflow and policy improvements:
    - revision and save-as flow
    - preview, download, and export output
    - audit trail and version history
-7. Keep a simple defect log with:
+9. Keep a simple defect log with:
    - page or screen
    - expected behavior
    - actual behavior
    - severity
    - whether it is wording, workflow, or rendering
-8. Set up lightweight market-facing assets:
+10. Set up lightweight market-facing assets:
    - a short landing page headline and subhead
    - one pricing page draft
    - one demo workflow PDF set
    - a short tester onboarding email
-9. Only after the workflow pass feels stable, enable one live external service at a time:
+11. Only after the workflow pass feels stable, enable one live external service at a time:
    - SMTP first if notification testing becomes necessary
    - Stripe later when pricing and billing are ready for real users
    - Dropbox Sign only when certificate-backed external signing becomes a real requirement
