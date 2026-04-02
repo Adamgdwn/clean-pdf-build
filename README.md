@@ -20,6 +20,8 @@ Documents now support three operational paths:
 - `internal_use_only`: keep the PDF in EasyDraft, collect signatures from authenticated internal users, and use the built-in audit trail without third-party certification
 - `platform_managed`: keep the PDF in the workspace, send the next signature request from the app, and queue notifications back to the originator when signatures are completed
 
+For near-term planning, the team roadmap now has a first-principles future-state workflow diagram in [future-workflow-roadmap.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/future-workflow-roadmap.md). It keeps the next additions centered on clear blockers, initiator updates, safe revision handling, reassignment, reminders, and a clean completion package.
+
 For the current internal pilot, hosted signup can auto-confirm users so team members reach the app immediately after creating an account. If you later switch email confirmation back on, EasyDraft now sends users back to the current app origin after they confirm.
 
 Admin access uses the same sign-in form as every other user. Sign up or sign in with `admin@agoperations.ca` to unlock the EasyDraft admin console, which now includes account status review, privilege visibility, password-reset email actions, and test-user deletion.
@@ -106,6 +108,18 @@ Billing endpoints now live in:
 - [billing-portal.ts](/home/adamgoodwin/code/Applications/Clean_pdf_build/apps/web/api/billing-portal.ts)
 - [stripe-webhook.ts](/home/adamgoodwin/code/Applications/Clean_pdf_build/apps/web/api/stripe-webhook.ts)
 
+## Current Product Status
+
+The product is in a strong pilot and tester-readiness stage:
+
+- core document upload, editing, routing, signing, audit, export, lock, and reopen flows are working
+- internal, self-managed, and platform-managed paths are available
+- staged routing, approvals, due dates, waiting-on status, request changes, reject, cancel, and reassignment now exist in the workflow layer
+- billing is still safe to test in placeholder mode while the business setup catches up
+- notification delivery and certificate-backed external signing are still optional next-phase capabilities
+
+That means the current build is suitable for a free 30-day tester cohort, but not yet positioned as a fully commercialized paid product.
+
 ## Latest Workflow Updates
 
 The current build now includes these workflow and policy improvements:
@@ -127,55 +141,122 @@ The current build now includes these workflow and policy improvements:
 - collaborator invites are now clearly separated from routed signer setup
 - the document UI shows clearer role labels like `owner + signer`
 - signer-facing actions are less noisy and only show completion controls when the current user is the assigned signer
+- workflow due dates and overdue visibility
+- explicit `waiting on` summaries in the document response and UI
+- signer-driven `request changes` and `reject workflow` actions
+- initiator-driven `cancel workflow`
+- participant reassignment for blocked or unavailable signers
+- a future-state workflow roadmap document for the team in [future-workflow-roadmap.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/future-workflow-roadmap.md)
 
-There is also a new database migration to apply:
+## Immediate Marketability Tasks
 
-- [20260331120000_unique_signer_email_per_document.sql](/home/adamgoodwin/code/Applications/Clean_pdf_build/supabase/migrations/20260331120000_unique_signer_email_per_document.sql)
+### Adam Next Steps
 
-## Concrete Next Steps For Adam
-
-1. Sign up fresh with `admin@agoperations.ca` at `https://easydraftdocs.app`.
-2. Confirm the admin console appears in the main workspace after sign-in.
-3. Create three realistic test identities:
-   - one owner/editor
-   - one signer-only user
-   - one owner or editor who is also assigned as a signer
-4. Run the structured workflow test pass below, starting with `internal_use_only` for Prime Boilers.
-5. Configure Resend when you are ready for live notification delivery:
-   - `RESEND_API_KEY`
-   - `EASYDRAFT_NOTIFICATION_FROM_EMAIL`
-6. Run one real managed-signing flow with Resend enabled and verify:
-   - the first email arrives
-   - the link opens the correct document
-   - the originator progress message arrives after a signature is completed
-7. Keep Stripe in placeholder mode until you are ready to wire live billing:
+1. Set up the Stripe account properly:
+   - create the Stripe account
+   - complete business profile and payout details
+   - create the initial product and monthly price
+   - decide what the free tester month looks like before billing begins
+2. Keep billing in placeholder mode until the above is finished, then wire:
    - `STRIPE_SECRET_KEY`
    - `STRIPE_WEBHOOK_SECRET`
-8. Continue Dropbox Sign pricing and account setup so the integration handoff is ready when we start that phase.
-9. Keep notes on:
-   - any wording that still feels internal
-   - any moment where the next action is unclear
-   - any signer-facing screen that still feels too dense
+   - pricing copy and plan naming that match the real offer
+3. Define the first tester offer clearly:
+   - free for 30 days
+   - who it is for
+   - what kind of support they can expect
+   - what feedback you want from them
+4. Create a small pilot test set:
+   - one admin or owner
+   - one editor
+   - one internal signer
+   - one external signer using a real outside email if available
+5. Run the structured workflow test pass below in this order:
+   - `internal_use_only`
+   - `self_managed`
+   - `platform_managed`
+   - staged internal then external
+   - approval-only path
+6. For each run, verify:
+   - sign up and sign in
+   - saved signatures
+   - PDF upload
+   - field placement
+   - routing selection
+   - stage handoff
+   - lock and reopen
+   - revision and save-as flow
+   - preview, download, and export output
+   - audit trail and version history
+7. Keep a simple defect log with:
+   - page or screen
+   - expected behavior
+   - actual behavior
+   - severity
+   - whether it is wording, workflow, or rendering
+8. Set up lightweight market-facing assets:
+   - a short landing page headline and subhead
+   - one pricing page draft
+   - one demo workflow PDF set
+   - a short tester onboarding email
+9. Only after the workflow pass feels stable, enable one live external service at a time:
+   - Resend first if notification testing becomes necessary
+   - Stripe later when pricing and billing are ready for real users
+   - Dropbox Sign only when certificate-backed external signing becomes a real requirement
 
-## Concrete Next Steps For Codex
+### Codex Next Steps
 
-1. Implement change-impact tracking once signatures have started.
-2. Add explicit resend and remind actions instead of relying only on reopen.
-3. Differentiate `non_material`, `review_required`, and `resign_required` edits.
-4. Add signer invalidation markers so affected signatures can remain valid, require acknowledgement, or require re-sign.
-5. Build a signed-snapshot comparison view between the last signed state and the current draft.
-6. Improve signer-facing progress UI even further:
-   - clearer "you are next" states
-   - a calmer signer-only action area
-   - friendlier access and audit labels
-7. Expand admin operations pages beyond user management for:
-   - workspace lookup
-   - subscription placeholders
-   - notification health
-   - processing-job health
-   - resend history and retry actions
-8. Decide whether admin privilege management should stay env-driven or move into persisted workspace/platform settings.
-9. Begin Dropbox Sign integration once pricing and account setup are confirmed.
+1. Add change-impact classification after partial completion:
+   - `non_material`
+   - `review_required`
+   - `resign_required`
+2. Add reminder and resend actions tied to due dates and overdue workflows.
+3. Improve the initiator dashboard so blocked, overdue, and changed workflows are obvious at a glance.
+4. Improve completion packaging:
+   - clearer completion summary
+   - cleaner export/share handoff
+   - stronger audit presentation
+5. Tighten the product polish that affects conversion:
+   - calmer onboarding copy
+   - clearer path labels
+   - cleaner empty states
+   - better “what happens next” guidance
+6. Support a stronger tester-to-paid path:
+   - billing-plan labels in the app
+   - pricing-aware onboarding copy
+   - account and workspace status visibility
+7. Add a simple readiness checklist for switching from free pilot mode to paid mode.
+
+## Cost-Effective Build Guidance
+
+Keep the product sharp by being selective about where money and complexity go.
+
+- Default to `internal_use_only` for internal teams during the pilot. It gives strong workflow coverage without third-party signing costs.
+- Treat `platform_managed` as a product capability, but do not pay for certificate-backed external signing until you have real demand that justifies it.
+- Leave Stripe in placeholder mode until the workflow, packaging, and pricing story feel stable. Billing complexity is easy to add later and expensive to rethink early.
+- Leave Resend off until you need real inbox testing. During early testing, in-app progress and shared test accounts are cheaper and faster.
+- Keep OCR and field detection lightweight. Use the current queued processor and manual triggers before paying for always-on heavy document infrastructure.
+- Avoid creating a new workflow type for every customer request. Reuse the current dimensions:
+  - participant type
+  - routing strategy
+  - stage
+  - delivery mode
+  - lock policy
+- Prioritize clarity over automation. A clear workflow builder, clean signer screens, and trustworthy exports will win more pilot confidence than expensive AI or enterprise integrations added too early.
+- Measure pain before buying solutions. Only spend on notification volume, advanced OCR, or third-party signing once the pilot shows those are the actual bottlenecks.
+
+## Product Build Priorities
+
+Build in this order to stay lean without losing product quality:
+
+1. Make the core signing and approval paths feel obvious and dependable.
+2. Make exports, audit history, revisions, and lock behavior trustworthy.
+3. Make the signer and originator UX calmer and clearer.
+4. Make the free tester experience feel polished enough to recommend to another team.
+5. Add reminder, resend, and change-impact handling.
+6. Add live email delivery.
+7. Add live billing.
+8. Add third-party certified signing only when the product and customer need are proven.
 
 ## Document Lifecycle Walkthrough
 
@@ -211,12 +292,13 @@ The intended lifecycle should be treated as field-centric and audit-centric, not
 
 ## Change Handling After Signing Starts
 
-This is the next important workflow rule to implement more deeply.
+This is still one of the most important product rules to implement more deeply.
 
 Today:
 
-- The system already supports reopen and continued signing.
-- The system already records audit and version events.
+- The system supports reopen and continued signing.
+- The system records audit and version events.
+- The system now supports due dates, waiting-on status, request changes, reject, cancel, and reassignment.
 
 Next rule to add:
 
@@ -376,8 +458,9 @@ Expected:
 1. Validate local UX and workflow transitions.
 2. Validate notification timing with live Resend credentials.
 3. Validate multi-signer routing in production.
-4. Validate reopen, edit, and resend-for-changes behavior.
-5. Only then validate certificate-backed digital signing with a real provider.
+4. Validate request-changes, reject, cancel, due-date, and reassignment behavior.
+5. Validate reopen, edit, and resend-for-changes behavior.
+6. Only then validate certificate-backed digital signing with a real provider.
 
 ## Verification
 
