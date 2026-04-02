@@ -4,6 +4,7 @@ import adminOverviewHandler from "../apps/web/api/admin-overview.js";
 import billingCheckoutHandler from "../apps/web/api/billing-checkout.js";
 import billingOverviewHandler from "../apps/web/api/billing-overview.js";
 import billingPortalHandler from "../apps/web/api/billing-portal.js";
+import adminUserInviteHandler from "../apps/web/api/admin-user-invite.js";
 import digitalSignaturesHandler from "../apps/web/api/digital-signatures.js";
 import documentAccessHandler from "../apps/web/api/document-access.js";
 import documentClearHandler from "../apps/web/api/document-clear.js";
@@ -38,6 +39,7 @@ type RouteHandler = (request: VercelRequest, response: VercelResponse) => Promis
 
 const routeHandlers: Record<string, RouteHandler> = {
   "admin-overview": adminOverviewHandler,
+  "admin-user-invite": adminUserInviteHandler,
   "billing-checkout": billingCheckoutHandler,
   "billing-overview": billingOverviewHandler,
   "billing-portal": billingPortalHandler,

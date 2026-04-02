@@ -22,7 +22,19 @@ Documents now support three operational paths:
 
 For near-term planning, the team roadmap now has a first-principles future-state workflow diagram in [future-workflow-roadmap.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/future-workflow-roadmap.md). It keeps the next additions centered on clear blockers, initiator updates, safe revision handling, reassignment, reminders, and a clean completion package.
 
+Current operating guides:
+
+- [user-instructions.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/user-instructions.md)
+- [admin-instructions.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/admin-instructions.md)
+
 For the current internal pilot, hosted signup can auto-confirm users so team members reach the app immediately after creating an account. If you later switch email confirmation back on, EasyDraft now sends users back to the current app origin after they confirm.
+
+Important distinction:
+
+- Supabase Auth handles account invite, signup, confirmation, and password reset emails
+- Resend handles workflow emails such as routed action requests and progress updates when enabled
+
+That means testers can still be invited into the app and create accounts even if workflow email delivery is not enabled yet.
 
 Admin access uses the same sign-in form as every other user. Sign up or sign in with `admin@agoperations.ca` to unlock the EasyDraft admin console, which now includes account status review, privilege visibility, password-reset email actions, and test-user deletion.
 
@@ -134,6 +146,7 @@ The current build now includes these workflow and policy improvements:
   - account list
   - account status
   - privilege visibility
+  - tester invite email action
   - password reset email action
   - test-user deletion
 - routed signer notifications are based on required signature and initial fields only

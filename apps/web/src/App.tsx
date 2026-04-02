@@ -374,6 +374,8 @@ export default function App() {
   const [digitalSignatureProfiles, setDigitalSignatureProfiles] = useState<DigitalSignatureProfile[]>([]);
   const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
   const [adminUsers, setAdminUsers] = useState<AdminManagedUser[]>([]);
+  const [adminInviteEmail, setAdminInviteEmail] = useState("");
+  const [adminInviteName, setAdminInviteName] = useState("");
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
@@ -862,6 +864,54 @@ export default function App() {
         body: JSON.stringify({ userId }),
       });
       setNoticeMessage(`Password reset email sent to ${payload.email}.`);
+      await refreshAdminUsers(session);
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleAdminInviteUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!session) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      const payload = await apiFetch<{
+        email: string;
+        status: "invited" | "existing_account" | "pending_invite";
+        redirectTo: string;
+      }>("/admin-user-invite", session, {
+        method: "POST",
+        body: JSON.stringify({
+          email: adminInviteEmail,
+          displayName: adminInviteName.trim() || undefined,
+        }),
+      });
+
+      if (payload.status === "invited") {
+        setNoticeMessage(
+          `Invite email sent to ${payload.email}. They can finish signup and land back in EasyDraft at ${payload.redirectTo}.`,
+        );
+      } else if (payload.status === "pending_invite") {
+        setNoticeMessage(
+          `${payload.email} already has a pending invite or unconfirmed account. Ask them to use the original invite email or resend from Supabase if needed.`,
+        );
+      } else {
+        setNoticeMessage(
+          `${payload.email} already has an account. Ask them to sign in directly, or use password reset if they need help getting back in.`,
+        );
+      }
+
+      setAdminInviteEmail("");
+      setAdminInviteName("");
       await refreshAdminUsers(session);
     } catch (error) {
       setErrorMessage((error as Error).message);
@@ -1619,6 +1669,10 @@ export default function App() {
                 Admin access uses this same sign-in form. Use <strong>admin@agoperations.ca</strong> to
                 unlock admin tools.
               </p>
+              <p className="muted">
+                If you were invited, sign up or sign in with the same email from your invite. Any pending
+                document access for that email will attach automatically after you enter the app.
+              </p>
             </form>
           )}
         </section>
@@ -2099,6 +2153,42 @@ export default function App() {
                     <span>Documents</span>
                     <strong>{adminOverview.metrics.totalDocuments}</strong>
                   </div>
+                </div>
+
+                <div className="toolbar-card">
+                  <div className="section-heading compact">
+                    <p className="eyebrow">Invite testers</p>
+                    <span>Supabase auth invite</span>
+                  </div>
+                  <p className="muted action-note">
+                    Send a tester into EasyDraft before assigning documents. Once they sign in with the invited
+                    email, any pending collaborator or signer access for that email attaches automatically.
+                  </p>
+                  <form className="stack form-block" onSubmit={handleAdminInviteUser}>
+                    <label className="form-field">
+                      <span>Name</span>
+                      <input
+                        value={adminInviteName}
+                        onChange={(event) => setAdminInviteName(event.target.value)}
+                      />
+                    </label>
+                    <label className="form-field">
+                      <span>Email</span>
+                      <input
+                        required
+                        type="email"
+                        value={adminInviteEmail}
+                        onChange={(event) => setAdminInviteEmail(event.target.value)}
+                      />
+                    </label>
+                    <button
+                      className="secondary-button"
+                      disabled={isLoading || !adminInviteEmail.trim()}
+                      type="submit"
+                    >
+                      Send tester invite
+                    </button>
+                  </form>
                 </div>
 
                 <div className="toolbar-card">

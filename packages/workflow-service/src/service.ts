@@ -395,6 +395,12 @@ const adminResetUserPasswordInputSchema = z.object({
   redirectTo: z.string().url().nullable().optional(),
 });
 
+const adminInviteUserInputSchema = z.object({
+  email: z.string().trim().email().transform((value) => normalizeEmailAddress(value)),
+  displayName: z.string().trim().max(120).optional().default(""),
+  redirectTo: z.string().url().nullable().optional(),
+});
+
 const createDigitalSignatureProfileInputSchema = z.object({
   label: z.string().trim().min(1).max(80),
   titleText: z.string().trim().max(120).nullable().default(null),
@@ -511,6 +517,15 @@ async function findAdminAuthUserById(
 ) {
   const users = await listAdminAuthUsers(adminClient);
   return users.find((candidate) => candidate.id === userId) ?? null;
+}
+
+async function findAdminAuthUserByEmail(
+  adminClient: ReturnType<typeof createServiceRoleClient>,
+  email: string,
+) {
+  const normalizedEmail = normalizeEmailAddress(email);
+  const users = await listAdminAuthUsers(adminClient);
+  return users.find((candidate) => normalizeEmailAddress(candidate.email ?? "") === normalizedEmail) ?? null;
 }
 
 export async function ensureDefaultWorkspaceForUser(user: AuthenticatedUser) {
@@ -2431,6 +2446,43 @@ export async function sendAdminPasswordResetForAuthorizationHeader(
   return {
     email: authUser.email,
     redirectTo: parsed.redirectTo ?? readServerEnv().EASYDRAFT_APP_ORIGIN,
+  };
+}
+
+export async function sendAdminUserInviteForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  assertAdminUser(user);
+  const parsed = adminInviteUserInputSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+  const existingUser = await findAdminAuthUserByEmail(adminClient, parsed.email);
+
+  if (existingUser?.email) {
+    return {
+      email: existingUser.email,
+      status: existingUser.email_confirmed_at ? ("existing_account" as const) : ("pending_invite" as const),
+      redirectTo: parsed.redirectTo ?? readServerEnv().EASYDRAFT_APP_ORIGIN,
+    };
+  }
+
+  const redirectTo = parsed.redirectTo ?? readServerEnv().EASYDRAFT_APP_ORIGIN;
+  const { data, error } = await adminClient.auth.admin.inviteUserByEmail(parsed.email, {
+    redirectTo,
+    data: {
+      full_name: parsed.displayName?.trim() || parsed.email.split("@")[0],
+    },
+  });
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return {
+    email: data.user?.email ?? parsed.email,
+    status: "invited" as const,
+    redirectTo,
   };
 }
 

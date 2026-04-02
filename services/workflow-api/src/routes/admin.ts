@@ -5,6 +5,7 @@ import {
   deleteAdminUserForAuthorizationHeader,
   getAdminOverviewForAuthorizationHeader,
   listAdminUsersForAuthorizationHeader,
+  sendAdminUserInviteForAuthorizationHeader,
   sendAdminPasswordResetForAuthorizationHeader,
 } from "@clean-pdf/workflow-service";
 
@@ -33,6 +34,18 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
   app.post("/admin-user-reset", async (request, reply) => {
     try {
       return await sendAdminPasswordResetForAuthorizationHeader(request.headers.authorization, {
+        ...(request.body as Record<string, unknown>),
+        redirectTo:
+          ((request.headers.origin as string | undefined) ?? "").trim() || "http://localhost:5173",
+      });
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/admin-user-invite", async (request, reply) => {
+    try {
+      return await sendAdminUserInviteForAuthorizationHeader(request.headers.authorization, {
         ...(request.body as Record<string, unknown>),
         redirectTo:
           ((request.headers.origin as string | undefined) ?? "").trim() || "http://localhost:5173",
