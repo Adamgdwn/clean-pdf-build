@@ -5,8 +5,11 @@ export type DocumentAction =
   | "manage_editor_history"
   | "manage_signers"
   | "manage_access"
+  | "manage_workflow"
   | "send_document"
   | "complete_assigned_field"
+  | "request_workflow_changes"
+  | "reject_workflow"
   | "view_audit_trail"
   | "export_document"
   | "delete_document"
@@ -19,6 +22,7 @@ const permissionMatrix: Record<AccessRole, DocumentAction[]> = {
     "manage_editor_history",
     "manage_signers",
     "manage_access",
+    "manage_workflow",
     "send_document",
     "view_audit_trail",
     "export_document",
@@ -30,11 +34,12 @@ const permissionMatrix: Record<AccessRole, DocumentAction[]> = {
     "edit_document",
     "manage_editor_history",
     "manage_signers",
+    "manage_workflow",
     "send_document",
     "view_audit_trail",
     "export_document",
   ],
-  signer: ["complete_assigned_field", "view_audit_trail"],
+  signer: ["complete_assigned_field", "request_workflow_changes", "reject_workflow", "view_audit_trail"],
   viewer: ["view_audit_trail"],
 };
 

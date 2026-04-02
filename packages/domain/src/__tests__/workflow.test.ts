@@ -6,6 +6,7 @@ import {
   getDocumentCompletionSummary,
   getDocumentSendReadiness,
   isDocumentSignable,
+  isWorkflowOverdue,
   lockDocument,
   reopenDocument,
 } from "../index";
@@ -20,6 +21,11 @@ const baseDocument: DocumentRecord = {
   distributionTarget: null,
   lockPolicy: "owner_only",
   notifyOriginatorOnEachSignature: true,
+  dueAt: null,
+  workflowStatus: "active",
+  workflowStatusReason: null,
+  workflowStatusUpdatedAt: null,
+  workflowStatusUpdatedByUserId: null,
   pageCount: 3,
   uploadedAt: "2026-03-30T18:00:00.000Z",
   uploadedByUserId: "user_owner",
@@ -140,6 +146,29 @@ describe("workflow rules", () => {
     expect(isDocumentSignable(locked)).toBe(false);
     expect(deriveWorkflowState(locked)).toBe("partially_signed");
     expect(locked.lockedByUserId).toBe("user_owner");
+  });
+
+  it("pauses signing when changes are requested", () => {
+    const paused: DocumentRecord = {
+      ...baseDocument,
+      workflowStatus: "changes_requested",
+      workflowStatusReason: "Please correct the rate section.",
+      workflowStatusUpdatedAt: "2026-03-30T18:13:00.000Z",
+      workflowStatusUpdatedByUserId: "user_signer_1",
+    };
+
+    expect(isDocumentSignable(paused)).toBe(false);
+    expect(deriveWorkflowState(paused)).toBe("partially_signed");
+  });
+
+  it("flags an active sent workflow as overdue after the due date passes", () => {
+    const overdue: DocumentRecord = {
+      ...baseDocument,
+      dueAt: "2026-03-30T18:09:00.000Z",
+      workflowStatus: "active",
+    };
+
+    expect(isWorkflowOverdue(overdue, "2026-03-30T18:20:00.000Z")).toBe(true);
   });
 
   it("reopens a document and makes it signable again", () => {

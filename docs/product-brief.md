@@ -71,3 +71,16 @@ Locking must record:
 - Workflow rules live in shared testable code
 - A lightweight demo can show lock, reopen, and field completion behavior
 - The stack can grow into real persistence and processing without rewrite pressure
+
+## Near-term workflow roadmap
+
+The next workflow additions should stay first-principles based and tied to common document pain:
+
+- clear `waiting on` status
+- simple due dates, reminders, and overdue visibility
+- request changes back to initiator
+- participant reassignment or delegation
+- safe edit impact after partial completion
+- final completion package and archive
+
+Use [future-workflow-roadmap.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/future-workflow-roadmap.md) as the shared diagram and planning reference for that work.

@@ -8,6 +8,12 @@ export const workflowStateSchema = z.enum([
   "completed",
   "reopened",
 ]);
+export const workflowOperationalStatusSchema = z.enum([
+  "active",
+  "changes_requested",
+  "rejected",
+  "canceled",
+]);
 
 export const accessRoleSchema = z.enum(["owner", "editor", "signer", "viewer"]);
 export const routingStrategySchema = z.enum(["sequential", "parallel"]);
@@ -35,6 +41,11 @@ export const auditEventTypeSchema = z.enum([
   "document.completed",
   "document.locked",
   "document.reopened",
+  "document.changes_requested",
+  "document.rejected",
+  "document.canceled",
+  "document.signer_reassigned",
+  "document.due_date.updated",
   "document.exported",
   "field.created",
   "field.assigned",
@@ -50,6 +61,7 @@ export const auditEventTypeSchema = z.enum([
 export const notificationEventTypeSchema = z.enum([
   "signature_request",
   "signature_progress",
+  "workflow_update",
 ]);
 export const notificationChannelSchema = z.enum(["email", "in_app"]);
 export const notificationStatusSchema = z.enum(["queued", "sent", "failed", "skipped"]);
@@ -146,6 +158,11 @@ export const documentSchema = z.object({
   distributionTarget: z.string().nullable().default(null),
   lockPolicy: lockPolicySchema.default("owner_only"),
   notifyOriginatorOnEachSignature: z.boolean().default(true),
+  dueAt: z.string().datetime().nullable().default(null),
+  workflowStatus: workflowOperationalStatusSchema.default("active"),
+  workflowStatusReason: z.string().nullable().default(null),
+  workflowStatusUpdatedAt: z.string().datetime().nullable().default(null),
+  workflowStatusUpdatedByUserId: z.string().nullable().default(null),
   pageCount: z.number().int().positive().nullable(),
   uploadedAt: z.string().datetime(),
   uploadedByUserId: z.string(),
@@ -169,6 +186,7 @@ export const documentSchema = z.object({
 });
 
 export type WorkflowState = z.infer<typeof workflowStateSchema>;
+export type WorkflowOperationalStatus = z.infer<typeof workflowOperationalStatusSchema>;
 export type AccessRole = z.infer<typeof accessRoleSchema>;
 export type RoutingStrategy = z.infer<typeof routingStrategySchema>;
 export type ParticipantType = z.infer<typeof participantTypeSchema>;

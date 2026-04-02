@@ -7,6 +7,7 @@ import billingPortalHandler from "../apps/web/api/billing-portal.js";
 import digitalSignaturesHandler from "../apps/web/api/digital-signatures.js";
 import documentAccessHandler from "../apps/web/api/document-access.js";
 import documentClearHandler from "../apps/web/api/document-clear.js";
+import documentCancelHandler from "../apps/web/api/document-cancel.js";
 import documentDeleteHandler from "../apps/web/api/document-delete.js";
 import documentDownloadHandler from "../apps/web/api/document-download.js";
 import documentDuplicateHandler from "../apps/web/api/document-duplicate.js";
@@ -14,13 +15,17 @@ import documentFieldCompleteHandler from "../apps/web/api/document-field-complet
 import documentFieldsHandler from "../apps/web/api/document-fields.js";
 import documentLockHandler from "../apps/web/api/document-lock.js";
 import documentProcessingHandler from "../apps/web/api/document-processing.js";
+import documentRejectHandler from "../apps/web/api/document-reject.js";
 import documentRedoHandler from "../apps/web/api/document-redo.js";
 import documentReopenHandler from "../apps/web/api/document-reopen.js";
+import documentRequestChangesHandler from "../apps/web/api/document-request-changes.js";
 import documentRoutingHandler from "../apps/web/api/document-routing.js";
 import documentSendHandler from "../apps/web/api/document-send.js";
 import documentShareHandler from "../apps/web/api/document-share.js";
+import documentSignerReassignHandler from "../apps/web/api/document-signer-reassign.js";
 import documentSignersHandler from "../apps/web/api/document-signers.js";
 import documentUndoHandler from "../apps/web/api/document-undo.js";
+import documentWorkflowHandler from "../apps/web/api/document-workflow.js";
 import documentHandler from "../apps/web/api/document.js";
 import documentsHandler from "../apps/web/api/documents.js";
 import healthHandler from "../apps/web/api/health.js";
@@ -39,6 +44,7 @@ const routeHandlers: Record<string, RouteHandler> = {
   "digital-signatures": digitalSignaturesHandler,
   "document-access": documentAccessHandler,
   "document-clear": documentClearHandler,
+  "document-cancel": documentCancelHandler,
   "document-delete": documentDeleteHandler,
   "document-download": documentDownloadHandler,
   "document-duplicate": documentDuplicateHandler,
@@ -46,13 +52,17 @@ const routeHandlers: Record<string, RouteHandler> = {
   "document-fields": documentFieldsHandler,
   "document-lock": documentLockHandler,
   "document-processing": documentProcessingHandler,
+  "document-reject": documentRejectHandler,
   "document-redo": documentRedoHandler,
   "document-reopen": documentReopenHandler,
+  "document-request-changes": documentRequestChangesHandler,
   "document-routing": documentRoutingHandler,
   "document-send": documentSendHandler,
   "document-share": documentShareHandler,
+  "document-signer-reassign": documentSignerReassignHandler,
   "document-signers": documentSignersHandler,
   "document-undo": documentUndoHandler,
+  "document-workflow": documentWorkflowHandler,
   document: documentHandler,
   documents: documentsHandler,
   health: healthHandler,

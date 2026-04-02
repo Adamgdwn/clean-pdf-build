@@ -25,6 +25,19 @@ type WorkflowDocument = DocumentRecord & {
     email: string | null;
   }>;
   workflowState: string;
+  operationalStatus: "active" | "changes_requested" | "rejected" | "canceled" | "overdue";
+  isOverdue: boolean;
+  waitingOn: {
+    kind: "setup" | "participant" | "initiator" | "completed" | "rejected" | "canceled" | "none";
+    summary: string;
+    signerId: string | null;
+    signerName: string | null;
+    signerEmail: string | null;
+    actionLabel: "signature" | "approval" | "action" | null;
+    stage: number | null;
+    dueAt: string | null;
+    isOverdue: boolean;
+  };
   signable: boolean;
   completionSummary: {
     requiredAssignedFields: number;
@@ -169,6 +182,25 @@ function formatTimestamp(timestamp: string | null) {
   return new Date(timestamp).toLocaleString();
 }
 
+function toDateTimeLocalValue(timestamp: string | null) {
+  if (!timestamp) {
+    return "";
+  }
+
+  const date = new Date(timestamp);
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - offset * 60_000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function fromDateTimeLocalValue(value: string) {
+  if (!value.trim()) {
+    return null;
+  }
+
+  return new Date(value).toISOString();
+}
+
 function filenameToTitle(fileName: string) {
   return fileName.replace(/\.pdf$/i, "").replace(/[-_]/g, " ");
 }
@@ -217,8 +249,20 @@ function getParticipantTypeLabel(participantType: WorkflowDocument["signers"][nu
   return participantType === "internal" ? "Internal" : "External";
 }
 
+function getOperationalStatusLabel(status: WorkflowDocument["operationalStatus"]) {
+  if (status === "changes_requested") {
+    return "Changes requested";
+  }
+
+  if (status === "canceled") {
+    return "Canceled";
+  }
+
+  return formatState(status);
+}
+
 function canCurrentUserLockDocument(document: WorkflowDocument | null) {
-  if (!document || !document.signable || document.workflowState === "draft") {
+  if (!document || !document.signable || document.workflowState === "draft" || document.operationalStatus !== "active") {
     return false;
   }
 
@@ -347,6 +391,7 @@ export default function App() {
     "owner_only" | "owner_and_editors" | "owner_editors_and_active_signer"
   >("owner_only");
   const [notifyOriginatorOnEachSignature, setNotifyOriginatorOnEachSignature] = useState(true);
+  const [dueAt, setDueAt] = useState("");
   const [signerName, setSignerName] = useState("");
   const [signerEmail, setSignerEmail] = useState("");
   const [signerParticipantType, setSignerParticipantType] = useState<"internal" | "external">(
@@ -386,6 +431,10 @@ export default function App() {
   const [fieldY, setFieldY] = useState("540");
   const [fieldWidth, setFieldWidth] = useState("180");
   const [fieldHeight, setFieldHeight] = useState("40");
+  const [workflowNote, setWorkflowNote] = useState("");
+  const [reassignSignerId, setReassignSignerId] = useState("");
+  const [reassignSignerName, setReassignSignerName] = useState("");
+  const [reassignSignerEmail, setReassignSignerEmail] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -410,6 +459,7 @@ export default function App() {
   const canEdit =
     selectedDocument?.currentUserRole === "owner" || selectedDocument?.currentUserRole === "editor";
   const canManageAccess = selectedDocument?.currentUserRole === "owner";
+  const canManageWorkflow = canEdit;
   const sendReadiness = selectedDocument ? getDocumentSendReadiness(selectedDocument) : null;
   const requiredActionFields =
     selectedDocument?.fields.filter((field) => field.required && isActionFieldKind(field.kind)) ?? [];
@@ -430,6 +480,13 @@ export default function App() {
   const hasBeenSent = Boolean(selectedDocument?.sentAt);
   const hasCompletedSigning =
     (selectedDocument?.completionSummary.completedRequiredAssignedFields ?? 0) > 0;
+  const currentUserIsActiveWorkflowSigner = Boolean(
+    selectedDocument?.currentUserSignerId &&
+      selectedDocument.waitingOn.signerId === selectedDocument.currentUserSignerId &&
+      selectedDocument.operationalStatus !== "changes_requested" &&
+      selectedDocument.operationalStatus !== "rejected" &&
+      selectedDocument.operationalStatus !== "canceled",
+  );
   const quickRouteLabels = selectedDocument
     ? getQuickRouteLabels(selectedDocument.deliveryMode)
     : null;
@@ -511,6 +568,11 @@ export default function App() {
   const nextActionMessage = selectedDocument
     ? selectedDocument.workflowState === "completed"
       ? "Completed. Download, share, or duplicate this document for the next cycle."
+      : selectedDocument.operationalStatus === "changes_requested" ||
+          selectedDocument.operationalStatus === "rejected" ||
+          selectedDocument.operationalStatus === "canceled" ||
+          selectedDocument.operationalStatus === "overdue"
+        ? selectedDocument.waitingOn.summary
       : selectedDocument.lockedAt
         ? "This workflow is locked. Reopen it when you need additional edits, signatures, or approvals."
         : hasBeenSent && currentUserAssignedOpenFields.length > 0
@@ -637,6 +699,143 @@ export default function App() {
       await refreshDocument(selectedDocument.id, session);
       await refreshDocuments(session);
       await loadPreview(selectedDocument.id, session);
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleUpdateWorkflowDueDate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!session || !selectedDocument) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      await apiFetch("/document-workflow", session, {
+        method: "POST",
+        body: JSON.stringify({
+          documentId: selectedDocument.id,
+          dueAt: fromDateTimeLocalValue(dueAt),
+        }),
+      });
+      await refreshDocument(selectedDocument.id, session);
+      await refreshDocuments(session);
+      setNoticeMessage(dueAt ? "Workflow due date updated." : "Workflow due date cleared.");
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleSignerWorkflowResponse(path: "/document-request-changes" | "/document-reject") {
+    if (!session || !selectedDocument) {
+      return;
+    }
+
+    const note = workflowNote.trim();
+
+    if (!note) {
+      setErrorMessage("Add a short note before sending this workflow response.");
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      await apiFetch(path, session, {
+        method: "POST",
+        body: JSON.stringify({
+          documentId: selectedDocument.id,
+          note,
+        }),
+      });
+      await refreshDocument(selectedDocument.id, session);
+      await refreshDocuments(session);
+      setWorkflowNote("");
+      setNoticeMessage(
+        path === "/document-request-changes"
+          ? "Changes requested and returned to the initiator."
+          : "Workflow rejected.",
+      );
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleCancelWorkflow() {
+    if (!session || !selectedDocument) {
+      return;
+    }
+
+    const note = workflowNote.trim();
+
+    if (!note) {
+      setErrorMessage("Add a short reason before canceling this workflow.");
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      await apiFetch("/document-cancel", session, {
+        method: "POST",
+        body: JSON.stringify({
+          documentId: selectedDocument.id,
+          note,
+        }),
+      });
+      await refreshDocument(selectedDocument.id, session);
+      await refreshDocuments(session);
+      setWorkflowNote("");
+      setNoticeMessage("Workflow canceled.");
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleReassignSigner(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!session || !selectedDocument) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      await apiFetch("/document-signer-reassign", session, {
+        method: "POST",
+        body: JSON.stringify({
+          documentId: selectedDocument.id,
+          signerId: reassignSignerId,
+          name: reassignSignerName,
+          email: reassignSignerEmail,
+        }),
+      });
+      await refreshDocument(selectedDocument.id, session);
+      await refreshDocuments(session);
+      setReassignSignerId("");
+      setReassignSignerName("");
+      setReassignSignerEmail("");
+      setNoticeMessage("Participant reassigned.");
     } catch (error) {
       setErrorMessage((error as Error).message);
     } finally {
@@ -1114,6 +1313,7 @@ export default function App() {
           distributionTarget: distributionTarget.trim() || null,
           lockPolicy,
           notifyOriginatorOnEachSignature,
+          dueAt: fromDateTimeLocalValue(dueAt),
           isScanned: isScannedUpload,
         }),
       });
@@ -1122,6 +1322,7 @@ export default function App() {
       await refreshDocuments(session);
       await loadPreview(payload.document.id, session);
       setDistributionTarget("");
+      setDueAt("");
       setNoticeMessage("PDF uploaded and document created.");
     } catch (error) {
       setErrorMessage((error as Error).message);
@@ -1268,8 +1469,13 @@ export default function App() {
     }
 
     setFieldAssigneeSignerId((currentValue) => currentValue || selectedDocument.signers[0]?.id || "");
+    setReassignSignerId((currentValue) => currentValue || selectedDocument.signers[0]?.id || "");
     loadPreview(selectedDocument.id, session).catch((error) => setErrorMessage((error as Error).message));
   }, [selectedDocument?.id, session]);
+
+  useEffect(() => {
+    setDueAt(toDateTimeLocalValue(selectedDocument?.dueAt ?? null));
+  }, [selectedDocument?.dueAt, selectedDocument?.id]);
 
   useEffect(() => {
     const documentId = new URLSearchParams(window.location.search).get("documentId");
@@ -1282,6 +1488,21 @@ export default function App() {
       setSelectedDocumentId(documentId);
     }
   }, [documents]);
+
+  useEffect(() => {
+    if (!selectedDocument || !reassignSignerId) {
+      return;
+    }
+
+    const signer = selectedDocument.signers.find((candidate) => candidate.id === reassignSignerId);
+
+    if (!signer) {
+      return;
+    }
+
+    setReassignSignerName(signer.name);
+    setReassignSignerEmail(signer.email);
+  }, [reassignSignerId, selectedDocument?.id]);
 
   useEffect(() => {
     return () => {
@@ -2039,6 +2260,14 @@ export default function App() {
                   </option>
                 </select>
               </label>
+              <label className="form-field">
+                <span>Workflow due date</span>
+                <input
+                  type="datetime-local"
+                  value={dueAt}
+                  onChange={(event) => setDueAt(event.target.value)}
+                />
+              </label>
               {deliveryMode === "self_managed" ? (
                 <label className="form-field">
                   <span>Shared storage or distribution target</span>
@@ -2122,6 +2351,10 @@ export default function App() {
                     <strong>{formatState(selectedDocument.workflowState)}</strong>
                   </div>
                   <div className="meta-item">
+                    <span>Workflow status</span>
+                    <strong>{getOperationalStatusLabel(selectedDocument.operationalStatus)}</strong>
+                  </div>
+                  <div className="meta-item">
                     <span>Path</span>
                     <strong>{getDeliveryModeLabel(selectedDocument.deliveryMode)}</strong>
                   </div>
@@ -2153,6 +2386,14 @@ export default function App() {
                     <span>Lock policy</span>
                     <strong>{getLockPolicyLabel(selectedDocument.lockPolicy)}</strong>
                   </div>
+                  <div className="meta-item">
+                    <span>Waiting on</span>
+                    <strong>{selectedDocument.waitingOn.signerName ?? formatState(selectedDocument.waitingOn.kind)}</strong>
+                  </div>
+                  <div className="meta-item">
+                    <span>Due date</span>
+                    <strong>{formatTimestamp(selectedDocument.dueAt)}</strong>
+                  </div>
                 </div>
 
                 <div className="completion-card">
@@ -2168,6 +2409,9 @@ export default function App() {
                   </p>
                   <p className="muted">
                     {getDeliveryModeCompletionCopy(selectedDocument)}
+                  </p>
+                  <p className="muted">
+                    {selectedDocument.waitingOn.summary}
                   </p>
                   {sendReadiness ? (
                     <div className="stack">
@@ -2286,6 +2530,84 @@ export default function App() {
                         : "Marking this ready does not send emails. It simply records that the file is ready for self-managed distribution."}
                   </p>
                 </div>
+
+                {canManageWorkflow ? (
+                  <div className="toolbar-card">
+                    <div className="section-heading compact">
+                      <p className="eyebrow">Workflow controls</p>
+                      <span>{selectedDocument.isOverdue ? "Overdue" : "On track"}</span>
+                    </div>
+                    <form className="stack" onSubmit={handleUpdateWorkflowDueDate}>
+                      <label className="form-field">
+                        <span>Due date</span>
+                        <input
+                          type="datetime-local"
+                          value={dueAt}
+                          onChange={(event) => setDueAt(event.target.value)}
+                        />
+                      </label>
+                      <div className="action-row action-wrap">
+                        <button className="secondary-button" disabled={isLoading} type="submit">
+                          Save due date
+                        </button>
+                        <button
+                          className="secondary-button danger-button"
+                          disabled={isLoading}
+                          onClick={handleCancelWorkflow}
+                          type="button"
+                        >
+                          Cancel workflow
+                        </button>
+                      </div>
+                    </form>
+                    <p className="muted action-note">
+                      Use the due date to make overdue work obvious. Cancel keeps the audit trail but closes the current run.
+                    </p>
+                  </div>
+                ) : null}
+
+                {(currentUserIsActiveWorkflowSigner || canManageWorkflow) ? (
+                  <div className="toolbar-card">
+                    <div className="section-heading compact">
+                      <p className="eyebrow">Workflow note</p>
+                      <span>{selectedDocument.waitingOn.summary}</span>
+                    </div>
+                    <label className="form-field">
+                      <span>Comment or reason</span>
+                      <textarea
+                        rows={3}
+                        value={workflowNote}
+                        onChange={(event) => setWorkflowNote(event.target.value)}
+                      />
+                    </label>
+                    {currentUserIsActiveWorkflowSigner ? (
+                      <div className="action-row action-wrap">
+                        <button
+                          className="secondary-button"
+                          disabled={isLoading || !workflowNote.trim()}
+                          onClick={() =>
+                            handleSignerWorkflowResponse("/document-request-changes").catch((error) =>
+                              setErrorMessage((error as Error).message),
+                            )
+                          }
+                        >
+                          Request changes
+                        </button>
+                        <button
+                          className="secondary-button danger-button"
+                          disabled={isLoading || !workflowNote.trim()}
+                          onClick={() =>
+                            handleSignerWorkflowResponse("/document-reject").catch((error) =>
+                              setErrorMessage((error as Error).message),
+                            )
+                          }
+                        >
+                          Reject workflow
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
                     {canEdit && selectedDocument.deliveryMode !== "self_managed" ? (
                       <div className="toolbar-card">
@@ -2466,6 +2788,51 @@ export default function App() {
                         </button>
                       </form>
                     ) : null}
+
+                    {canManageWorkflow && selectedDocument.signers.length > 0 ? (
+                      <form className="stack form-block" onSubmit={handleReassignSigner}>
+                        <p className="muted">
+                          Reassign the selected participant slot when someone is unavailable or was chosen incorrectly.
+                        </p>
+                        <label className="form-field">
+                          <span>Participant slot</span>
+                          <select
+                            value={reassignSignerId}
+                            onChange={(event) => setReassignSignerId(event.target.value)}
+                          >
+                            {selectedDocument.signers.map((signer) => (
+                              <option key={signer.id} value={signer.id}>
+                                {signer.name} · {signer.email}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="form-field">
+                          <span>New participant name</span>
+                          <input
+                            required
+                            value={reassignSignerName}
+                            onChange={(event) => setReassignSignerName(event.target.value)}
+                          />
+                        </label>
+                        <label className="form-field">
+                          <span>New participant email</span>
+                          <input
+                            required
+                            type="email"
+                            value={reassignSignerEmail}
+                            onChange={(event) => setReassignSignerEmail(event.target.value)}
+                          />
+                        </label>
+                        <button
+                          className="ghost-button"
+                          disabled={isLoading || !reassignSignerId || !reassignSignerName.trim() || !reassignSignerEmail.trim()}
+                          type="submit"
+                        >
+                          Reassign participant
+                        </button>
+                      </form>
+                    ) : null}
                   </div>
 
                   <div>
@@ -2508,6 +2875,7 @@ export default function App() {
                               </small>
                             ) : null}
                             {!field.completedAt &&
+                            currentUserIsActiveWorkflowSigner &&
                             selectedDocument.currentUserSignerId === field.assigneeSignerId ? (
                               <button
                                 className="ghost-button"

@@ -4,6 +4,7 @@ import {
   getDocumentCompletionSummary,
   getDocumentSendReadiness,
   isDocumentSignable,
+  isWorkflowOverdue,
   type AccessRole,
   type AuditEvent,
   type DeliveryMode,
@@ -16,6 +17,7 @@ import {
   type SavedSignature,
   type Signer,
   type User,
+  type WorkflowOperationalStatus,
 } from "../../domain/src/index.js";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { z } from "zod";
@@ -35,6 +37,11 @@ type DocumentRow = {
   distribution_target: string | null;
   lock_policy: LockPolicy;
   notify_originator_on_each_signature: boolean;
+  due_at: string | null;
+  workflow_status: WorkflowOperationalStatus;
+  workflow_status_reason: string | null;
+  workflow_status_updated_at: string | null;
+  workflow_status_updated_by_user_id: string | null;
   page_count: number | null;
   uploaded_at: string;
   uploaded_by_user_id: string;
@@ -120,7 +127,7 @@ type AuditEventRow = {
 type NotificationRow = {
   id: string;
   document_id: string;
-  event_type: "signature_request" | "signature_progress";
+  event_type: "signature_request" | "signature_progress" | "workflow_update";
   channel: "email" | "in_app";
   status: "queued" | "sent" | "failed" | "skipped";
   provider: string;
@@ -203,6 +210,19 @@ type WorkflowDocumentResponse = DocumentRecord & {
     email: string | null;
   }>;
   workflowState: ReturnType<typeof deriveWorkflowState>;
+  operationalStatus: WorkflowOperationalStatus | "overdue";
+  isOverdue: boolean;
+  waitingOn: {
+    kind: "setup" | "participant" | "initiator" | "completed" | "rejected" | "canceled" | "none";
+    summary: string;
+    signerId: string | null;
+    signerName: string | null;
+    signerEmail: string | null;
+    actionLabel: "signature" | "approval" | "action" | null;
+    stage: number | null;
+    dueAt: string | null;
+    isOverdue: boolean;
+  };
   signable: boolean;
   completionSummary: ReturnType<typeof getDocumentCompletionSummary>;
   editorHistory: {
@@ -273,6 +293,7 @@ const createDocumentInputSchema = z.object({
     .enum(["owner_only", "owner_and_editors", "owner_editors_and_active_signer"])
     .default("owner_only"),
   notifyOriginatorOnEachSignature: z.boolean().default(true),
+  dueAt: z.string().datetime().nullable().default(null),
   pageCount: z.number().int().positive().nullable().default(null),
   routingStrategy: z.enum(["sequential", "parallel"]).default("sequential"),
   isScanned: z.boolean().default(false),
@@ -289,6 +310,10 @@ const addSignerInputSchema = z.object({
 
 const updateDocumentRoutingInputSchema = z.object({
   routingStrategy: z.enum(["sequential", "parallel"]),
+});
+
+const updateDocumentWorkflowSettingsInputSchema = z.object({
+  dueAt: z.string().datetime().nullable().default(null),
 });
 
 const addFieldInputSchema = z.object({
@@ -338,6 +363,17 @@ const createSavedSignatureInputSchema = z
 
 const completeFieldInputSchema = z.object({
   savedSignatureId: z.string().uuid().nullable().default(null),
+});
+
+const workflowResponseInputSchema = z.object({
+  note: z.string().trim().min(1).max(500),
+});
+
+const reassignSignerInputSchema = z.object({
+  signerId: z.string().uuid(),
+  name: z.string().trim().min(1).max(120),
+  email: z.string().trim().email().transform((value) => normalizeEmailAddress(value)),
+  participantType: z.enum(["internal", "external"]).optional(),
 });
 
 const updateProfileInputSchema = z.object({
@@ -703,6 +739,11 @@ function mapDocumentRecord(
     distributionTarget: row.distribution_target,
     lockPolicy: row.lock_policy,
     notifyOriginatorOnEachSignature: row.notify_originator_on_each_signature,
+    dueAt: row.due_at,
+    workflowStatus: row.workflow_status,
+    workflowStatusReason: row.workflow_status_reason,
+    workflowStatusUpdatedAt: row.workflow_status_updated_at,
+    workflowStatusUpdatedByUserId: row.workflow_status_updated_by_user_id,
     pageCount: row.page_count,
     uploadedAt: row.uploaded_at,
     uploadedByUserId: row.uploaded_by_user_id,
@@ -943,6 +984,89 @@ function findSignerForUser(document: DocumentRecord, user: Pick<AuthenticatedUse
   );
 }
 
+async function updateDocumentWorkflowStatus(
+  documentId: string,
+  userId: string,
+  status: WorkflowOperationalStatus,
+  reason: string | null,
+) {
+  const adminClient = createServiceRoleClient();
+  const now = new Date().toISOString();
+  const { error } = await adminClient
+    .from("documents")
+    .update({
+      workflow_status: status,
+      workflow_status_reason: reason?.trim() || null,
+      workflow_status_updated_at: now,
+      workflow_status_updated_by_user_id: userId,
+    })
+    .eq("id", documentId);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+}
+
+function ensureSignerCanRespondToWorkflow(
+  document: DocumentRecord,
+  user: Pick<AuthenticatedUser, "id" | "rawEmail">,
+) {
+  if (document.workflowStatus !== "active") {
+    throw new AppError(409, "This workflow is paused or closed. Ask the initiator to resume it before continuing.");
+  }
+
+  const signer = findSignerForUser(document, user);
+
+  if (!signer) {
+    throw new AppError(403, "You are not assigned as a signer on this document.");
+  }
+
+  const eligibleSignerIds = getEligibleSignerIdsForNotifications(document);
+
+  if (!eligibleSignerIds.includes(signer.id)) {
+    throw new AppError(
+      409,
+      "This signer is not active yet. Complete the current stage or signing order before continuing.",
+    );
+  }
+
+  return signer;
+}
+
+async function queueOriginatorWorkflowUpdate(
+  document: DocumentRecord,
+  actorUserId: string,
+  actorLabel: string,
+  summary: string,
+  appOrigin?: string,
+) {
+  const originator = await getProfileById(document.uploadedByUserId);
+
+  if (!originator?.email) {
+    return;
+  }
+
+  await queueNotification(document.id, "workflow_update", originator.email, {
+    recipientUserId: originator.id,
+    metadata: {
+      ...(appOrigin ? { appOrigin } : {}),
+      signerName: actorLabel,
+      actionLabel: "action",
+      summary,
+    },
+  });
+
+  await appendAuditEvent(
+    document.id,
+    actorUserId,
+    "notification.queued",
+    `Queued workflow update for the initiator: ${summary}`,
+    {
+      originatorNotified: true,
+    },
+  );
+}
+
 async function requireDocumentBundle(documentId: string) {
   const adminClient = createServiceRoleClient();
   const [
@@ -1056,6 +1180,8 @@ function toWorkflowDocumentResponse(
   const normalizedUserId = userId.trim();
   const currentUserSigner = document.signers.find((signer) => signer.userId === normalizedUserId) ?? null;
   const accessProfileById = new Map(accessProfilesForDocument(document).map((profile) => [profile.userId, profile]));
+  const waitingOn = getWorkflowWaitingOn(document);
+  const overdue = isWorkflowOverdue(document);
 
   return {
     ...document,
@@ -1072,6 +1198,9 @@ function toWorkflowDocumentResponse(
       };
     }),
     workflowState: deriveWorkflowState(document),
+    operationalStatus: overdue ? "overdue" : document.workflowStatus,
+    isOverdue: overdue,
+    waitingOn,
     signable: isDocumentSignable(document),
     completionSummary: getDocumentCompletionSummary(document),
     editorHistory: {
@@ -1089,6 +1218,130 @@ function accessProfilesForDocument(
   },
 ) {
   return document.accessProfileDirectory ?? [];
+}
+
+function getWorkflowWaitingOn(document: DocumentRecord) {
+  const dueAt = document.dueAt;
+  const overdue = isWorkflowOverdue(document);
+
+  if (document.workflowStatus === "canceled") {
+    return {
+      kind: "canceled" as const,
+      summary: document.workflowStatusReason?.trim()
+        ? `Canceled: ${document.workflowStatusReason.trim()}`
+        : "Canceled by the initiator.",
+      signerId: null,
+      signerName: null,
+      signerEmail: null,
+      actionLabel: null,
+      stage: null,
+      dueAt,
+      isOverdue: false,
+    };
+  }
+
+  if (document.workflowStatus === "rejected") {
+    return {
+      kind: "rejected" as const,
+      summary: document.workflowStatusReason?.trim()
+        ? `Rejected: ${document.workflowStatusReason.trim()}`
+        : "Rejected by the current participant.",
+      signerId: null,
+      signerName: null,
+      signerEmail: null,
+      actionLabel: null,
+      stage: null,
+      dueAt,
+      isOverdue: false,
+    };
+  }
+
+  if (document.workflowStatus === "changes_requested") {
+    return {
+      kind: "initiator" as const,
+      summary: document.workflowStatusReason?.trim()
+        ? `Changes requested: ${document.workflowStatusReason.trim()}`
+        : "Changes were requested from the initiator.",
+      signerId: null,
+      signerName: null,
+      signerEmail: null,
+      actionLabel: null,
+      stage: null,
+      dueAt,
+      isOverdue: false,
+    };
+  }
+
+  if (!document.sentAt) {
+    return {
+      kind: "setup" as const,
+      summary: "Finish setup, then send the workflow.",
+      signerId: null,
+      signerName: null,
+      signerEmail: null,
+      actionLabel: null,
+      stage: null,
+      dueAt,
+      isOverdue: false,
+    };
+  }
+
+  if (deriveWorkflowState(document) === "completed") {
+    return {
+      kind: "completed" as const,
+      summary: "All required workflow actions are complete.",
+      signerId: null,
+      signerName: null,
+      signerEmail: null,
+      actionLabel: null,
+      stage: null,
+      dueAt,
+      isOverdue: false,
+    };
+  }
+
+  const eligibleSignerIds = getEligibleSignerIdsForNotifications(document);
+  const nextSigner = document.signers.find((signer) => eligibleSignerIds.includes(signer.id)) ?? null;
+  const pendingFields = getPendingRequiredAssignedFields(document).filter(
+    (field) => field.assigneeSignerId === nextSigner?.id,
+  );
+  const actionLabel: "signature" | "approval" | "action" | null = pendingFields.some(
+    (field) => field.kind === "approval",
+  )
+    ? pendingFields.every((field) => field.kind === "approval")
+      ? "approval"
+      : "action"
+    : pendingFields.length > 0
+      ? "signature"
+      : null;
+
+  if (nextSigner) {
+    return {
+      kind: "participant" as const,
+      summary: overdue
+        ? `Overdue: waiting on ${nextSigner.name} to complete their next ${actionLabel ?? "action"}.`
+        : `Waiting on ${nextSigner.name} to complete their next ${actionLabel ?? "action"}.`,
+      signerId: nextSigner.id,
+      signerName: nextSigner.name,
+      signerEmail: nextSigner.email,
+      actionLabel,
+      stage: nextSigner.routingStage ?? null,
+      dueAt,
+      isOverdue: overdue,
+    };
+  }
+
+  return {
+    kind: "none" as const,
+    summary: overdue ? "Overdue and waiting on workflow routing." : "Waiting on the next workflow transition.",
+    signerId: null,
+    signerName: null,
+    signerEmail: null,
+    actionLabel: null,
+    stage: null,
+    dueAt,
+    isOverdue: overdue,
+  };
 }
 
 async function appendAuditEvent(
@@ -1172,6 +1425,15 @@ function buildNotificationEmailContent(notification: NotificationRow, document: 
     typeof notification.metadata?.fieldLabel === "string" ? notification.metadata.fieldLabel : "a required field";
   const actionLabel =
     typeof notification.metadata?.actionLabel === "string" ? notification.metadata.actionLabel : "signature";
+  const summary =
+    typeof notification.metadata?.summary === "string" ? notification.metadata.summary : "Workflow updated";
+
+  if (notification.event_type === "workflow_update") {
+    return {
+      subject: `Workflow update for ${document.name}`,
+      html: `<p>${summary}</p><p><a href="${actionUrl}">Open the document in EasyDraft</a></p>`,
+    };
+  }
 
   if (notification.event_type === "signature_progress") {
     const subject =
@@ -1731,7 +1993,11 @@ async function assertPermission(
     }
   }
 
-  if (action === "complete_assigned_field") {
+  if (
+    action === "complete_assigned_field" ||
+    action === "request_workflow_changes" ||
+    action === "reject_workflow"
+  ) {
     const adminClient = createServiceRoleClient();
     const { data: byUserId, error: byUserIdError } = await adminClient
       .from("document_signers")
@@ -2334,6 +2600,11 @@ export async function createDocumentForAuthorizationHeader(
     distribution_target: parsed.distributionTarget?.trim() ? parsed.distributionTarget.trim() : null,
     lock_policy: parsed.lockPolicy,
     notify_originator_on_each_signature: parsed.notifyOriginatorOnEachSignature,
+    due_at: parsed.dueAt,
+    workflow_status: "active" as const,
+    workflow_status_reason: null,
+    workflow_status_updated_at: null,
+    workflow_status_updated_by_user_id: null,
     page_count: parsed.pageCount,
     uploaded_by_user_id: user.id,
     prepared_at: null,
@@ -2500,6 +2771,152 @@ export async function updateDocumentRoutingStrategyForAuthorizationHeader(
   return { document: toWorkflowDocumentResponse(document, user.id) };
 }
 
+export async function updateDocumentWorkflowSettingsForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user, "manage_workflow");
+  const parsed = updateDocumentWorkflowSettingsInputSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+  const { error } = await adminClient
+    .from("documents")
+    .update({
+      due_at: parsed.dueAt,
+    })
+    .eq("id", documentId);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  await appendAuditEvent(
+    documentId,
+    user.id,
+    "document.due_date.updated",
+    parsed.dueAt ? "Updated workflow due date" : "Cleared workflow due date",
+    {
+      hasDueDate: Boolean(parsed.dueAt),
+    },
+  );
+  await appendVersion(
+    documentId,
+    user.id,
+    parsed.dueAt ? "Updated workflow due date" : "Cleared workflow due date",
+    parsed.dueAt ? `Workflow due date set to ${parsed.dueAt}` : "Workflow due date removed",
+  );
+
+  const document = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(document, user.id) };
+}
+
+export async function reassignDocumentSignerForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+  input: unknown,
+  appOrigin?: string,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user, "manage_signers");
+  const parsed = reassignSignerInputSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+  const document = await requireDocumentBundle(documentId);
+  const signer = document.signers.find((candidate) => candidate.id === parsed.signerId);
+
+  if (!signer) {
+    throw new AppError(404, "Signer not found.");
+  }
+
+  const completedFieldsForSigner = document.fields.filter(
+    (field) => field.completedBySignerId === signer.id && isActionFieldKind(field.kind),
+  );
+
+  if (completedFieldsForSigner.length > 0) {
+    throw new AppError(
+      409,
+      "This participant has already completed workflow actions. Duplicate the document or reopen the workflow instead of reassigning this signer slot.",
+    );
+  }
+
+  const { data: conflictingSigner, error: conflictingSignerError } = await adminClient
+    .from("document_signers")
+    .select("id")
+    .eq("document_id", documentId)
+    .ilike("email", parsed.email)
+    .neq("id", parsed.signerId)
+    .limit(1)
+    .maybeSingle();
+
+  if (conflictingSignerError) {
+    throw new AppError(500, conflictingSignerError.message);
+  }
+
+  if (conflictingSigner) {
+    throw new AppError(
+      409,
+      "This email is already assigned as a signer on the document. Each signer email can only appear once.",
+    );
+  }
+
+  const { error } = await adminClient
+    .from("document_signers")
+    .update({
+      name: parsed.name,
+      email: parsed.email,
+      user_id: null,
+      participant_type: parsed.participantType ?? signer.participantType,
+    })
+    .eq("id", parsed.signerId);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  await adminClient.from("document_invites").upsert(
+    {
+      document_id: documentId,
+      email: parsed.email,
+      role: "signer",
+      invited_by_user_id: user.id,
+    },
+    {
+      onConflict: "document_id,email,role",
+      ignoreDuplicates: false,
+    },
+  );
+
+  await appendAuditEvent(
+    documentId,
+    user.id,
+    "document.signer_reassigned",
+    `Reassigned signer slot from ${signer.email} to ${parsed.email}`,
+    {
+      previousSigner: signer.email,
+      nextSigner: parsed.email,
+    },
+  );
+  await appendVersion(documentId, user.id, "Reassigned participant", `Signer slot now belongs to ${parsed.email}`);
+
+  const updatedDocument = await requireDocumentBundle(documentId);
+  const eligibleSignerIds = getEligibleSignerIdsForNotifications(updatedDocument);
+
+  if (
+    updatedDocument.sentAt &&
+    updatedDocument.workflowStatus === "active" &&
+    eligibleSignerIds.includes(parsed.signerId)
+  ) {
+    await queueEligibleSignerNotifications(updatedDocument, user.id, [parsed.signerId], {
+      reason: "signer_reassigned",
+      actorLabel: user.name,
+      appOrigin,
+    });
+  }
+
+  const finalDocument = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(finalDocument, user.id) };
+}
+
 export async function addFieldForAuthorizationHeader(
   authorizationHeader: string | undefined,
   documentId: string,
@@ -2620,6 +3037,10 @@ export async function sendDocumentForAuthorizationHeader(
       completed_at: null,
       reopened_at: null,
       reopened_by_user_id: null,
+      workflow_status: "active",
+      workflow_status_reason: null,
+      workflow_status_updated_at: now,
+      workflow_status_updated_by_user_id: user.id,
     })
     .eq("id", documentId);
 
@@ -2729,6 +3150,106 @@ export async function reopenDocumentForAuthorizationHeader(
   return { document: toWorkflowDocumentResponse(document, user.id) };
 }
 
+export async function requestDocumentChangesForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+  input: unknown,
+  appOrigin?: string,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user, "request_workflow_changes");
+  const parsed = workflowResponseInputSchema.parse(input);
+  const document = await requireDocumentBundle(documentId);
+  const signer = ensureSignerCanRespondToWorkflow(document, user);
+
+  await updateDocumentWorkflowStatus(documentId, user.id, "changes_requested", parsed.note);
+  await appendVersion(documentId, user.id, "Changes requested", parsed.note);
+  await appendAuditEvent(
+    documentId,
+    user.id,
+    "document.changes_requested",
+    `${signer.name} requested changes`,
+    {
+      actorEmail: signer.email,
+    },
+  );
+
+  const updatedDocument = await requireDocumentBundle(documentId);
+
+  if (updatedDocument.notifyOriginatorOnEachSignature) {
+    await queueOriginatorWorkflowUpdate(
+      updatedDocument,
+      user.id,
+      signer.name,
+      `${signer.name} requested changes on ${updatedDocument.name}. ${parsed.note}`,
+      appOrigin,
+    );
+  }
+
+  const finalDocument = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(finalDocument, user.id) };
+}
+
+export async function rejectDocumentForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+  input: unknown,
+  appOrigin?: string,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user, "reject_workflow");
+  const parsed = workflowResponseInputSchema.parse(input);
+  const document = await requireDocumentBundle(documentId);
+  const signer = ensureSignerCanRespondToWorkflow(document, user);
+
+  await updateDocumentWorkflowStatus(documentId, user.id, "rejected", parsed.note);
+  await appendVersion(documentId, user.id, "Rejected workflow", parsed.note);
+  await appendAuditEvent(
+    documentId,
+    user.id,
+    "document.rejected",
+    `${signer.name} rejected the workflow`,
+    {
+      actorEmail: signer.email,
+    },
+  );
+
+  const updatedDocument = await requireDocumentBundle(documentId);
+
+  if (updatedDocument.notifyOriginatorOnEachSignature) {
+    await queueOriginatorWorkflowUpdate(
+      updatedDocument,
+      user.id,
+      signer.name,
+      `${signer.name} rejected ${updatedDocument.name}. ${parsed.note}`,
+      appOrigin,
+    );
+  }
+
+  const finalDocument = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(finalDocument, user.id) };
+}
+
+export async function cancelDocumentWorkflowForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user, "manage_workflow");
+  const parsed = workflowResponseInputSchema.parse(input);
+  const document = await requireDocumentBundle(documentId);
+
+  await updateDocumentWorkflowStatus(documentId, user.id, "canceled", parsed.note);
+  await appendVersion(documentId, user.id, "Canceled workflow", parsed.note);
+  await appendAuditEvent(documentId, user.id, "document.canceled", "Canceled the current workflow", {
+    previouslySent: Boolean(document.sentAt),
+  });
+
+  const finalDocument = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(finalDocument, user.id) };
+}
+
 export async function completeFieldForAuthorizationHeader(
   authorizationHeader: string | undefined,
   documentId: string,
@@ -2742,11 +3263,7 @@ export async function completeFieldForAuthorizationHeader(
   const adminClient = createServiceRoleClient();
   const document = await requireDocumentBundle(documentId);
   const eligibleSignerIdsBefore = getEligibleSignerIdsForNotifications(document);
-  const signer = findSignerForUser(document, user);
-
-  if (!signer) {
-    throw new AppError(403, "You are not assigned as a signer on this document.");
-  }
+  const signer = ensureSignerCanRespondToWorkflow(document, user);
 
   const field = document.fields.find((candidate) => candidate.id === fieldId);
 
@@ -2756,13 +3273,6 @@ export async function completeFieldForAuthorizationHeader(
 
   if (field.assigneeSignerId !== signer.id) {
     throw new AppError(403, "This field is assigned to another signer.");
-  }
-
-  if (field.required && isActionFieldKind(field.kind) && !eligibleSignerIdsBefore.includes(signer.id)) {
-    throw new AppError(
-      409,
-      "This signer is not active yet. Complete the current stage or signing order before continuing.",
-    );
   }
 
   let appliedSavedSignature: SavedSignatureRow | null = null;
@@ -3070,6 +3580,11 @@ export async function duplicateDocumentForAuthorizationHeader(
     distribution_target: sourceDocument.distributionTarget,
     lock_policy: sourceDocument.lockPolicy,
     notify_originator_on_each_signature: sourceDocument.notifyOriginatorOnEachSignature,
+    due_at: sourceDocument.dueAt,
+    workflow_status: "active" as const,
+    workflow_status_reason: null,
+    workflow_status_updated_at: null,
+    workflow_status_updated_by_user_id: null,
     page_count: sourceDocument.pageCount,
     uploaded_by_user_id: user.id,
     prepared_at: sourceDocument.preparedAt,

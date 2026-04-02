@@ -116,3 +116,16 @@ What would still need explicit product and data-model decisions for full coverag
 - approval-only actions separate from signatures
 - decline, cancel, and expire statuses
 - lock permissions by policy instead of broad signer access
+
+## Future-state roadmap
+
+For the next layer of workflow behavior, use [future-workflow-roadmap.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/future-workflow-roadmap.md) as the reference point.
+
+That roadmap intentionally stays simple:
+
+- one clear `waiting on` blocker at a time
+- explicit initiator updates at each meaningful stage
+- reminders and overdue handling before complex escalation logic
+- request changes, reassignment, and cancel as first-class recovery paths
+- change-impact handling after partial completion
+- a completion package that closes the loop cleanly

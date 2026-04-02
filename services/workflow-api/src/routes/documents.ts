@@ -4,6 +4,7 @@ import {
   AppError,
   addFieldForAuthorizationHeader,
   addSignerForAuthorizationHeader,
+  cancelDocumentWorkflowForAuthorizationHeader,
   clearDocumentFieldsForAuthorizationHeader,
   createDocumentForAuthorizationHeader,
   createDocumentShareLinkForAuthorizationHeader,
@@ -14,11 +15,15 @@ import {
   inviteCollaboratorForAuthorizationHeader,
   listDocumentsForAuthorizationHeader,
   lockDocumentForAuthorizationHeader,
+  reassignDocumentSignerForAuthorizationHeader,
+  rejectDocumentForAuthorizationHeader,
   requestProcessingJobForAuthorizationHeader,
+  requestDocumentChangesForAuthorizationHeader,
   reopenDocumentForAuthorizationHeader,
   redoDocumentEditorForAuthorizationHeader,
   completeFieldForAuthorizationHeader,
   sendDocumentForAuthorizationHeader,
+  updateDocumentWorkflowSettingsForAuthorizationHeader,
   updateDocumentRoutingStrategyForAuthorizationHeader,
   undoDocumentEditorForAuthorizationHeader,
 } from "@clean-pdf/workflow-service";
@@ -103,6 +108,19 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
+  app.post("/documents/:documentId/workflow", async (request, reply) => {
+    try {
+      const { documentId } = request.params as { documentId: string };
+      return await updateDocumentWorkflowSettingsForAuthorizationHeader(
+        request.headers.authorization,
+        documentId,
+        request.body,
+      );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
   app.post("/documents/:documentId/share", async (request, reply) => {
     try {
       const { documentId } = request.params as { documentId: string };
@@ -173,6 +191,23 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
+  app.post("/documents/:documentId/signers/:signerId/reassign", async (request, reply) => {
+    try {
+      const { documentId, signerId } = request.params as { documentId: string; signerId: string };
+      return await reassignDocumentSignerForAuthorizationHeader(
+        request.headers.authorization,
+        documentId,
+        {
+          ...(request.body as Record<string, unknown>),
+          signerId,
+        },
+        getOrigin(request),
+      );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
   app.post("/documents/:documentId/fields", async (request, reply) => {
     try {
       const { documentId } = request.params as { documentId: string };
@@ -208,6 +243,47 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
         fieldId,
         request.body,
         getOrigin(request),
+      );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/documents/:documentId/request-changes", async (request, reply) => {
+    try {
+      const { documentId } = request.params as { documentId: string };
+      return await requestDocumentChangesForAuthorizationHeader(
+        request.headers.authorization,
+        documentId,
+        request.body,
+        getOrigin(request),
+      );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/documents/:documentId/reject", async (request, reply) => {
+    try {
+      const { documentId } = request.params as { documentId: string };
+      return await rejectDocumentForAuthorizationHeader(
+        request.headers.authorization,
+        documentId,
+        request.body,
+        getOrigin(request),
+      );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/documents/:documentId/cancel", async (request, reply) => {
+    try {
+      const { documentId } = request.params as { documentId: string };
+      return await cancelDocumentWorkflowForAuthorizationHeader(
+        request.headers.authorization,
+        documentId,
+        request.body,
       );
     } catch (error) {
       return sendError(reply, error);

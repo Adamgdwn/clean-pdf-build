@@ -49,8 +49,32 @@ export function isDocumentLocked(document: DocumentRecord) {
   return Boolean(document.lockedAt);
 }
 
+export function isWorkflowBlocked(document: DocumentRecord) {
+  return (
+    document.workflowStatus === "changes_requested" ||
+    document.workflowStatus === "rejected" ||
+    document.workflowStatus === "canceled"
+  );
+}
+
+export function isWorkflowOverdue(document: DocumentRecord, now = new Date().toISOString()) {
+  if (!document.sentAt || !document.dueAt || document.completedAt || isDocumentLocked(document)) {
+    return false;
+  }
+
+  if (isWorkflowBlocked(document)) {
+    return false;
+  }
+
+  return document.dueAt < now;
+}
+
 export function isDocumentSignable(document: DocumentRecord) {
   if (isDocumentLocked(document)) {
+    return false;
+  }
+
+  if (isWorkflowBlocked(document)) {
     return false;
   }
 
