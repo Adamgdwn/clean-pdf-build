@@ -20,7 +20,7 @@ type Props = {
 
 export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Props) {
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
+  const [inviteRole, setInviteRole] = useState<"member" | "admin" | "billing_admin">("member");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
@@ -233,10 +233,11 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
                   <span>Role</span>
                   <select
                     value={inviteRole}
-                    onChange={(e) => setInviteRole(e.target.value as "member" | "admin")}
+                    onChange={(e) => setInviteRole(e.target.value as "member" | "admin" | "billing_admin")}
                   >
                     <option value="member">Member</option>
                     <option value="admin">Admin</option>
+                    <option value="billing_admin">Billing admin</option>
                   </select>
                 </label>
                 <button

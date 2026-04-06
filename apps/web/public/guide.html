@@ -318,6 +318,7 @@
       <li><a href="#monitoring">Monitoring &amp; reminders</a></li>
       <li><a href="#actions">Workflow actions</a></li>
       <li><a href="#billing">Billing &amp; tokens</a></li>
+      <li><a href="#digital-signatures">Digital signatures</a></li>
       <li><a href="#account">Account &amp; your data</a></li>
     </ol>
   </nav>
@@ -377,6 +378,7 @@
         <tr><td><strong>Owner</strong></td><td>Full access — manages billing, team membership, workspace settings, and all documents.</td></tr>
         <tr><td><strong>Admin</strong></td><td>Can invite members, upload documents, and manage workflows. Cannot change billing.</td></tr>
         <tr><td><strong>Member</strong></td><td>Can upload documents and run their own workflows.</td></tr>
+        <tr><td><strong>Billing admin</strong></td><td>Can access the Billing panel and manage payment methods and subscriptions, but has no elevated access to documents or team management.</td></tr>
       </tbody>
     </table>
     <p>Note: workspace roles control access to team and billing features. Individual document access (editor, viewer, signer) is granted separately per document via the document's <em>Access</em> panel.</p>
@@ -402,6 +404,9 @@
       <li>Optionally set a <strong>due date</strong> and a <strong>lock policy</strong>.</li>
       <li>Click <strong>Upload</strong>. The document appears in your document list and is ready to prepare.</li>
     </ol>
+
+    <h3>Distribution target (self-managed only)</h3>
+    <p>When using the <em>Store &amp; distribute myself</em> delivery mode, an optional <strong>Shared storage or distribution target</strong> field lets you note where the document will end up — for example, a Dropbox folder, SharePoint library, network path, or email list. This is a free-text memo field for your own reference; EasyDraftDocs does not push files to external systems automatically.</p>
 
     <h3>OCR (scanned documents)</h3>
     <p>If your PDF is a scanned image rather than a native digital PDF, tick <strong>Scanned document (queue OCR)</strong> before uploading. This queues an OCR job that makes the text searchable and improves field placement accuracy. You can also trigger OCR on an existing document from the document's workflow panel using the <strong>Queue OCR</strong> button.</p>
@@ -542,6 +547,9 @@
       <li>Sets the workflow status to <em>Active</em> and starts watching for due date.</li>
     </ol>
 
+    <h3>Originator notifications (managed routing)</h3>
+    <p>When uploading a document with <em>Managed routing</em>, a checkbox lets you choose whether to be notified after <strong>every</strong> individual signature or approval, or only when the workflow completes. This is set at upload time and is visible in the document's metadata panel as <em>Originator updates: Enabled / Off</em>. Enable it for high-visibility workflows; leave it off to avoid email noise on long signing chains.</p>
+
     <div class="callout note">
       <strong>Re-sending</strong>
       If you update participant details or fields after the first send, click the send button again. It re-runs the routing from the current state. The audit trail records each send event.
@@ -668,9 +676,78 @@
   </section>
 
 
-  <!-- ─── 12. Account ──────────────────────────────────────────────── -->
-  <section class="section" id="account">
+  <!-- ─── 12. Digital signatures ──────────────────────────────────── -->
+  <section class="section" id="digital-signatures">
     <p class="section-label">Section 12</p>
+    <h2 class="section-title">Digital signatures</h2>
+
+    <p>In addition to the image-based signatures in the Signature Library, EasyDraftDocs supports certificate-backed <strong>digital signature profiles</strong>. These are cryptographic credentials issued by a trust provider that embed verifiable identity into the signed PDF — a higher assurance standard than a drawn or typed image.</p>
+
+    <div class="callout note">
+      <strong>This is an advanced feature</strong>
+      Digital signature profiles require provider verification before they can be used on PDFs. Creating a profile submits a request; the provider verifies your identity out-of-band before activating it. You can continue using image-based signatures while verification is pending.
+    </div>
+
+    <h3>Providers</h3>
+    <table>
+      <thead>
+        <tr><th>Provider</th><th>What it means</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>EasyDraft remote</strong></td>
+          <td>Certificate managed by EasyDraftDocs on your behalf. Suitable for most business use cases.</td>
+        </tr>
+        <tr>
+          <td><strong>Qualified remote</strong></td>
+          <td>A qualified electronic signature issued by an accredited third-party trust service provider (TSP). Meets the highest regulatory standards in supported jurisdictions (e.g. eIDAS in the EU).</td>
+        </tr>
+        <tr>
+          <td><strong>Organization HSM</strong></td>
+          <td>Signing key held in your organization's own Hardware Security Module. For enterprises that manage their own PKI infrastructure.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Assurance levels</h3>
+    <table>
+      <thead>
+        <tr><th>Level</th><th>What it means</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Advanced</strong></td><td>Uniquely linked to the signer, capable of identifying them, and detects any subsequent change to the signed data.</td></tr>
+        <tr><td><strong>Qualified</strong></td><td>An advanced electronic signature created with a qualified certificate issued by an accredited TSP. Carries legal equivalence to a handwritten signature in supporting jurisdictions.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Profile statuses</h3>
+    <table>
+      <thead>
+        <tr><th>Status</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Setup required</strong></td><td>Profile created but identity verification with the provider has not yet started.</td></tr>
+        <tr><td><strong>Requested</strong></td><td>Verification request submitted. Awaiting provider confirmation.</td></tr>
+        <tr><td><strong>Verified</strong></td><td>Certificate issued and active. The profile can be used for signing.</td></tr>
+        <tr><td><strong>Rejected</strong></td><td>Verification was unsuccessful. Contact the provider or create a new profile.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Creating a digital signature profile</h3>
+    <ol class="step-list">
+      <li>Scroll to the <strong>Digital Signatures</strong> section in the sidebar.</li>
+      <li>Enter a profile label (e.g. "Corporate signing cert") and optional title text that will appear on signed documents.</li>
+      <li>Select a <strong>Provider</strong> and <strong>Assurance level</strong>.</li>
+      <li>Click <strong>Request digital signing profile</strong>. The profile is created in <em>Requested</em> status.</li>
+      <li>Complete any out-of-band identity verification steps required by your chosen provider.</li>
+      <li>Once the provider confirms verification, the profile moves to <em>Verified</em> status and becomes available for use on PDFs.</li>
+    </ol>
+  </section>
+
+
+  <!-- ─── 13. Account ──────────────────────────────────────────────── -->
+  <section class="section" id="account">
+    <p class="section-label">Section 13</p>
     <h2 class="section-title">Account &amp; your data</h2>
 
     <h3>Profile</h3>
