@@ -7,9 +7,13 @@ import { getDocumentSendReadiness } from "@clean-pdf/domain";
 import { apiFetch } from "./lib/api";
 import { browserSupabase } from "./lib/supabase";
 import { AuthPanel } from "./components/AuthPanel";
+import { AdminConsole, AdminSidebarSummary } from "./components/AdminPanel";
+import { BillingPanel } from "./components/BillingPanel";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import type {
   AccountProfile,
+  AdminManagedUser,
+  AdminOverview,
   BillingOverview,
   DigitalSignatureProfile,
   GuestSigningSession,
@@ -19,53 +23,6 @@ import type {
 } from "./types";
 
 
-type AdminOverview = {
-  metrics: {
-    totalUsers: number;
-    totalWorkspaces: number;
-    totalDocuments: number;
-    sentDocuments: number;
-    completedDocuments: number;
-    pendingNotifications: number;
-    queuedProcessingJobs: number;
-    billingCustomers: number;
-    estimatedMrrUsd: number;
-  };
-  recentSubscriptions: Array<{
-    id: string;
-    workspace_id: string;
-    billing_plan_key: string;
-    status: string;
-    seat_count: number;
-    current_period_end: string | null;
-    updated_at: string;
-  }>;
-  recentWorkspaces: Array<{
-    id: string;
-    name: string;
-    slug: string;
-    workspace_type: string;
-    owner_user_id: string;
-    billing_email: string | null;
-    created_at: string;
-  }>;
-};
-
-type AdminManagedUser = {
-  id: string;
-  email: string;
-  displayName: string;
-  companyName: string | null;
-  createdAt: string;
-  lastSignInAt: string | null;
-  emailConfirmedAt: string | null;
-  status: "confirmed" | "pending_confirmation";
-  isPlatformAdmin: boolean;
-  canDelete: boolean;
-  workspaceCount: number;
-  documentCount: number;
-  privilegeLabels: string[];
-};
 
 const documentBucket = import.meta.env.VITE_SUPABASE_DOCUMENT_BUCKET ?? "documents";
 const signatureBucket = import.meta.env.VITE_SUPABASE_SIGNATURE_BUCKET ?? "signatures";
@@ -327,8 +284,6 @@ export default function App() {
   const [digitalSignatureProfiles, setDigitalSignatureProfiles] = useState<DigitalSignatureProfile[]>([]);
   const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
   const [adminUsers, setAdminUsers] = useState<AdminManagedUser[]>([]);
-  const [adminInviteEmail, setAdminInviteEmail] = useState("");
-  const [adminInviteName, setAdminInviteName] = useState("");
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
@@ -391,10 +346,7 @@ export default function App() {
   const [renameDocName, setRenameDocName] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
-  const [adminErrorMessage, setAdminErrorMessage] = useState<string | null>(null);
-  const [adminNoticeMessage, setAdminNoticeMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isBillingRedirecting, setIsBillingRedirecting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragStateRef = useRef<{
     mode: "move" | "resize";
@@ -849,108 +801,6 @@ export default function App() {
     await navigator.clipboard.writeText(value);
   }
 
-  async function handleAdminSendPasswordReset(userId: string) {
-    if (!session) {
-      return;
-    }
-
-    setIsLoading(true);
-    setAdminErrorMessage(null);
-    setAdminNoticeMessage(null);
-
-    try {
-      const payload = await apiFetch<{ email: string; redirectTo: string }>("/admin-user-reset", session, {
-        method: "POST",
-        body: JSON.stringify({ userId }),
-      });
-      setAdminNoticeMessage(`Password reset email sent to ${payload.email}.`);
-      await refreshAdminUsers(session);
-    } catch (error) {
-      setAdminErrorMessage((error as Error).message);
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  async function handleAdminInviteUser(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!session) {
-      return;
-    }
-
-    setIsLoading(true);
-    setAdminErrorMessage(null);
-    setAdminNoticeMessage(null);
-
-    try {
-      const payload = await apiFetch<{
-        email: string;
-        status: "invited" | "existing_account" | "pending_invite";
-        redirectTo: string;
-      }>("/admin-user-invite", session, {
-        method: "POST",
-        body: JSON.stringify({
-          email: adminInviteEmail,
-          displayName: adminInviteName.trim() || undefined,
-        }),
-      });
-
-      if (payload.status === "invited") {
-        setAdminNoticeMessage(
-          `Invite email sent to ${payload.email}. They can finish signup and land back in EasyDraft at ${payload.redirectTo}.`,
-        );
-      } else if (payload.status === "pending_invite") {
-        setAdminNoticeMessage(
-          `${payload.email} already has a pending invite or unconfirmed account. Ask them to use the original invite email or resend from Supabase if needed.`,
-        );
-      } else {
-        setAdminNoticeMessage(
-          `${payload.email} already has an account. Ask them to sign in directly, or use password reset if they need help getting back in.`,
-        );
-      }
-
-      setAdminInviteEmail("");
-      setAdminInviteName("");
-      await refreshAdminUsers(session);
-    } catch (error) {
-      setAdminErrorMessage((error as Error).message);
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  async function handleAdminDeleteUser(userId: string) {
-    if (!session) {
-      return;
-    }
-
-    if (!window.confirm("Permanently delete this user? This cannot be undone.")) {
-      return;
-    }
-
-    setIsLoading(true);
-    setAdminErrorMessage(null);
-    setAdminNoticeMessage(null);
-
-    try {
-      const payload = await apiFetch<{ email: string; deletedUserId: string }>(
-        "/admin-user-delete",
-        session,
-        {
-          method: "POST",
-          body: JSON.stringify({ userId }),
-        },
-      );
-      setAdminNoticeMessage(`${payload.email} was deleted from EasyDraft.`);
-      await Promise.all([refreshAdminUsers(session), refreshAdminOverview(session)]);
-    } catch (error) {
-      setAdminErrorMessage((error as Error).message);
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
   async function handleDownloadDocument() {
     if (!previewUrl && !localPreviewUrl) {
       setErrorMessage("Choose or load a document before downloading.");
@@ -1196,45 +1046,6 @@ export default function App() {
       setErrorMessage((error as Error).message);
     } finally {
       setIsLoading(false);
-    }
-  }
-
-  async function handleBillingCheckout(planKey: string) {
-    if (!session) {
-      return;
-    }
-
-    setIsBillingRedirecting(true);
-    setErrorMessage(null);
-
-    try {
-      const payload = await apiFetch<{ url: string }>("/billing-checkout", session, {
-        method: "POST",
-        body: JSON.stringify({ planKey }),
-      });
-      window.location.assign(payload.url);
-    } catch (error) {
-      setErrorMessage((error as Error).message);
-      setIsBillingRedirecting(false);
-    }
-  }
-
-  async function handleBillingPortal() {
-    if (!session) {
-      return;
-    }
-
-    setIsBillingRedirecting(true);
-    setErrorMessage(null);
-
-    try {
-      const payload = await apiFetch<{ url: string }>("/billing-portal", session, {
-        method: "POST",
-      });
-      window.location.assign(payload.url);
-    } catch (error) {
-      setErrorMessage((error as Error).message);
-      setIsBillingRedirecting(false);
     }
   }
 
@@ -1891,121 +1702,12 @@ export default function App() {
           </section>
         ) : null}
 
-        {sessionUser && billingOverview ? (
-          <section className="card">
-            <div className="section-heading compact">
-              <p className="eyebrow">Billing</p>
-              <span>{billingOverview.workspace.workspaceType}</span>
-            </div>
-            <div className="stack">
-              <div className="row-card">
-                <div>
-                  <strong>{billingOverview.workspace.name}</strong>
-                  <p className="muted">
-                    {billingOverview.subscription
-                      ? `${billingOverview.subscription.planKey} · ${billingOverview.subscription.status}`
-                      : "No active subscription"}
-                  </p>
-                </div>
-                <span>{billingOverview.workspace.internalMemberCount} seats in workspace</span>
-              </div>
-              {billingOverview.billingMode === "placeholder" ? (
-                <p className="muted">
-                  Billing is in testing mode. No live charges occur right now. Plan buttons stay clickable,
-                  but they loop through a non-live preview until Stripe keys are configured.
-                </p>
-              ) : null}
-              <div className="row-card">
-                <span>Signing tokens</span>
-                <strong>
-                  {billingOverview.signingTokens.available} / {billingOverview.signingTokens.includedInPlan} available this period
-                </strong>
-              </div>
-              {billingOverview.subscription ? (
-                <>
-                  <p className="muted">
-                    Renewal date: {formatTimestamp(billingOverview.subscription.currentPeriodEnd)}
-                  </p>
-                  <button
-                    className="secondary-button"
-                    disabled={isBillingRedirecting}
-                    onClick={() => handleBillingPortal().catch((error) => setErrorMessage((error as Error).message))}
-                  >
-                    Manage billing
-                  </button>
-                </>
-              ) : (
-                billingOverview.plans.map((plan) => (
-                  <div key={plan.key} className="row-card">
-                    <div>
-                      <strong>
-                        {plan.name} · ${plan.monthlyPriceUsd}/mo
-                      </strong>
-                      <p className="muted">
-                        {plan.includedCompletedDocs} docs · {plan.includedOcrPages} OCR pages ·{" "}
-                        {plan.includedStorageGb} GB · {plan.includedSigningTokens} signing tokens
-                      </p>
-                    </div>
-                    <button
-                      className="ghost-button"
-                      disabled={isBillingRedirecting}
-                      onClick={() =>
-                        handleBillingCheckout(plan.key).catch((error) =>
-                          setErrorMessage((error as Error).message),
-                        )
-                      }
-                    >
-                      Choose
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
+        {sessionUser && session && billingOverview ? (
+          <BillingPanel session={session} billingOverview={billingOverview} />
         ) : null}
 
         {sessionUser?.isAdmin && adminOverview ? (
-          <section className="card">
-            <div className="section-heading compact">
-              <p className="eyebrow">Admin</p>
-              <span>{adminUsers.length} accounts</span>
-            </div>
-            <div className="stack">
-              <div className="admin-metrics">
-                <div className="metric">
-                  <span>Users</span>
-                  <strong>{adminOverview.metrics.totalUsers}</strong>
-                </div>
-                <div className="metric">
-                  <span>Workspaces</span>
-                  <strong>{adminOverview.metrics.totalWorkspaces}</strong>
-                </div>
-                <div className="metric">
-                  <span>Documents</span>
-                  <strong>{adminOverview.metrics.totalDocuments}</strong>
-                </div>
-                <div className="metric">
-                  <span>MRR</span>
-                  <strong>${adminOverview.metrics.estimatedMrrUsd}</strong>
-                </div>
-              </div>
-              <p className="muted">
-                Full admin tools are available in the main workspace, including account status,
-                privilege review, password resets, and delete controls for testing.
-              </p>
-              {adminOverview.recentSubscriptions.slice(0, 3).map((subscription) => (
-                <div key={subscription.id} className="row-card">
-                  <div>
-                    <strong>{subscription.billing_plan_key}</strong>
-                    <p className="muted">
-                      {subscription.status} · {subscription.seat_count} seats
-                    </p>
-                  </div>
-                  <span>{formatTimestamp(subscription.current_period_end)}</span>
-                </div>
-              ))}
-            </div>
-          </section>
+          <AdminSidebarSummary adminOverview={adminOverview} adminUsers={adminUsers} />
         ) : null}
 
         <section className="card">
@@ -2119,173 +1821,19 @@ export default function App() {
         {errorMessage ? <div className="alert">{errorMessage}</div> : null}
         {noticeMessage ? <div className="alert success">{noticeMessage}</div> : null}
 
-        {sessionUser?.isAdmin && adminOverview ? (
+        {sessionUser?.isAdmin && session && adminOverview ? (
           <ErrorBoundary label="Admin console">
-          <section className="panel admin-console-panel">
-            <div className="panel-header">
-              <div>
-                <p className="eyebrow">Admin console</p>
-                <h3>Review accounts, privileges, and testing access in one place</h3>
-              </div>
-              <button
-                className="secondary-button"
-                disabled={!session || isLoading}
-                onClick={() => {
-                  if (!session) {
-                    return;
-                  }
-
-                  Promise.all([refreshAdminOverview(session), refreshAdminUsers(session)]).catch((error) =>
-                    setAdminErrorMessage((error as Error).message),
-                  );
-                }}
-              >
-                Refresh admin data
-              </button>
-            </div>
-
-            {adminErrorMessage ? <div className="alert">{adminErrorMessage}</div> : null}
-            {adminNoticeMessage ? <div className="alert success">{adminNoticeMessage}</div> : null}
-
-            <div className="split admin-console-grid">
-              <div className="stack">
-                <div className="admin-metrics">
-                  <div className="metric">
-                    <span>Users</span>
-                    <strong>{adminOverview.metrics.totalUsers}</strong>
-                  </div>
-                  <div className="metric">
-                    <span>Queued emails</span>
-                    <strong>{adminOverview.metrics.pendingNotifications}</strong>
-                  </div>
-                  <div className="metric">
-                    <span>Workspaces</span>
-                    <strong>{adminOverview.metrics.totalWorkspaces}</strong>
-                  </div>
-                  <div className="metric">
-                    <span>Documents</span>
-                    <strong>{adminOverview.metrics.totalDocuments}</strong>
-                  </div>
-                </div>
-
-                <div className="toolbar-card">
-                  <div className="section-heading compact">
-                    <p className="eyebrow">Invite testers</p>
-                    <span>Supabase auth invite</span>
-                  </div>
-                  <p className="muted action-note">
-                    Send a tester into EasyDraft before assigning documents. Once they sign in with the invited
-                    email, any pending collaborator or signer access for that email attaches automatically.
-                  </p>
-                  <form className="stack form-block" onSubmit={handleAdminInviteUser}>
-                    <label className="form-field">
-                      <span>Name</span>
-                      <input
-                        value={adminInviteName}
-                        onChange={(event) => setAdminInviteName(event.target.value)}
-                      />
-                    </label>
-                    <label className="form-field">
-                      <span>Email</span>
-                      <input
-                        required
-                        type="email"
-                        value={adminInviteEmail}
-                        onChange={(event) => setAdminInviteEmail(event.target.value)}
-                      />
-                    </label>
-                    <button
-                      className="secondary-button"
-                      disabled={isLoading || !adminInviteEmail.trim()}
-                      type="submit"
-                    >
-                      Send tester invite
-                    </button>
-                  </form>
-                </div>
-
-                <div className="toolbar-card">
-                  <div className="section-heading compact">
-                    <p className="eyebrow">Recent workspaces</p>
-                    <span>{adminOverview.recentWorkspaces.length}</span>
-                  </div>
-                  <div className="stack">
-                    {adminOverview.recentWorkspaces.slice(0, 4).map((workspace) => (
-                      <div key={workspace.id} className="row-card">
-                        <div>
-                          <strong>{workspace.name}</strong>
-                          <p className="muted">
-                            {workspace.workspace_type} · {workspace.slug}
-                          </p>
-                        </div>
-                        <span>{formatTimestamp(workspace.created_at)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="toolbar-card">
-                <div className="section-heading compact">
-                  <p className="eyebrow">Accounts</p>
-                  <span>{adminUsers.length}</span>
-                </div>
-                <p className="muted action-note">
-                  Use this view to confirm account status, see who has admin access, trigger password resets,
-                  and delete test accounts when you need a clean slate.
-                </p>
-                <div className="stack admin-user-list">
-                  {adminUsers.length === 0 ? (
-                    <p className="muted">No user accounts exist yet.</p>
-                  ) : (
-                    adminUsers.map((adminUser) => (
-                      <div key={adminUser.id} className="row-card admin-user-card">
-                        <div className="admin-user-copy">
-                          <strong>
-                            {adminUser.id === sessionUser.id ? "You" : adminUser.displayName}
-                          </strong>
-                          <p className="muted">{adminUser.email}</p>
-                          <p className="muted">
-                            {adminUser.status === "confirmed" ? "Confirmed" : "Pending confirmation"} ·
-                            created {formatTimestamp(adminUser.createdAt)}
-                          </p>
-                          <p className="muted">
-                            Last sign in: {formatTimestamp(adminUser.lastSignInAt)} · workspaces:{" "}
-                            {adminUser.workspaceCount} · documents: {adminUser.documentCount}
-                          </p>
-                          {adminUser.companyName ? (
-                            <p className="muted">Company: {adminUser.companyName}</p>
-                          ) : null}
-                          <p className="muted">
-                            Privileges: {adminUser.privilegeLabels.join(", ")}
-                          </p>
-                        </div>
-                        <div className="field-actions">
-                          {adminUser.isPlatformAdmin ? <span>Platform admin</span> : null}
-                          <button
-                            className="ghost-button"
-                            disabled={isLoading}
-                            onClick={() => handleAdminSendPasswordReset(adminUser.id)}
-                            type="button"
-                          >
-                            Send reset email
-                          </button>
-                          <button
-                            className="ghost-button danger-button"
-                            disabled={isLoading || !adminUser.canDelete}
-                            onClick={() => handleAdminDeleteUser(adminUser.id)}
-                            type="button"
-                          >
-                            Delete user
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          </section>
+            <AdminConsole
+              session={session}
+              sessionUser={sessionUser}
+              adminOverview={adminOverview}
+              adminUsers={adminUsers}
+              onRefresh={() => {
+                Promise.all([refreshAdminOverview(session), refreshAdminUsers(session)]).catch(
+                  (error) => setErrorMessage((error as Error).message),
+                );
+              }}
+            />
           </ErrorBoundary>
         ) : null}
 

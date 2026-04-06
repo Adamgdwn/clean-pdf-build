@@ -56,16 +56,19 @@ The client app (`apps/web/src/`) is being incrementally extracted from a monolit
 ```
 src/
   types.ts                  — shared client-side type definitions
-  App.tsx                   — top-level orchestrator (state, effects, data fetching)
+  App.tsx                   — top-level orchestrator (~2,920 lines; ongoing reduction)
   components/
     AuthPanel.tsx           — sign-in/sign-up form, signed-in view, guest signing banner
+    AdminPanel.tsx          — AdminConsole (full panel) + AdminSidebarSummary (card)
+    BillingPanel.tsx        — billing overview, plan selection, portal link
     ErrorBoundary.tsx       — reusable error boundary with Try Again reset
 ```
 
 Extraction order (in progress):
 1. ✅ AuthPanel — auth form + guest signing banner, owns its own loading/error state
-2. AdminPanel — admin console (users, metrics, invites)
-3. BillingPanel — billing overview, plan selection, portal link
+2. ✅ AdminPanel — AdminConsole owns invite/delete/reset handlers + scoped error state
+3. ✅ BillingPanel — checkout/portal handlers + scoped redirect/error state
+4. Next: DocumentSidebar, WorkflowChecklistPanel, FieldEditorPanel
 
 State that remains in App.tsx intentionally:
 - `session` / `sessionUser` — needed by nearly every handler

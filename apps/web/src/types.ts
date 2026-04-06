@@ -116,6 +116,54 @@ export type AccountProfile = {
   lastSeenAt: string | null;
 };
 
+export type AdminOverview = {
+  metrics: {
+    totalUsers: number;
+    totalWorkspaces: number;
+    totalDocuments: number;
+    sentDocuments: number;
+    completedDocuments: number;
+    pendingNotifications: number;
+    queuedProcessingJobs: number;
+    billingCustomers: number;
+    estimatedMrrUsd: number;
+  };
+  recentSubscriptions: Array<{
+    id: string;
+    workspace_id: string;
+    billing_plan_key: string;
+    status: string;
+    seat_count: number;
+    current_period_end: string | null;
+    updated_at: string;
+  }>;
+  recentWorkspaces: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    workspace_type: string;
+    owner_user_id: string;
+    billing_email: string | null;
+    created_at: string;
+  }>;
+};
+
+export type AdminManagedUser = {
+  id: string;
+  email: string;
+  displayName: string;
+  companyName: string | null;
+  createdAt: string;
+  lastSignInAt: string | null;
+  emailConfirmedAt: string | null;
+  status: "confirmed" | "pending_confirmation";
+  isPlatformAdmin: boolean;
+  canDelete: boolean;
+  workspaceCount: number;
+  documentCount: number;
+  privilegeLabels: string[];
+};
+
 export type DigitalSignatureProfile = {
   id: string;
   label: string;
