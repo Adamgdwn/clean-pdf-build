@@ -49,6 +49,29 @@ Responsibilities:
 - relational storage for workflow state, access control, and audit records
 - queue storage for processing jobs
 
+## Client component structure
+
+The client app (`apps/web/src/`) is being incrementally extracted from a monolithic `App.tsx` into focused components. Current state:
+
+```
+src/
+  types.ts                  — shared client-side type definitions
+  App.tsx                   — top-level orchestrator (state, effects, data fetching)
+  components/
+    AuthPanel.tsx           — sign-in/sign-up form, signed-in view, guest signing banner
+    ErrorBoundary.tsx       — reusable error boundary with Try Again reset
+```
+
+Extraction order (in progress):
+1. ✅ AuthPanel — auth form + guest signing banner, owns its own loading/error state
+2. AdminPanel — admin console (users, metrics, invites)
+3. BillingPanel — billing overview, plan selection, portal link
+
+State that remains in App.tsx intentionally:
+- `session` / `sessionUser` — needed by nearly every handler
+- `guestSigningSession` — consumed by field canvas and field-complete handler
+- `selectedDocument` / `documents` — drives entire workspace panel
+
 ## Recommended boring stack
 
 - Client: React + Vite + TypeScript
@@ -80,6 +103,7 @@ Responsibilities:
 - `processing.ocr.requested`
 - `processing.ocr.completed`
 - `processing.field_detection.completed`
+- `document.renamed`
 - `document.exported`
 
 ## Next implementation step after this bootstrap

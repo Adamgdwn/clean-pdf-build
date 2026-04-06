@@ -2,139 +2,22 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import type { Session } from "@supabase/supabase-js";
-import { getDocumentSendReadiness, type DocumentRecord } from "@clean-pdf/domain";
+import { getDocumentSendReadiness } from "@clean-pdf/domain";
 
 import { apiFetch } from "./lib/api";
 import { browserSupabase } from "./lib/supabase";
+import { AuthPanel } from "./components/AuthPanel";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import type {
+  AccountProfile,
+  BillingOverview,
+  DigitalSignatureProfile,
+  GuestSigningSession,
+  SavedSignature,
+  SessionUser,
+  WorkflowDocument,
+} from "./types";
 
-type SessionUser = {
-  id: string;
-  name: string;
-  email: string;
-  isAdmin: boolean;
-};
-
-type WorkflowDocument = DocumentRecord & {
-  currentUserRole: "owner" | "editor" | "signer" | "viewer" | null;
-  currentUserIsSigner: boolean;
-  currentUserSignerId: string | null;
-  accessParticipants: Array<{
-    userId: string;
-    role: "owner" | "editor" | "signer" | "viewer";
-    displayName: string;
-    email: string | null;
-  }>;
-  workflowState: string;
-  operationalStatus: "active" | "changes_requested" | "rejected" | "canceled" | "overdue";
-  isOverdue: boolean;
-  waitingOn: {
-    kind: "setup" | "participant" | "initiator" | "completed" | "rejected" | "canceled" | "none";
-    summary: string;
-    signerId: string | null;
-    signerName: string | null;
-    signerEmail: string | null;
-    actionLabel: "signature" | "approval" | "action" | null;
-    stage: number | null;
-    dueAt: string | null;
-    isOverdue: boolean;
-  };
-  eligibleSignerIds: string[];
-  signable: boolean;
-  completionSummary: {
-    requiredAssignedFields: number;
-    completedRequiredAssignedFields: number;
-    remainingRequiredAssignedFields: number;
-  };
-  editorHistory: {
-    currentIndex: number;
-    latestIndex: number;
-    canUndo: boolean;
-    canRedo: boolean;
-  };
-};
-
-type BillingOverview = {
-  billingMode: "live" | "placeholder";
-  workspace: {
-    id: string;
-    name: string;
-    slug: string;
-    workspaceType: "personal" | "team";
-    membershipRole: "owner" | "admin" | "member" | "billing_admin" | null;
-    internalMemberCount: number;
-  };
-  subscription: {
-    planKey: string;
-    status: string;
-    seatCount: number;
-    currentPeriodEnd: string | null;
-    cancelAtPeriodEnd: boolean;
-  } | null;
-  signingTokens: {
-    available: number;
-    used: number;
-    includedInPlan: number;
-  };
-  plans: Array<{
-    key: string;
-    name: string;
-    monthlyPriceUsd: number;
-    includedInternalSeats: number;
-    includedCompletedDocs: number;
-    includedOcrPages: number;
-    includedStorageGb: number;
-    includedSigningTokens: number;
-  }>;
-};
-
-type GuestSigningSession = {
-  signerToken: string;
-  signerId: string;
-  signerEmail: string;
-  signerName: string;
-  documentId: string;
-  document: WorkflowDocument;
-  previewUrl: string | null;
-};
-
-type SavedSignature = {
-  id: string;
-  label: string;
-  titleText: string | null;
-  signatureType: "typed" | "uploaded";
-  typedText: string | null;
-  storagePath: string | null;
-  previewUrl: string | null;
-  isDefault: boolean;
-  createdAt: string;
-};
-
-type AccountProfile = {
-  id: string;
-  email: string;
-  displayName: string;
-  avatarUrl: string | null;
-  companyName: string | null;
-  jobTitle: string | null;
-  locale: string | null;
-  timezone: string | null;
-  marketingOptIn: boolean;
-  productUpdatesOptIn: boolean;
-  lastSeenAt: string | null;
-};
-
-type DigitalSignatureProfile = {
-  id: string;
-  label: string;
-  titleText: string | null;
-  provider: "easy_draft_remote" | "qualified_remote" | "organization_hsm";
-  assuranceLevel: string;
-  status: "setup_required" | "requested" | "verified" | "rejected";
-  certificateFingerprint: string | null;
-  providerReference: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
 
 type AdminOverview = {
   metrics: {
@@ -450,10 +333,6 @@ export default function App() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
   const [uploadName, setUploadName] = useState<string | null>(null);
-  const [authMode, setAuthMode] = useState<"sign_in" | "sign_up">("sign_in");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [fullName, setFullName] = useState("");
   const [isScannedUpload, setIsScannedUpload] = useState(false);
   const [uploadRouting, setUploadRouting] = useState<"sequential" | "parallel">("sequential");
   const [deliveryMode, setDeliveryMode] =
@@ -508,8 +387,12 @@ export default function App() {
   const [reassignSignerName, setReassignSignerName] = useState("");
   const [reassignSignerEmail, setReassignSignerEmail] = useState("");
   const [guestSigningSession, setGuestSigningSession] = useState<GuestSigningSession | null>(null);
+  const [renamingDocumentId, setRenamingDocumentId] = useState<string | null>(null);
+  const [renameDocName, setRenameDocName] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+  const [adminErrorMessage, setAdminErrorMessage] = useState<string | null>(null);
+  const [adminNoticeMessage, setAdminNoticeMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isBillingRedirecting, setIsBillingRedirecting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -646,7 +529,7 @@ export default function App() {
   const activeChecklistIndex = checklistSteps.findIndex((step) => !step.done);
   const nextActionMessage = selectedDocument
     ? selectedDocument.workflowState === "completed"
-      ? "Completed. Download, share, or duplicate this document for the next cycle."
+      ? "Completed. Download or share this document, or duplicate it to start a new workflow run."
       : selectedDocument.operationalStatus === "changes_requested" ||
           selectedDocument.operationalStatus === "rejected" ||
           selectedDocument.operationalStatus === "canceled" ||
@@ -901,6 +784,10 @@ export default function App() {
       return;
     }
 
+    if (!window.confirm("Cancel this workflow? The audit trail is kept but the current run will be closed.")) {
+      return;
+    }
+
     setIsLoading(true);
     setErrorMessage(null);
     setNoticeMessage(null);
@@ -968,18 +855,18 @@ export default function App() {
     }
 
     setIsLoading(true);
-    setErrorMessage(null);
-    setNoticeMessage(null);
+    setAdminErrorMessage(null);
+    setAdminNoticeMessage(null);
 
     try {
       const payload = await apiFetch<{ email: string; redirectTo: string }>("/admin-user-reset", session, {
         method: "POST",
         body: JSON.stringify({ userId }),
       });
-      setNoticeMessage(`Password reset email sent to ${payload.email}.`);
+      setAdminNoticeMessage(`Password reset email sent to ${payload.email}.`);
       await refreshAdminUsers(session);
     } catch (error) {
-      setErrorMessage((error as Error).message);
+      setAdminErrorMessage((error as Error).message);
     } finally {
       setIsLoading(false);
     }
@@ -993,8 +880,8 @@ export default function App() {
     }
 
     setIsLoading(true);
-    setErrorMessage(null);
-    setNoticeMessage(null);
+    setAdminErrorMessage(null);
+    setAdminNoticeMessage(null);
 
     try {
       const payload = await apiFetch<{
@@ -1010,15 +897,15 @@ export default function App() {
       });
 
       if (payload.status === "invited") {
-        setNoticeMessage(
+        setAdminNoticeMessage(
           `Invite email sent to ${payload.email}. They can finish signup and land back in EasyDraft at ${payload.redirectTo}.`,
         );
       } else if (payload.status === "pending_invite") {
-        setNoticeMessage(
+        setAdminNoticeMessage(
           `${payload.email} already has a pending invite or unconfirmed account. Ask them to use the original invite email or resend from Supabase if needed.`,
         );
       } else {
-        setNoticeMessage(
+        setAdminNoticeMessage(
           `${payload.email} already has an account. Ask them to sign in directly, or use password reset if they need help getting back in.`,
         );
       }
@@ -1027,7 +914,7 @@ export default function App() {
       setAdminInviteName("");
       await refreshAdminUsers(session);
     } catch (error) {
-      setErrorMessage((error as Error).message);
+      setAdminErrorMessage((error as Error).message);
     } finally {
       setIsLoading(false);
     }
@@ -1038,9 +925,13 @@ export default function App() {
       return;
     }
 
+    if (!window.confirm("Permanently delete this user? This cannot be undone.")) {
+      return;
+    }
+
     setIsLoading(true);
-    setErrorMessage(null);
-    setNoticeMessage(null);
+    setAdminErrorMessage(null);
+    setAdminNoticeMessage(null);
 
     try {
       const payload = await apiFetch<{ email: string; deletedUserId: string }>(
@@ -1051,10 +942,10 @@ export default function App() {
           body: JSON.stringify({ userId }),
         },
       );
-      setNoticeMessage(`${payload.email} was deleted from EasyDraft.`);
+      setAdminNoticeMessage(`${payload.email} was deleted from EasyDraft.`);
       await Promise.all([refreshAdminUsers(session), refreshAdminOverview(session)]);
     } catch (error) {
-      setErrorMessage((error as Error).message);
+      setAdminErrorMessage((error as Error).message);
     } finally {
       setIsLoading(false);
     }
@@ -1119,8 +1010,44 @@ export default function App() {
     }
   }
 
+  async function handleRenameDocument(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!session || !renamingDocumentId) {
+      return;
+    }
+
+    const name = renameDocName.trim();
+
+    if (!name) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      await apiFetch("/document-rename", session, {
+        method: "POST",
+        body: JSON.stringify({ documentId: renamingDocumentId, name }),
+      });
+      setRenamingDocumentId(null);
+      setRenameDocName("");
+      await refreshDocuments(session);
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function handleDeleteDocument() {
     if (!session || !selectedDocument) {
+      return;
+    }
+
+    if (!window.confirm(`Delete "${selectedDocument.name}"? This cannot be undone.`)) {
       return;
     }
 
@@ -1377,53 +1304,7 @@ export default function App() {
     }
   }
 
-  async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsLoading(true);
-    setErrorMessage(null);
-    setNoticeMessage(null);
-
-    try {
-      if (authMode === "sign_in") {
-        const { error } = await browserSupabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-
-        if (error) {
-          throw error;
-        }
-      } else {
-        const { data, error } = await browserSupabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: window.location.origin,
-            data: {
-              full_name: fullName,
-            },
-          },
-        });
-
-        if (error) {
-          throw error;
-        }
-
-        setNoticeMessage(
-          data.session
-            ? "Account created and signed in. You can start using EasyDraft now."
-            : "Account created. Check your email to confirm your address before signing in.",
-        );
-      }
-    } catch (error) {
-      setErrorMessage((error as Error).message);
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  async function handleSignOut() {
-    await browserSupabase.auth.signOut();
+  function handleSignOut() {
     setPreviewUrl(null);
     setLocalPreviewUrl(null);
     setUploadName(null);
@@ -1663,6 +1544,11 @@ export default function App() {
   }, [selectedDocument?.dueAt, selectedDocument?.id]);
 
   useEffect(() => {
+    setErrorMessage(null);
+    setNoticeMessage(null);
+  }, [selectedDocument?.id]);
+
+  useEffect(() => {
     const documentId = new URLSearchParams(window.location.search).get("documentId");
 
     if (!documentId) {
@@ -1698,7 +1584,7 @@ export default function App() {
   }, [localPreviewUrl]);
 
   useEffect(() => {
-    function handlePointerMove(event: MouseEvent) {
+    function handlePointerMove(event: PointerEvent) {
       const dragState = dragStateRef.current;
 
       if (!dragState) {
@@ -1722,12 +1608,12 @@ export default function App() {
       dragStateRef.current = null;
     }
 
-    window.addEventListener("mousemove", handlePointerMove);
-    window.addEventListener("mouseup", handlePointerUp);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
 
     return () => {
-      window.removeEventListener("mousemove", handlePointerMove);
-      window.removeEventListener("mouseup", handlePointerUp);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
     };
   }, []);
 
@@ -1742,85 +1628,13 @@ export default function App() {
           </div>
         </div>
 
-        <section className="card">
-          <p className="eyebrow">Authentication</p>
-          {guestSigningSession ? (
-            <div className="stack">
-              <p className="eyebrow">Guest signing</p>
-              <p className="muted">
-                Signing as <strong>{guestSigningSession.signerName}</strong>
-              </p>
-              <p className="muted">{guestSigningSession.signerEmail}</p>
-              <p className="muted">Complete your assigned fields in the document panel to the right.</p>
-            </div>
-          ) : sessionUser ? (
-            <div className="stack">
-              <p className="muted">
-                Signed in as <strong>{sessionUser.name}</strong>
-              </p>
-              <p className="muted">{sessionUser.email}</p>
-              {sessionUser.isAdmin ? <p className="eyebrow">Admin console enabled</p> : null}
-              <button className="secondary-button" onClick={handleSignOut}>
-                Sign out
-              </button>
-            </div>
-          ) : (
-            <form className="stack" onSubmit={handleAuthSubmit}>
-              <div className="pill-row">
-                <button
-                  className={`pill-button ${authMode === "sign_in" ? "active" : ""}`}
-                  onClick={() => setAuthMode("sign_in")}
-                  type="button"
-                >
-                  Sign in
-                </button>
-                <button
-                  className={`pill-button ${authMode === "sign_up" ? "active" : ""}`}
-                  onClick={() => setAuthMode("sign_up")}
-                  type="button"
-                >
-                  Sign up
-                </button>
-              </div>
-              {authMode === "sign_up" ? (
-                <label className="form-field">
-                  <span>Full name</span>
-                  <input value={fullName} onChange={(event) => setFullName(event.target.value)} />
-                </label>
-              ) : null}
-              <label className="form-field">
-                <span>Email</span>
-                <input
-                  required
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                />
-              </label>
-              <label className="form-field">
-                <span>Password</span>
-                <input
-                  required
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                />
-              </label>
-              <button className="primary-button" disabled={isLoading} type="submit">
-                {authMode === "sign_in" ? "Continue" : "Create account"}
-              </button>
-              <p className="muted">
-                Admin access uses this same sign-in form. Use <strong>admin@agoperations.ca</strong> to
-                unlock admin tools.
-              </p>
-              <p className="muted">
-                If you were invited, sign up or sign in with the same email from your invite. Any pending
-                document access for that email will attach automatically after you enter the app.
-              </p>
-            </form>
-          )}
-        </section>
+        <AuthPanel
+          sessionUser={sessionUser}
+          guestSigningSession={guestSigningSession}
+          onSignOut={handleSignOut}
+        />
 
+        <ErrorBoundary label="profile and billing">
         {sessionUser && accountProfile ? (
           <section className="card">
             <div className="section-heading compact">
@@ -2206,22 +2020,70 @@ export default function App() {
               </div>
             ) : (
               documents.map((document) => (
-                <button
-                  key={document.id}
-                  className={`document-button ${document.id === selectedDocument?.id ? "active" : ""}`}
-                  onClick={() => setSelectedDocumentId(document.id)}
-                >
-                  <span>{document.name}</span>
-                  <small>
-                    {formatState(document.workflowState)} · {formatRoleLabel(document)}
-                    {document.isOverdue ? <span className="badge badge-overdue">Overdue</span> : null}
-                    {!document.isOverdue && document.operationalStatus === "changes_requested" ? <span className="badge badge-action">Action needed</span> : null}
-                  </small>
-                </button>
+                <div key={document.id} className="document-button-row">
+                  {renamingDocumentId === document.id ? (
+                    <form
+                      className="rename-form"
+                      onSubmit={handleRenameDocument}
+                    >
+                      <input
+                        autoFocus
+                        className="rename-input"
+                        type="text"
+                        value={renameDocName}
+                        onChange={(e) => setRenameDocName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            setRenamingDocumentId(null);
+                            setRenameDocName("");
+                          }
+                        }}
+                        disabled={isLoading}
+                      />
+                      <button className="secondary-button" type="submit" disabled={isLoading || !renameDocName.trim()}>
+                        Save
+                      </button>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={isLoading}
+                        onClick={() => { setRenamingDocumentId(null); setRenameDocName(""); }}
+                      >
+                        Cancel
+                      </button>
+                    </form>
+                  ) : (
+                    <button
+                      className={`document-button ${document.id === selectedDocument?.id ? "active" : ""}`}
+                      onClick={() => setSelectedDocumentId(document.id)}
+                    >
+                      <span>{document.name}</span>
+                      <small>
+                        {formatState(document.workflowState)} · {formatRoleLabel(document)}
+                        {document.isOverdue ? <span className="badge badge-overdue">Overdue</span> : null}
+                        {!document.isOverdue && document.operationalStatus === "changes_requested" ? <span className="badge badge-action">Action needed</span> : null}
+                      </small>
+                    </button>
+                  )}
+                  {renamingDocumentId !== document.id ? (
+                    <button
+                      className="rename-trigger"
+                      title="Rename"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRenamingDocumentId(document.id);
+                        setRenameDocName(document.name);
+                      }}
+                    >
+                      ✎
+                    </button>
+                  ) : null}
+                </div>
               ))
             )}
           </div>
         </section>
+        </ErrorBoundary>
       </aside>
 
       <main className="main">
@@ -2258,6 +2120,7 @@ export default function App() {
         {noticeMessage ? <div className="alert success">{noticeMessage}</div> : null}
 
         {sessionUser?.isAdmin && adminOverview ? (
+          <ErrorBoundary label="Admin console">
           <section className="panel admin-console-panel">
             <div className="panel-header">
               <div>
@@ -2273,13 +2136,16 @@ export default function App() {
                   }
 
                   Promise.all([refreshAdminOverview(session), refreshAdminUsers(session)]).catch((error) =>
-                    setErrorMessage((error as Error).message),
+                    setAdminErrorMessage((error as Error).message),
                   );
                 }}
               >
                 Refresh admin data
               </button>
             </div>
+
+            {adminErrorMessage ? <div className="alert">{adminErrorMessage}</div> : null}
+            {adminNoticeMessage ? <div className="alert success">{adminNoticeMessage}</div> : null}
 
             <div className="split admin-console-grid">
               <div className="stack">
@@ -2420,8 +2286,10 @@ export default function App() {
               </div>
             </div>
           </section>
+          </ErrorBoundary>
         ) : null}
 
+        <ErrorBoundary label="document workspace">
         <section className="grid">
           <div className="panel">
             <div className="panel-header">
@@ -2850,11 +2718,12 @@ export default function App() {
                         <button
                           className="secondary-button danger-button"
                           disabled={isLoading || !workflowNote.trim()}
-                          onClick={() =>
+                          onClick={() => {
+                            if (!window.confirm("Reject this workflow? This cannot be undone.")) return;
                             handleSignerWorkflowResponse("/document-reject").catch((error) =>
                               setErrorMessage((error as Error).message),
-                            )
-                          }
+                            );
+                          }}
                         >
                           Reject workflow
                         </button>
@@ -3287,7 +3156,7 @@ export default function App() {
                           ))}
                           <div
                             className="field-canvas-box"
-                            onMouseDown={(event) => {
+                            onPointerDown={(event) => {
                               dragStateRef.current = {
                                 mode: "move",
                                 startX: event.clientX,
@@ -3308,7 +3177,7 @@ export default function App() {
                             <span>{fieldLabel || "New field"}</span>
                             <button
                               className="field-canvas-handle"
-                              onMouseDown={(event) => {
+                              onPointerDown={(event) => {
                                 event.stopPropagation();
                                 dragStateRef.current = {
                                   mode: "resize",
@@ -3496,6 +3365,7 @@ export default function App() {
             )}
           </div>
         </section>
+        </ErrorBoundary>
       </main>
     </div>
   );

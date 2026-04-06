@@ -3953,6 +3953,44 @@ export async function deleteDocumentForAuthorizationHeader(
   };
 }
 
+export async function renameDocumentForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+  name: string,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user, "edit_document");
+
+  const trimmed = name.trim();
+
+  if (!trimmed) {
+    throw new AppError(400, "Document name cannot be empty.");
+  }
+
+  if (trimmed.length > 255) {
+    throw new AppError(400, "Document name must be 255 characters or fewer.");
+  }
+
+  const adminClient = createServiceRoleClient();
+
+  const { error } = await adminClient
+    .from("documents")
+    .update({ name: trimmed })
+    .eq("id", documentId);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  await appendAuditEvent(documentId, user.id, "document.renamed", `Document renamed to "${trimmed}"`);
+
+  const document = await requireDocumentBundle(documentId);
+
+  return {
+    document: toWorkflowDocumentResponse(document, user.id),
+  };
+}
+
 export async function requestProcessingJobForAuthorizationHeader(
   authorizationHeader: string | undefined,
   documentId: string,

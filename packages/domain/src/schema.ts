@@ -46,6 +46,7 @@ export const auditEventTypeSchema = z.enum([
   "document.canceled",
   "document.signer_reassigned",
   "document.due_date.updated",
+  "document.renamed",
   "document.exported",
   "field.created",
   "field.assigned",
