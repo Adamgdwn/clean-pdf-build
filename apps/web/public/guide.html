@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>User Guide — EasyDraftDocs</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..400&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    :root {
+      --font-serif: 'Fraunces', Georgia, serif;
+      --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+      --color-bg: #faf9f7;
+      --color-surface: #ffffff;
+      --color-border: #e8e4de;
+      --color-text: #1a1916;
+      --color-muted: #6b6760;
+      --color-accent: #1a1916;
+      --color-success-bg: #edf7f0;
+      --color-success-border: #a3d9b1;
+      --color-note-bg: #f5f3ef;
+      --color-note-border: #d6d0c8;
+      --max-width: 760px;
+    }
+
+    body {
+      margin: 0;
+      background: var(--color-bg);
+      color: var(--color-text);
+      font-family: var(--font-sans);
+      font-size: 1rem;
+      line-height: 1.65;
+    }
+
+    .page-header {
+      background: var(--color-surface);
+      border-bottom: 1px solid var(--color-border);
+      padding: 1.25rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .page-header .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .brand-mark {
+      background: var(--color-text);
+      color: #fff;
+      font-family: var(--font-serif);
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 0.3rem 0.5rem;
+      border-radius: 4px;
+      letter-spacing: 0.02em;
+    }
+
+    .page-header h1 {
+      font-family: var(--font-serif);
+      font-size: 1.1rem;
+      font-weight: 500;
+      margin: 0;
+    }
+
+    .back-link {
+      font-size: 0.875rem;
+      color: var(--color-muted);
+      text-decoration: none;
+    }
+
+    .back-link:hover { color: var(--color-text); }
+
+    .hero {
+      background: var(--color-surface);
+      border-bottom: 1px solid var(--color-border);
+      padding: 3rem 2rem;
+      text-align: center;
+    }
+
+    .hero h2 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      font-weight: 400;
+      margin: 0 0 0.75rem;
+      line-height: 1.2;
+    }
+
+    .hero p {
+      color: var(--color-muted);
+      max-width: 520px;
+      margin: 0 auto;
+      font-size: 1.05rem;
+    }
+
+    .toc-nav {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      padding: 1.5rem 2rem;
+      margin: 2rem auto;
+      max-width: var(--max-width);
+    }
+
+    .toc-nav h3 {
+      font-family: var(--font-serif);
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 0 0 0.75rem;
+    }
+
+    .toc-nav ol {
+      margin: 0;
+      padding-left: 1.25rem;
+      column-count: 2;
+      column-gap: 2rem;
+    }
+
+    @media (max-width: 520px) {
+      .toc-nav ol { column-count: 1; }
+    }
+
+    .toc-nav li { margin: 0.3rem 0; }
+    .toc-nav a { color: var(--color-text); text-decoration: none; font-size: 0.9375rem; }
+    .toc-nav a:hover { text-decoration: underline; }
+
+    .content {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 0 1.5rem 4rem;
+    }
+
+    .section {
+      margin-top: 3rem;
+    }
+
+    .section-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin: 0 0 0.5rem;
+    }
+
+    h2.section-title {
+      font-family: var(--font-serif);
+      font-size: 1.6rem;
+      font-weight: 400;
+      margin: 0 0 1.25rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--color-border);
+      line-height: 1.25;
+    }
+
+    h3 {
+      font-family: var(--font-sans);
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 1.75rem 0 0.5rem;
+    }
+
+    p { margin: 0.75rem 0; }
+    p:first-child { margin-top: 0; }
+
+    ul, ol {
+      padding-left: 1.4rem;
+      margin: 0.75rem 0;
+    }
+
+    li { margin: 0.4rem 0; }
+
+    .callout {
+      border-radius: 6px;
+      padding: 1rem 1.25rem;
+      margin: 1.25rem 0;
+      font-size: 0.9375rem;
+    }
+
+    .callout.tip {
+      background: var(--color-success-bg);
+      border: 1px solid var(--color-success-border);
+    }
+
+    .callout.note {
+      background: var(--color-note-bg);
+      border: 1px solid var(--color-note-border);
+    }
+
+    .callout strong { display: block; margin-bottom: 0.25rem; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9375rem;
+      margin: 1rem 0;
+    }
+
+    th {
+      text-align: left;
+      font-weight: 600;
+      font-size: 0.8125rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--color-muted);
+      padding: 0.5rem 0.75rem;
+      border-bottom: 2px solid var(--color-border);
+    }
+
+    td {
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid var(--color-border);
+      vertical-align: top;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    code {
+      font-family: 'IBM Plex Mono', 'Courier New', monospace;
+      background: var(--color-note-bg);
+      border: 1px solid var(--color-note-border);
+      padding: 0.15em 0.4em;
+      border-radius: 3px;
+      font-size: 0.875em;
+    }
+
+    .step-list {
+      list-style: none;
+      padding: 0;
+      margin: 1rem 0;
+      counter-reset: steps;
+    }
+
+    .step-list li {
+      counter-increment: steps;
+      display: flex;
+      gap: 1rem;
+      margin: 0.75rem 0;
+      align-items: flex-start;
+    }
+
+    .step-list li::before {
+      content: counter(steps);
+      background: var(--color-text);
+      color: #fff;
+      font-size: 0.75rem;
+      font-weight: 600;
+      min-width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 0.1rem;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.15em 0.55em;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      vertical-align: middle;
+      margin-left: 0.25rem;
+    }
+
+    .badge.free { background: #edf7f0; color: #276749; border: 1px solid #a3d9b1; }
+    .badge.token { background: #fef9ec; color: #92610a; border: 1px solid #f6d86a; }
+
+    footer {
+      text-align: center;
+      padding: 2rem;
+      color: var(--color-muted);
+      font-size: 0.875rem;
+      border-top: 1px solid var(--color-border);
+    }
+
+    footer a { color: var(--color-muted); }
+  </style>
+</head>
+<body>
+
+<header class="page-header">
+  <a class="brand" href="/">
+    <span class="brand-mark">ED</span>
+    <h1>EasyDraftDocs</h1>
+  </a>
+  <a class="back-link" href="/">← Back to app</a>
+</header>
+
+<section class="hero">
+  <h2>User Guide</h2>
+  <p>Everything you need to upload, prepare, route, and complete PDF workflows — from first sign-up to final signature.</p>
+</section>
+
+<div class="content">
+
+  <nav class="toc-nav">
+    <h3>Contents</h3>
+    <ol>
+      <li><a href="#getting-started">Getting started</a></li>
+      <li><a href="#team-setup">Setting up your team</a></li>
+      <li><a href="#uploading">Uploading a document</a></li>
+      <li><a href="#delivery-modes">Choosing a delivery mode</a></li>
+      <li><a href="#signers">Adding participants &amp; fields</a></li>
+      <li><a href="#routing">Routing: sequential vs parallel</a></li>
+      <li><a href="#sending">Sending a workflow</a></li>
+      <li><a href="#signing">How signing works</a></li>
+      <li><a href="#monitoring">Monitoring &amp; reminders</a></li>
+      <li><a href="#actions">Workflow actions</a></li>
+      <li><a href="#billing">Billing &amp; tokens</a></li>
+      <li><a href="#account">Account &amp; your data</a></li>
+    </ol>
+  </nav>
+
+
+  <!-- ─── 1. Getting started ─────────────────────────────────────────── -->
+  <section class="section" id="getting-started">
+    <p class="section-label">Section 1</p>
+    <h2 class="section-title">Getting started</h2>
+
+    <p>EasyDraftDocs is a private document workflow platform. You upload PDFs, set up who needs to sign or approve them, and the platform handles routing, notifications, and the audit trail. No chasing anyone down.</p>
+
+    <h3>Creating an account</h3>
+    <ol class="step-list">
+      <li>Click <strong>Sign up</strong> in the Authentication panel on the left sidebar.</li>
+      <li>Enter your full name, an optional team or company name, your email address, and a password.</li>
+      <li>Click <strong>Create account</strong>. You may need to confirm your email address before signing in — check your inbox for a confirmation link.</li>
+      <li>Once confirmed, sign in and you are ready to go.</li>
+    </ol>
+
+    <div class="callout tip">
+      <strong>Free trial</strong>
+      Your account starts with a 30-day free trial of the Team plan — no credit card required. You can invite team members, upload documents, and run full workflows during the trial. At the end of the trial you can add a payment method to continue, or simply cancel.
+    </div>
+
+    <h3>Signing in</h3>
+    <p>Use the <strong>Sign in</strong> tab in the Authentication panel. Enter your email and password and click <strong>Continue</strong>. If you were invited to a workspace, sign in (or sign up) with the same email address from your invitation and you will be added to the workspace automatically.</p>
+  </section>
+
+
+  <!-- ─── 2. Team setup ─────────────────────────────────────────────── -->
+  <section class="section" id="team-setup">
+    <p class="section-label">Section 2</p>
+    <h2 class="section-title">Setting up your team</h2>
+
+    <p>Your workspace is created automatically when you sign up. Internal team members — people who log in and work in EasyDraftDocs — are managed from the <strong>Team</strong> panel in the sidebar.</p>
+
+    <h3>Inviting team members</h3>
+    <ol class="step-list">
+      <li>Scroll to the <strong>Team</strong> section in the sidebar.</li>
+      <li>Enter the invitee's email address and select their role (<strong>Member</strong> or <strong>Admin</strong>).</li>
+      <li>Click <strong>Send invite</strong>. They receive an email with a link to join your workspace.</li>
+      <li>When they click the link and sign up (or sign in), they are automatically added to your workspace.</li>
+    </ol>
+
+    <div class="callout note">
+      <strong>Internal vs external participants</strong>
+      Team members who sign in to EasyDraftDocs are <em>internal</em> participants and are covered by your seat subscription. People outside your organization who receive a signing link by email are <em>external</em> participants and consume one signer token per workflow sent to them.
+    </div>
+
+    <h3>Roles</h3>
+    <table>
+      <thead>
+        <tr><th>Role</th><th>What they can do</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Owner</strong></td><td>Full access — manages billing, team membership, workspace settings, and all documents.</td></tr>
+        <tr><td><strong>Admin</strong></td><td>Can invite members, upload documents, and manage workflows. Cannot change billing.</td></tr>
+        <tr><td><strong>Member</strong></td><td>Can upload documents and run their own workflows.</td></tr>
+      </tbody>
+    </table>
+    <p>Note: workspace roles control access to team and billing features. Individual document access (editor, viewer, signer) is granted separately per document via the document's <em>Access</em> panel.</p>
+
+    <h3>Renaming your workspace</h3>
+    <p>Workspace owners can update the workspace name from the <strong>Team</strong> panel using the rename field at the top of the section.</p>
+
+    <h3>Managing pending invitations</h3>
+    <p>Pending invitations are listed below the member list. You can <strong>Resend</strong> the invite email or <strong>Revoke</strong> it at any time before it is accepted. Invitations expire after 7 days.</p>
+  </section>
+
+
+  <!-- ─── 3. Uploading ─────────────────────────────────────────────── -->
+  <section class="section" id="uploading">
+    <p class="section-label">Section 3</p>
+    <h2 class="section-title">Uploading a document</h2>
+
+    <ol class="step-list">
+      <li>Click <strong>Upload PDF</strong> in the main document panel, or drag a PDF file onto the upload area.</li>
+      <li>Give the document a name (defaults to the filename).</li>
+      <li>Choose a <strong>routing strategy</strong>: <em>Sequential</em> (participants act one at a time in order) or <em>Parallel</em> (all participants act at the same time).</li>
+      <li>Choose a <strong>delivery mode</strong> — see the next section for details.</li>
+      <li>Optionally set a <strong>due date</strong> and a <strong>lock policy</strong>.</li>
+      <li>Click <strong>Upload</strong>. The document appears in your document list and is ready to prepare.</li>
+    </ol>
+
+    <h3>OCR (scanned documents)</h3>
+    <p>If your PDF is a scanned image rather than a native digital PDF, tick <strong>Scanned document (queue OCR)</strong> before uploading. This queues an OCR job that makes the text searchable and improves field placement accuracy. You can also trigger OCR on an existing document from the document's workflow panel using the <strong>Queue OCR</strong> button.</p>
+
+    <h3>Duplicating a document</h3>
+    <p>Select a completed (or any) document and click <strong>Duplicate</strong> from the document panel. This creates a new copy in draft state with the same field layout and signer configuration, ready to send again without re-doing setup.</p>
+  </section>
+
+
+  <!-- ─── 4. Delivery modes ─────────────────────────────────────────── -->
+  <section class="section" id="delivery-modes">
+    <p class="section-label">Section 4</p>
+    <h2 class="section-title">Choosing a delivery mode</h2>
+
+    <p>Delivery mode controls how participants are notified and how the workflow progresses.</p>
+
+    <table>
+      <thead>
+        <tr><th>Mode</th><th>What it means</th><th>Best for</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Store &amp; distribute myself</strong></td>
+          <td>EasyDraftDocs stores the document and lets you edit and export it. No routing or notifications are sent.</td>
+          <td>Drafting contracts, storing reference documents, internal records you handle manually.</td>
+        </tr>
+        <tr>
+          <td><strong>Internal use only</strong></td>
+          <td>Participants are your team members. They sign or approve directly inside EasyDraftDocs when it is their turn. No external email links are sent.</td>
+          <td>Internal approval chains, sign-offs between colleagues who all have accounts.</td>
+        </tr>
+        <tr>
+          <td><strong>Managed routing + notifications</strong> <span class="badge token">uses tokens</span></td>
+          <td>EasyDraftDocs emails each participant a secure signing link when it is their turn. External participants do not need an account. The platform tracks status and sends reminders.</td>
+          <td>Client contracts, vendor agreements, anything that goes outside your organization.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout note">
+      <strong>Tokens and external participants</strong>
+      When you use <em>Managed routing</em> and send to at least one external (non-team) participant, one signer token is consumed per workflow send. Internal participants in a managed workflow do not consume tokens. Token balance is shown in the Billing panel.
+    </div>
+  </section>
+
+
+  <!-- ─── 5. Signers & fields ───────────────────────────────────────── -->
+  <section class="section" id="signers">
+    <p class="section-label">Section 5</p>
+    <h2 class="section-title">Adding participants &amp; fields</h2>
+
+    <h3>Adding participants</h3>
+    <ol class="step-list">
+      <li>Select a document from the list.</li>
+      <li>In the <strong>Participants</strong> section of the workflow panel, enter the participant's name and email.</li>
+      <li>Set their type (<em>Internal</em> or <em>External</em>), whether their action is required, and their routing stage (for sequential workflows).</li>
+      <li>Click <strong>Add participant</strong>.</li>
+    </ol>
+
+    <p>You can also use the <strong>Quick route</strong> buttons to rapidly add the next participant in sequence or add a parallel participant without filling in the full form manually.</p>
+
+    <h3>Reassigning a participant</h3>
+    <p>If someone is unavailable, select the participant from the <em>Reassign participant</em> dropdown, update their name and email, and click <strong>Reassign</strong>. The audit trail records the change.</p>
+
+    <h3>Adding fields</h3>
+    <p>Fields are the boxes participants fill in when they receive the document. To add a field:</p>
+    <ol class="step-list">
+      <li>Select a document and go to the <strong>Fields</strong> section.</li>
+      <li>Choose a field type (see table below).</li>
+      <li>Set the page number and position (X, Y coordinates in points from the top-left of the page), width, and height. You can drag the field preview on the document to position it visually.</li>
+      <li>Assign the field to a specific participant.</li>
+      <li>Click <strong>Add field</strong>.</li>
+    </ol>
+
+    <table>
+      <thead>
+        <tr><th>Field type</th><th>What the participant does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Signature</strong></td><td>Applies a saved or newly created signature image.</td></tr>
+        <tr><td><strong>Initial</strong></td><td>Applies a set of initials, typically shorter than a full signature.</td></tr>
+        <tr><td><strong>Approval</strong></td><td>A one-click approval stamp — no signature image required.</td></tr>
+        <tr><td><strong>Date</strong></td><td>Auto-populated with the date the participant completes the field.</td></tr>
+        <tr><td><strong>Text</strong></td><td>Free-text entry — names, titles, reference numbers, etc.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout tip">
+      <strong>Required vs optional fields</strong>
+      Required fields must be completed before the participant can submit. Optional fields can be left blank. The workflow checks that all required fields are done before advancing to the next stage.
+    </div>
+  </section>
+
+
+  <!-- ─── 6. Routing ───────────────────────────────────────────────── -->
+  <section class="section" id="routing">
+    <p class="section-label">Section 6</p>
+    <h2 class="section-title">Routing: sequential vs parallel</h2>
+
+    <p>Routing determines the order in which participants act.</p>
+
+    <table>
+      <thead>
+        <tr><th>Strategy</th><th>How it works</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Sequential</strong></td>
+          <td>Participants are grouped into stages (1, 2, 3…). Stage 1 participants act first; once all required stage-1 fields are complete, stage-2 participants are notified, and so on.</td>
+        </tr>
+        <tr>
+          <td><strong>Parallel</strong></td>
+          <td>All participants are notified at the same time and can complete their fields in any order. The workflow completes once every required field is done.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>You set the routing strategy when uploading a document. You can also change it later from the workflow panel before the document is sent.</p>
+  </section>
+
+
+  <!-- ─── 7. Sending ───────────────────────────────────────────────── -->
+  <section class="section" id="sending">
+    <p class="section-label">Section 7</p>
+    <h2 class="section-title">Sending a workflow</h2>
+
+    <p>Before sending, the workflow panel shows a readiness checklist. Common blockers include:</p>
+    <ul>
+      <li>No participants added</li>
+      <li>No required fields added, or required fields left unassigned</li>
+      <li>Insufficient token balance (for managed workflows with external participants)</li>
+    </ul>
+
+    <p>Once the checklist is clear, click the send button (labelled <strong>Send for actions</strong>, <strong>Send internally</strong>, or <strong>Start workflow</strong> depending on your delivery mode). The platform:</p>
+    <ol class="step-list">
+      <li>Records the send event in the audit trail.</li>
+      <li>Notifies the first eligible participant(s) by email (managed and internal modes).</li>
+      <li>Sets the workflow status to <em>Active</em> and starts watching for due date.</li>
+    </ol>
+
+    <div class="callout note">
+      <strong>Re-sending</strong>
+      If you update participant details or fields after the first send, click the send button again. It re-runs the routing from the current state. The audit trail records each send event.
+    </div>
+  </section>
+
+
+  <!-- ─── 8. Signing ───────────────────────────────────────────────── -->
+  <section class="section" id="signing">
+    <p class="section-label">Section 8</p>
+    <h2 class="section-title">How signing works</h2>
+
+    <h3>Internal participants (team members)</h3>
+    <p>When it is an internal participant's turn, they receive an email notification. They sign in to EasyDraftDocs, select the document from their list, complete their assigned fields in the document panel, and submit.</p>
+
+    <h3>External participants (managed routing)</h3>
+    <p>External participants receive an email containing a unique, time-limited signing link. They do not need an account. Clicking the link opens a signing session directly in the browser. They complete their assigned fields and submit. Once submitted, the link expires.</p>
+
+    <h3>Saved signatures</h3>
+    <p>Internal participants can pre-create reusable signatures in the <strong>Signature Library</strong> section of the sidebar. A saved signature can be typed (rendered in a signature font) or uploaded as an image. You can create multiple signatures for different roles or contexts and set one as your default.</p>
+
+    <h3>Completing fields</h3>
+    <p>When viewing a document with assigned fields, each field appears as a highlighted box. Click a field to fill it in. For signature and initial fields, you can choose a saved signature or create a new one inline. Once all required fields are complete, the <strong>Submit</strong> button becomes active.</p>
+  </section>
+
+
+  <!-- ─── 9. Monitoring ────────────────────────────────────────────── -->
+  <section class="section" id="monitoring">
+    <p class="section-label">Section 9</p>
+    <h2 class="section-title">Monitoring &amp; reminders</h2>
+
+    <h3>Document status</h3>
+    <p>The document list shows a status badge for each document. Key statuses:</p>
+    <table>
+      <thead>
+        <tr><th>Status</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Draft</strong></td><td>Not yet sent. Still being set up.</td></tr>
+        <tr><td><strong>Active</strong></td><td>Sent and waiting on one or more participants.</td></tr>
+        <tr><td><strong>Overdue</strong></td><td>The due date has passed with outstanding actions.</td></tr>
+        <tr><td><strong>Action needed</strong></td><td>Changes have been requested and the originator needs to respond.</td></tr>
+        <tr><td><strong>Completed</strong></td><td>All required fields are done. The document can be downloaded.</td></tr>
+        <tr><td><strong>Canceled</strong></td><td>The workflow was stopped. The audit trail is preserved.</td></tr>
+        <tr><td><strong>Rejected</strong></td><td>A participant rejected the workflow outright.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Waiting on</h3>
+    <p>For active workflows, the document panel shows a <em>Waiting on</em> summary — who is expected to act next, their email, and what kind of action is needed.</p>
+
+    <h3>Due dates</h3>
+    <p>You can set or update a due date on any document from the workflow panel. Overdue documents are flagged in the document list. Sending a reminder nudges the current eligible participant by email.</p>
+
+    <h3>Sending reminders</h3>
+    <p>Click <strong>Send reminder</strong> in the workflow panel to re-notify the current participant(s) without re-running the full routing. Reminders are recorded in the audit trail.</p>
+
+    <h3>Audit trail</h3>
+    <p>Every meaningful event — uploads, sends, field completions, lock/unlock, reassignments, reminders — is recorded in the <strong>Audit trail</strong> tab of the document panel with a timestamp and the user or system that triggered it.</p>
+  </section>
+
+
+  <!-- ─── 10. Workflow actions ─────────────────────────────────────── -->
+  <section class="section" id="actions">
+    <p class="section-label">Section 10</p>
+    <h2 class="section-title">Workflow actions</h2>
+
+    <h3>Request changes</h3>
+    <p>A participant can request changes to the document rather than signing it outright. This pauses the workflow and sends the document back to the originator with a note. The originator can update the document and re-send, or cancel the workflow entirely.</p>
+
+    <h3>Reject</h3>
+    <p>A participant can reject the workflow. This closes the current run and notifies the originator. The audit trail is preserved. To start again, duplicate the document and send a fresh workflow.</p>
+
+    <h3>Cancel</h3>
+    <p>The document owner can cancel an active workflow at any time from the workflow panel. Canceling stops routing and notifications. The document remains accessible and the audit trail is preserved. You can duplicate the document to start a new workflow run.</p>
+
+    <h3>Lock</h3>
+    <p>Locking prevents any further edits or workflow changes until the document is explicitly reopened. Use it to preserve a final state — for example, after a completed signature run. Lock availability follows the <em>lock policy</em> you chose on upload:</p>
+    <ul>
+      <li><strong>Owner only</strong> — only the document owner can lock or unlock.</li>
+      <li><strong>Owner and editors</strong> — collaborators with editor access can also lock.</li>
+      <li><strong>Owner, editors, and active signer</strong> — the current eligible signer can lock once they have acted.</li>
+    </ul>
+
+    <h3>Reopen</h3>
+    <p>A locked or completed document can be reopened to allow further edits, additional signers, or a new workflow run. Reopening is recorded in the audit trail.</p>
+
+    <h3>Download</h3>
+    <p>Completed documents can be downloaded at any time. The downloaded PDF reflects the final signed state. A completion certificate summarising the audit trail can be generated from the document panel.</p>
+  </section>
+
+
+  <!-- ─── 11. Billing ──────────────────────────────────────────────── -->
+  <section class="section" id="billing">
+    <p class="section-label">Section 11</p>
+    <h2 class="section-title">Billing &amp; tokens</h2>
+
+    <h3>Team subscription</h3>
+    <p>EasyDraftDocs uses a simple per-seat subscription — <strong>$12 CAD per internal team member per month</strong>. External signers who receive links do not count as seats.</p>
+
+    <table>
+      <thead>
+        <tr><th></th><th>Details</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Free trial</strong></td><td>30 days free, no credit card required. Cancel anytime during the trial with no charge.</td></tr>
+        <tr><td><strong>After trial</strong></td><td>$12 CAD per internal seat per month, billed monthly. You can add a payment method at any time before the trial ends from the Billing panel.</td></tr>
+        <tr><td><strong>Seats</strong></td><td>Set the number of seats when you start your trial. You can adjust it anytime via the billing portal.</td></tr>
+        <tr><td><strong>Cancellation</strong></td><td>Cancel anytime from the Billing panel → <em>Manage billing</em>. Access continues until the end of the current billing period.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>External signer tokens <span class="badge token">token</span></h3>
+    <p>Tokens are used when you send a managed-routing workflow that includes at least one external (non-team) participant. <strong>1 token = 1 external workflow sent outside your organization.</strong></p>
+    <ul>
+      <li>Tokens are purchased in packs: <strong>$12 CAD = 12 tokens</strong>.</li>
+      <li>Tokens never expire.</li>
+      <li>Token balance is shown in the Billing panel.</li>
+      <li>You need an active subscription to buy tokens.</li>
+    </ul>
+
+    <h3>Managing billing</h3>
+    <p>Everything billing-related — payment methods, invoices, seat count, cancellation — is handled through the Stripe billing portal. Click <strong>Manage billing</strong> (or <strong>Add payment method</strong> during trial) in the Billing panel to open it.</p>
+  </section>
+
+
+  <!-- ─── 12. Account ──────────────────────────────────────────────── -->
+  <section class="section" id="account">
+    <p class="section-label">Section 12</p>
+    <h2 class="section-title">Account &amp; your data</h2>
+
+    <h3>Profile</h3>
+    <p>Update your display name, company, job title, timezone, locale, and email preferences from the <strong>Account</strong> section in the sidebar. Click <strong>Save account</strong> to apply changes.</p>
+
+    <h3>Signature Library</h3>
+    <p>The <strong>Signature Library</strong> lets you create and store reusable signatures. Each saved signature has a label (e.g. "VP Operations"), an optional title line, and is either typed text rendered in a signature font or an uploaded image. You can set one as your default so it is pre-selected whenever you sign.</p>
+
+    <h3>What data we store</h3>
+    <ul>
+      <li>Your profile and preferences</li>
+      <li>Uploaded PDF documents and their field layouts</li>
+      <li>Saved signatures</li>
+      <li>Workflow audit trail and participant records</li>
+      <li>Workspace and team membership</li>
+    </ul>
+    <p>You can download any document at any time from the document panel.</p>
+
+    <h3>Deleting your account</h3>
+    <p>You can permanently delete your account and all associated data from the <strong>Your data</strong> section in the sidebar. This will:</p>
+    <ul>
+      <li>Immediately cancel your active Stripe subscription (if any).</li>
+      <li>Permanently delete all your documents, signatures, and records from our servers.</li>
+      <li>Sign you out. This cannot be undone.</li>
+    </ul>
+    <p>To confirm, you must type your email address into the confirmation field before the delete button becomes active.</p>
+
+    <div class="callout note">
+      <strong>Before you delete</strong>
+      Download any documents you need to keep before deleting your account. Once deleted, files cannot be recovered.
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <p>EasyDraftDocs &nbsp;·&nbsp; <a href="/">Back to app</a></p>
+</footer>
+
+</body>
+</html>

@@ -117,6 +117,21 @@ select {
   margin-top: 12px;
 }
 
+.hero-guide-link {
+  display: inline-block;
+  margin-top: 16px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--fg);
+  text-decoration: none;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.hero-guide-link:hover {
+  opacity: 1;
+}
+
 .hero-grid,
 .meta-grid {
   display: grid;

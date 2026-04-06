@@ -2125,6 +2125,9 @@ export default function App() {
               Private storage, reusable profile signatures, managed routing, and audit-friendly
               workflow state all stay in one place so teams can draft once and move with confidence.
             </p>
+            <a className="hero-guide-link" href="/guide.html" target="_blank" rel="noopener noreferrer">
+              Read the user guide →
+            </a>
           </div>
           <div className="hero-grid">
             <div className="metric">
