@@ -69,6 +69,11 @@ type BillingOverview = {
     currentPeriodEnd: string | null;
     cancelAtPeriodEnd: boolean;
   } | null;
+  signingTokens: {
+    available: number;
+    used: number;
+    includedInPlan: number;
+  };
   plans: Array<{
     key: string;
     name: string;
@@ -77,7 +82,18 @@ type BillingOverview = {
     includedCompletedDocs: number;
     includedOcrPages: number;
     includedStorageGb: number;
+    includedSigningTokens: number;
   }>;
+};
+
+type GuestSigningSession = {
+  signerToken: string;
+  signerId: string;
+  signerEmail: string;
+  signerName: string;
+  documentId: string;
+  document: WorkflowDocument;
+  previewUrl: string | null;
 };
 
 type SavedSignature = {
@@ -437,6 +453,7 @@ export default function App() {
   const [reassignSignerId, setReassignSignerId] = useState("");
   const [reassignSignerName, setReassignSignerName] = useState("");
   const [reassignSignerEmail, setReassignSignerEmail] = useState("");
+  const [guestSigningSession, setGuestSigningSession] = useState<GuestSigningSession | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -488,6 +505,12 @@ export default function App() {
       selectedDocument.operationalStatus !== "changes_requested" &&
       selectedDocument.operationalStatus !== "rejected" &&
       selectedDocument.operationalStatus !== "canceled",
+  ) || Boolean(
+    guestSigningSession &&
+      selectedDocument?.currentUserSignerId === guestSigningSession.signerId &&
+      selectedDocument?.operationalStatus !== "changes_requested" &&
+      selectedDocument?.operationalStatus !== "rejected" &&
+      selectedDocument?.operationalStatus !== "canceled",
   );
   const quickRouteLabels = selectedDocument
     ? getQuickRouteLabels(selectedDocument.deliveryMode)
@@ -701,6 +724,42 @@ export default function App() {
       await refreshDocument(selectedDocument.id, session);
       await refreshDocuments(session);
       await loadPreview(selectedDocument.id, session);
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function runGuestFieldComplete(fieldId: string, value?: string | null) {
+    if (!guestSigningSession) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      const res = await fetch("/api/document-field-complete-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: guestSigningSession.signerToken,
+          documentId: guestSigningSession.documentId,
+          fieldId,
+          value: value ?? null,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error((data as { message?: string }).message ?? "Failed to complete field.");
+      }
+
+      const payload = await res.json() as { document: WorkflowDocument };
+      setDocuments([payload.document]);
+      setGuestSigningSession((prev) => prev ? { ...prev, document: payload.document } : prev);
     } catch (error) {
       setErrorMessage((error as Error).message);
     } finally {
@@ -1453,6 +1512,8 @@ export default function App() {
     const checkoutStatus = params.get("checkout");
     const billingStatus = params.get("billing");
     const checkoutPlan = params.get("plan");
+    const signingToken = params.get("signingToken");
+    const signingDocumentId = params.get("documentId");
 
     if (checkoutStatus === "success") {
       setNoticeMessage("Billing updated. Stripe redirected back successfully.");
@@ -1472,9 +1533,29 @@ export default function App() {
       setNoticeMessage("Billing portal placeholder opened. Live billing will activate once Stripe is configured.");
     }
 
+    if (signingToken && signingDocumentId) {
+      fetch("/api/signing-token-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: signingToken, documentId: signingDocumentId }),
+      })
+        .then((res) => {
+          if (!res.ok) return res.json().then((data) => Promise.reject(new Error(data.message ?? "Invalid signing link.")));
+          return res.json();
+        })
+        .then((data) => {
+          setGuestSigningSession(data as GuestSigningSession);
+          setDocuments([data.document as WorkflowDocument]);
+          setSelectedDocumentId(data.documentId as string);
+          if (data.previewUrl) setPreviewUrl(data.previewUrl as string);
+        })
+        .catch((error: Error) => setErrorMessage(error.message));
+    }
+
     params.delete("checkout");
     params.delete("plan");
     params.delete("billing");
+    params.delete("signingToken");
     const query = params.toString();
     window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
   }, []);
@@ -1609,7 +1690,16 @@ export default function App() {
 
         <section className="card">
           <p className="eyebrow">Authentication</p>
-          {sessionUser ? (
+          {guestSigningSession ? (
+            <div className="stack">
+              <p className="eyebrow">Guest signing</p>
+              <p className="muted">
+                Signing as <strong>{guestSigningSession.signerName}</strong>
+              </p>
+              <p className="muted">{guestSigningSession.signerEmail}</p>
+              <p className="muted">Complete your assigned fields in the document panel to the right.</p>
+            </div>
+          ) : sessionUser ? (
             <div className="stack">
               <p className="muted">
                 Signed in as <strong>{sessionUser.name}</strong>
@@ -1957,6 +2047,12 @@ export default function App() {
                   but they loop through a non-live preview until Stripe keys are configured.
                 </p>
               ) : null}
+              <div className="row-card">
+                <span>Signing tokens</span>
+                <strong>
+                  {billingOverview.signingTokens.available} / {billingOverview.signingTokens.includedInPlan} available this period
+                </strong>
+              </div>
               {billingOverview.subscription ? (
                 <>
                   <p className="muted">
@@ -1979,7 +2075,7 @@ export default function App() {
                       </strong>
                       <p className="muted">
                         {plan.includedCompletedDocs} docs · {plan.includedOcrPages} OCR pages ·{" "}
-                        {plan.includedStorageGb} GB
+                        {plan.includedStorageGb} GB · {plan.includedSigningTokens} signing tokens
                       </p>
                     </div>
                     <button
@@ -2052,12 +2148,7 @@ export default function App() {
           <div className="stack">
             {documents.length === 0 ? (
               <div className="stack">
-                <p className="muted">Upload a PDF after signing in to start a workflow.</p>
-                {!sessionUser ? (
-                  <p className="muted">
-                    Admin login lives in the Authentication card above. Use <strong>admin@agoperations.ca</strong>.
-                  </p>
-                ) : null}
+                <p className="muted">Sign in and upload a PDF to start a workflow.</p>
               </div>
             ) : (
               documents.map((document) => (
@@ -2069,6 +2160,8 @@ export default function App() {
                   <span>{document.name}</span>
                   <small>
                     {formatState(document.workflowState)} · {formatRoleLabel(document)}
+                    {document.isOverdue ? <span className="badge badge-overdue">Overdue</span> : null}
+                    {!document.isOverdue && document.operationalStatus === "changes_requested" ? <span className="badge badge-action">Action needed</span> : null}
                   </small>
                 </button>
               ))
@@ -2080,8 +2173,8 @@ export default function App() {
       <main className="main">
         <header className="hero">
           <div>
-            <p className="eyebrow">Deployable workflow</p>
-            <h2>EasyDraft keeps document work calm, reusable, and ready to move forward.</h2>
+            <p className="eyebrow">Document workflows</p>
+            <h2>Upload, route, and sign PDFs — without chasing anyone down.</h2>
             <p className="hero-copy">
               Private storage, reusable profile signatures, managed routing, and audit-friendly
               workflow state all stay in one place so teams can draft once and move with confidence.
@@ -2648,10 +2741,27 @@ export default function App() {
                         >
                           Cancel workflow
                         </button>
+                        {selectedDocument.deliveryMode === "platform_managed" &&
+                          selectedDocument.sentAt &&
+                          selectedDocument.operationalStatus !== "canceled" &&
+                          selectedDocument.operationalStatus !== "rejected" &&
+                          selectedDocument.workflowState !== "completed" ? (
+                          <button
+                            className="secondary-button"
+                            disabled={isLoading}
+                            onClick={() => runDocumentAction("/document-remind", { documentId: selectedDocument.id })}
+                            type="button"
+                          >
+                            Remind signers
+                          </button>
+                        ) : null}
                       </div>
                     </form>
                     <p className="muted action-note">
                       Use the due date to make overdue work obvious. Cancel keeps the audit trail but closes the current run.
+                      {selectedDocument.deliveryMode === "platform_managed" && selectedDocument.sentAt && selectedDocument.workflowState !== "completed"
+                        ? " Remind re-sends the pending signature request to the next eligible signer."
+                        : null}
                     </p>
                   </div>
                 ) : null}
@@ -2971,14 +3081,16 @@ export default function App() {
                                 className="ghost-button"
                                 disabled={isLoading}
                                 onClick={() =>
-                                  runDocumentAction("/document-field-complete", {
-                                    documentId: selectedDocument.id,
-                                    fieldId: field.id,
-                                    savedSignatureId:
-                                      field.kind === "signature" || field.kind === "initial"
-                                        ? selectedSavedSignatureId || null
-                                        : null,
-                                  })
+                                  guestSigningSession
+                                    ? runGuestFieldComplete(field.id)
+                                    : runDocumentAction("/document-field-complete", {
+                                        documentId: selectedDocument.id,
+                                        fieldId: field.id,
+                                        savedSignatureId:
+                                          field.kind === "signature" || field.kind === "initial"
+                                            ? selectedSavedSignatureId || null
+                                            : null,
+                                      })
                                 }
                               >
                                 Complete field

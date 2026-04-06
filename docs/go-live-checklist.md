@@ -41,7 +41,7 @@ Use this after workflow testing passes and before you present EasyDraft as produ
    - preview `vercel.app` wildcard if you want preview auth testing
 3. Confirm Email auth is enabled.
 4. Confirm the `documents` bucket exists and remains private.
-5. Confirm the SQL migrations are fully applied.
+5. Confirm all SQL migrations are fully applied, including `20260405120000_signing_tokens.sql`.
 
 ## Stripe
 
@@ -60,23 +60,17 @@ Use this after workflow testing passes and before you present EasyDraft as produ
 
 ## Notification Email
 
-1. Choose the workflow email provider:
-   - SMTP
-   - Resend
-2. Add to Vercel:
-   - `EASYDRAFT_EMAIL_PROVIDER`
-   - `EASYDRAFT_NOTIFICATION_FROM_EMAIL`
-   - `EASYDRAFT_NOTIFICATION_FROM_NAME`
-3. If using SMTP, also add:
-   - `SMTP_HOST`
-   - `SMTP_PORT`
-   - `SMTP_SECURE`
-   - `SMTP_USER`
-   - `SMTP_PASSWORD`
-4. If using Resend, also add:
-   - `RESEND_API_KEY`
-5. Send one real notification to verify deliverability and link behavior.
-6. Decide whether you also want the processor deployed for notification retries and queued OCR / field-detection jobs.
+Resend is configured and live for production. The following are already complete:
+
+- [x] `EASYDRAFT_EMAIL_PROVIDER=resend` set in Vercel (Production + Development)
+- [x] `RESEND_API_KEY` set in Vercel (Production + Development)
+- [x] `EASYDRAFT_NOTIFICATION_FROM_EMAIL=noreply@easydraftdocs.app` set in Vercel
+- [x] `easydraftdocs.app` verified as sending domain in Resend (DKIM + SPF)
+
+Remaining:
+
+1. Send one real notification to verify deliverability and link behavior end-to-end.
+2. Decide whether you also want the processor deployed for notification retries and queued OCR / field-detection jobs.
 
 ## Dropbox Sign
 

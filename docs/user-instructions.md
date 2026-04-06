@@ -154,6 +154,8 @@ The document panel shows:
 
 If you are the active signer, you can complete only the fields assigned to you.
 
+For `platform_managed` workflows, external signers receive a one-time link by email. Clicking the link opens EasyDraft directly to their assigned fields — no account required. The link is valid until the document due date, or 7 days from send if no due date is set.
+
 Current signer actions:
 
 - complete your assigned field
@@ -181,12 +183,19 @@ Owners and editors can set a workflow due date.
 
 When the due date passes:
 
-- the workflow shows as overdue
-- the UI makes the blocker more obvious
+- the workflow shows as overdue in the document list
+- an overdue badge is shown alongside the document name
 
-Current limitation:
+## Reminding signers
 
-- reminder and resend controls are not yet implemented
+For `platform_managed` workflows, owners and editors can send a reminder to all pending signers.
+
+Use the `Remind signers` button in the document panel when:
+
+- the workflow has been sent but is not yet complete
+- one or more signers have not yet completed their fields
+
+Reminders reuse the existing signing token if one is still valid, or issue a fresh one if it has expired.
 
 ## Reassignment
 
@@ -242,9 +251,8 @@ These can be applied to assigned signature and initial fields.
 The following are not yet fully implemented:
 
 - change-impact classification after partial completion
-- reminders and resend controls
 - certificate-backed external signing provider integration
-- fully live billing for paid production use
+- fully live billing for paid production use (Stripe keys not yet configured)
 
 ## Best practices for testers
 

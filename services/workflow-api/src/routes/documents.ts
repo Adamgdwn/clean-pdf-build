@@ -17,6 +17,9 @@ import {
   lockDocumentForAuthorizationHeader,
   reassignDocumentSignerForAuthorizationHeader,
   rejectDocumentForAuthorizationHeader,
+  remindDocumentSignersForAuthorizationHeader,
+  resolveSigningTokenSession,
+  completeFieldForSigningToken,
   requestProcessingJobForAuthorizationHeader,
   requestDocumentChangesForAuthorizationHeader,
   reopenDocumentForAuthorizationHeader,
@@ -290,6 +293,19 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
+  app.post("/documents/:documentId/remind", async (request, reply) => {
+    try {
+      const { documentId } = request.params as { documentId: string };
+      return await remindDocumentSignersForAuthorizationHeader(
+        request.headers.authorization,
+        documentId,
+        getOrigin(request),
+      );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
   app.get("/documents/:documentId/download-url", async (request, reply) => {
     try {
       const { documentId } = request.params as { documentId: string };
@@ -312,6 +328,36 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
         request.headers.authorization,
         documentId,
         jobType,
+      );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  // Token-based signing (no auth header required)
+  app.post("/signing-token-session", async (request, reply) => {
+    try {
+      const { token, documentId } = request.body as { token: string; documentId: string };
+      return await resolveSigningTokenSession(token, documentId);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/documents/:documentId/field-complete-token", async (request, reply) => {
+    try {
+      const { documentId } = request.params as { documentId: string };
+      const { token, fieldId, value } = request.body as {
+        token: string;
+        fieldId: string;
+        value?: string | null;
+      };
+      return await completeFieldForSigningToken(
+        token,
+        documentId,
+        fieldId,
+        { value: value ?? null },
+        getOrigin(request),
       );
     } catch (error) {
       return sendError(reply, error);

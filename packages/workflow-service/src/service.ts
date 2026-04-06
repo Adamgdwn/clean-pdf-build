@@ -26,6 +26,7 @@ import { readServerEnv } from "./env.js";
 import { AppError } from "./errors.js";
 import { deliverNotificationEmail, getConfiguredNotificationEmailProvider } from "./notifications.js";
 import { createAuthClient, createServiceRoleClient } from "./supabase.js";
+import { getWorkspaceSigningTokenBalance } from "./billing.js";
 
 type DocumentRow = {
   id: string;
@@ -364,6 +365,10 @@ const createSavedSignatureInputSchema = z
 
 const completeFieldInputSchema = z.object({
   savedSignatureId: z.string().uuid().nullable().default(null),
+});
+
+const completeFieldTokenInputSchema = z.object({
+  value: z.string().trim().max(500).nullable().default(null),
 });
 
 const workflowResponseInputSchema = z.object({
@@ -751,6 +756,7 @@ function mapDocumentRecord(
     name: row.name,
     fileName: row.file_name,
     storagePath: row.storage_path,
+    workspaceId: row.workspace_id,
     deliveryMode: row.delivery_mode,
     distributionTarget: row.distribution_target,
     lockPolicy: row.lock_policy,
@@ -1434,7 +1440,12 @@ function getNotificationActionOrigin(notification: NotificationRow) {
 }
 
 function buildNotificationEmailContent(notification: NotificationRow, document: DocumentRecord) {
-  const actionUrl = `${getNotificationActionOrigin(notification)}?documentId=${encodeURIComponent(document.id)}`;
+  const origin = getNotificationActionOrigin(notification);
+  const signingToken =
+    typeof notification.metadata?.signingToken === "string" ? notification.metadata.signingToken : null;
+  const actionUrl = signingToken
+    ? `${origin}?documentId=${encodeURIComponent(document.id)}&signingToken=${encodeURIComponent(signingToken)}`
+    : `${origin}?documentId=${encodeURIComponent(document.id)}`;
   const actorLabel =
     typeof notification.metadata?.signerName === "string" ? notification.metadata.signerName : "A signer";
   const fieldLabel =
@@ -1710,6 +1721,129 @@ function getPendingRequiredAssignedFields(document: DocumentRecord) {
   );
 }
 
+async function assertWorkspaceHasActivePlan(workspaceId: string) {
+  const env = readServerEnv();
+  if (!env.STRIPE_SECRET_KEY) {
+    return; // placeholder mode — no billing gate
+  }
+
+  const adminClient = createServiceRoleClient();
+  const { data } = await adminClient
+    .from("workspace_subscriptions")
+    .select("status")
+    .eq("workspace_id", workspaceId)
+    .order("updated_at", { ascending: false })
+    .limit(1);
+
+  const subscription = (data ?? [])[0] ?? null;
+
+  if (!subscription || !["active", "trialing"].includes(subscription.status)) {
+    throw new AppError(
+      402,
+      "An active subscription is required to send documents. Visit the billing section to subscribe.",
+    );
+  }
+}
+
+async function assertWorkspaceHasSigningTokens(workspaceId: string, count: number) {
+  const env = readServerEnv();
+  if (!env.STRIPE_SECRET_KEY) {
+    return; // placeholder mode — unlimited tokens
+  }
+
+  const { available } = await getWorkspaceSigningTokenBalance(workspaceId);
+
+  if (available < count) {
+    throw new AppError(
+      402,
+      `Not enough signing tokens. ${available} available, ${count} needed. Upgrade your plan for a higher monthly allowance.`,
+    );
+  }
+}
+
+async function generateSigningToken(
+  documentId: string,
+  signerId: string,
+  signerEmail: string,
+  expiresAt: string,
+) {
+  const adminClient = createServiceRoleClient();
+  const token = crypto.randomUUID();
+
+  const { error } = await adminClient.from("document_signing_tokens").insert({
+    document_id: documentId,
+    signer_id: signerId,
+    signer_email: signerEmail,
+    token,
+    expires_at: expiresAt,
+  });
+
+  if (error) {
+    throw new AppError(500, `Failed to create signing token: ${error.message}`);
+  }
+
+  return token;
+}
+
+async function getOrReuseSigningToken(
+  documentId: string,
+  signerId: string,
+  signerEmail: string,
+  expiresAt: string,
+) {
+  const adminClient = createServiceRoleClient();
+  const { data } = await adminClient
+    .from("document_signing_tokens")
+    .select("token, expires_at, voided_at")
+    .eq("document_id", documentId)
+    .eq("signer_id", signerId)
+    .is("voided_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  const existing = (data ?? [])[0] ?? null;
+
+  if (existing && new Date(existing.expires_at) > new Date()) {
+    return existing.token as string;
+  }
+
+  return generateSigningToken(documentId, signerId, signerEmail, expiresAt);
+}
+
+async function requireValidSigningToken(token: string, documentId: string) {
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("document_signing_tokens")
+    .select("id, document_id, signer_id, signer_email, expires_at, voided_at")
+    .eq("token", token)
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new AppError(401, "Invalid signing link.");
+  }
+
+  if (data.voided_at) {
+    throw new AppError(410, "This signing link has already been used.");
+  }
+
+  if (new Date(data.expires_at) < new Date()) {
+    throw new AppError(410, "This signing link has expired. Ask the sender to send a reminder.");
+  }
+
+  if (data.document_id !== documentId) {
+    throw new AppError(403, "Signing link does not match this document.");
+  }
+
+  return data as {
+    id: string;
+    document_id: string;
+    signer_id: string;
+    signer_email: string;
+    expires_at: string;
+    voided_at: string | null;
+  };
+}
+
 function getEligibleSignerIdsForNotifications(document: DocumentRecord) {
   const pendingFields = getPendingRequiredAssignedFields(document);
 
@@ -1769,7 +1903,7 @@ async function queueEligibleSignerNotifications(
   document: DocumentRecord,
   actorUserId: string,
   eligibleSignerIds: string[],
-  options: { reason: string; actorLabel: string; appOrigin?: string },
+  options: { reason: string; actorLabel: string; appOrigin?: string; signerTokens?: Map<string, string> },
 ) {
   if (document.deliveryMode !== "platform_managed" || eligibleSignerIds.length === 0) {
     return;
@@ -1786,18 +1920,20 @@ async function queueEligibleSignerNotifications(
     : "signature";
 
   await Promise.all(
-    signersToNotify.map((signer) =>
-      queueNotification(document.id, "signature_request", signer.email, {
+    signersToNotify.map((signer) => {
+      const signingToken = options.signerTokens?.get(signer.id);
+      return queueNotification(document.id, "signature_request", signer.email, {
         recipientUserId: signer.userId || null,
         recipientSignerId: signer.id,
         metadata: {
           ...(options.appOrigin ? { appOrigin: options.appOrigin } : {}),
+          ...(signingToken ? { signingToken } : {}),
           signerName: signer.name,
           actionLabel,
           reason: options.reason,
         },
-      }),
-    ),
+      });
+    }),
   );
 
   await appendAuditEvent(
@@ -3081,6 +3217,10 @@ export async function sendDocumentForAuthorizationHeader(
     throw new AppError(400, sendReadiness.blockers.join(" "));
   }
 
+  if (currentDocument.workspaceId) {
+    await assertWorkspaceHasActivePlan(currentDocument.workspaceId);
+  }
+
   const now = new Date().toISOString();
   const { error } = await adminClient
     .from("documents")
@@ -3130,10 +3270,49 @@ export async function sendDocumentForAuthorizationHeader(
 
   if (document.deliveryMode === "platform_managed") {
     const eligibleSignerIds = getEligibleSignerIdsForNotifications(document);
+    const signerTokens = new Map<string, string>();
+
+    if (document.workspaceId && eligibleSignerIds.length > 0) {
+      const externalEligible = document.signers.filter(
+        (s) => eligibleSignerIds.includes(s.id) && s.participantType === "external",
+      );
+
+      if (externalEligible.length > 0) {
+        await assertWorkspaceHasSigningTokens(document.workspaceId, externalEligible.length);
+
+        const tokenExpiry =
+          document.dueAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+        await Promise.all(
+          externalEligible.map(async (signer) => {
+            const token = await generateSigningToken(document.id, signer.id, signer.email, tokenExpiry);
+            signerTokens.set(signer.id, token);
+          }),
+        );
+
+        const { error: usageError } = await adminClient.from("billing_usage_events").insert(
+          externalEligible.map((signer) => ({
+            workspace_id: document.workspaceId,
+            meter_key: "signing_token",
+            quantity: 1,
+            occurred_at: now,
+            source_document_id: document.id,
+            source_user_id: user.id,
+            metadata: { signerId: signer.id, signerEmail: signer.email },
+          })),
+        );
+
+        if (usageError) {
+          throw new AppError(500, `Failed to record token usage: ${usageError.message}`);
+        }
+      }
+    }
+
     await queueEligibleSignerNotifications(document, user.id, eligibleSignerIds, {
       reason: "document_sent",
       actorLabel: user.name,
       appOrigin,
+      signerTokens,
     });
   }
 
@@ -3909,6 +4088,247 @@ export async function processQueuedJobs(limit = 5) {
   return {
     processedJobs,
   };
+}
+
+export async function resolveSigningTokenSession(token: string, documentId: string) {
+  const tokenRow = await requireValidSigningToken(token, documentId);
+  const adminClient = createServiceRoleClient();
+  const env = readServerEnv();
+
+  const document = await requireDocumentBundle(documentId);
+
+  const signer = document.signers.find((s) => s.id === tokenRow.signer_id);
+
+  if (!signer) {
+    throw new AppError(403, "The signer associated with this link is no longer on this document.");
+  }
+
+  // Build a document response with the guest signer's context
+  const baseResponse = toWorkflowDocumentResponse(document, "");
+  const waitingOn = getWorkflowWaitingOn(document);
+  const signerResponse = {
+    ...baseResponse,
+    currentUserRole: "signer" as AccessRole,
+    currentUserIsSigner: true,
+    currentUserSignerId: signer.id,
+    waitingOn,
+  };
+
+  // Generate a short-lived signed URL for the raw PDF so the guest can view it
+  const { data: previewData } = await adminClient.storage
+    .from(env.SUPABASE_DOCUMENT_BUCKET)
+    .createSignedUrl(document.storagePath, 60 * 60);
+
+  return {
+    signerToken: token,
+    signerId: signer.id,
+    signerEmail: signer.email,
+    signerName: signer.name,
+    documentId,
+    document: signerResponse,
+    previewUrl: previewData?.signedUrl ?? null,
+  };
+}
+
+export async function completeFieldForSigningToken(
+  token: string,
+  documentId: string,
+  fieldId: string,
+  input: unknown = {},
+  appOrigin?: string,
+) {
+  const tokenRow = await requireValidSigningToken(token, documentId);
+  const parsedInput = completeFieldTokenInputSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+  const document = await requireDocumentBundle(documentId);
+
+  const signer = document.signers.find((s) => s.id === tokenRow.signer_id);
+
+  if (!signer) {
+    throw new AppError(403, "The signer associated with this link is no longer on this document.");
+  }
+
+  if (document.workflowStatus !== "active") {
+    throw new AppError(409, "This workflow is paused or closed. Ask the initiator to resume it before continuing.");
+  }
+
+  const eligibleSignerIds = getEligibleSignerIdsForNotifications(document);
+
+  if (!eligibleSignerIds.includes(signer.id)) {
+    throw new AppError(409, "This signer is not active yet. Complete the current stage before continuing.");
+  }
+
+  const field = document.fields.find((candidate) => candidate.id === fieldId);
+
+  if (!field) {
+    throw new AppError(404, "Field not found.");
+  }
+
+  if (field.assigneeSignerId !== signer.id) {
+    throw new AppError(403, "This field is assigned to another signer.");
+  }
+
+  // Guest signers do not have saved signatures — value defaults to field value or "completed"
+  const completionValue = parsedInput.value ?? field.value ?? "completed";
+  const completedAt = new Date().toISOString();
+
+  const { error } = await adminClient
+    .from("document_fields")
+    .update({
+      value: completionValue,
+      applied_saved_signature_id: null,
+      completed_at: completedAt,
+      completed_by_signer_id: signer.id,
+    })
+    .eq("id", fieldId);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  await appendAuditEvent(documentId, `guest:${signer.email}`, "field.completed", `Completed field ${field.label} (guest signer)`, {
+    page: field.page,
+    guestSigner: true,
+  });
+
+  const updatedDocument = await requireDocumentBundle(documentId);
+  const eligibleSignerIdsAfter = getEligibleSignerIdsForNotifications(updatedDocument);
+
+  if (
+    updatedDocument.deliveryMode === "platform_managed" &&
+    updatedDocument.notifyOriginatorOnEachSignature &&
+    isActionFieldKind(field.kind)
+  ) {
+    const originator = await getProfileById(updatedDocument.uploadedByUserId);
+
+    if (originator?.email) {
+      await queueNotification(documentId, "signature_progress", originator.email, {
+        recipientUserId: originator.id,
+        recipientSignerId: signer.id,
+        metadata: {
+          ...(appOrigin ? { appOrigin } : {}),
+          signerName: signer.name,
+          actionLabel: getActionLabelForFieldKind(field.kind),
+          fieldLabel: field.label,
+          fieldKind: field.kind,
+        },
+      });
+    }
+  }
+
+  const eligibleSignerIdsBefore = eligibleSignerIds;
+  const newlyEligibleSignerIds = eligibleSignerIdsAfter.filter(
+    (signerId) => !eligibleSignerIdsBefore.includes(signerId),
+  );
+
+  if (newlyEligibleSignerIds.length > 0) {
+    // For newly eligible signers, look up their tokens if they are external
+    const signerTokens = new Map<string, string>();
+    const newlyEligibleExternal = updatedDocument.signers.filter(
+      (s) => newlyEligibleSignerIds.includes(s.id) && s.participantType === "external",
+    );
+
+    for (const nextSigner of newlyEligibleExternal) {
+      const expiresAt = updatedDocument.dueAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const nextToken = await getOrReuseSigningToken(documentId, nextSigner.id, nextSigner.email, expiresAt);
+      signerTokens.set(nextSigner.id, nextToken);
+    }
+
+    await queueEligibleSignerNotifications(updatedDocument, `guest:${signer.email}`, newlyEligibleSignerIds, {
+      reason: "previous_signer_completed",
+      actorLabel: signer.name,
+      appOrigin,
+      signerTokens,
+    });
+  }
+
+  const workflowState = deriveWorkflowState(updatedDocument);
+
+  if (workflowState === "completed") {
+    const completionTimestamp = updatedDocument.completedAt ?? new Date().toISOString();
+    await adminClient
+      .from("documents")
+      .update({
+        completed_at: completionTimestamp,
+        locked_at: null,
+        locked_by_user_id: null,
+      })
+      .eq("id", documentId);
+    await appendVersion(documentId, `guest:${signer.email}`, "Completed document", "All required assigned action fields completed");
+    await appendAuditEvent(
+      documentId,
+      `guest:${signer.email}`,
+      "document.completed",
+      "Completed all required assigned action fields (guest signer)",
+    );
+  }
+
+  const finalDocument = await requireDocumentBundle(documentId);
+  const baseResponse = toWorkflowDocumentResponse(finalDocument, "");
+  return {
+    document: {
+      ...baseResponse,
+      currentUserRole: "signer" as AccessRole,
+      currentUserIsSigner: true,
+      currentUserSignerId: signer.id,
+    },
+  };
+}
+
+export async function remindDocumentSignersForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+  appOrigin?: string,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user, "send_document");
+  const document = await requireDocumentBundle(documentId);
+
+  if (document.deliveryMode !== "platform_managed") {
+    throw new AppError(400, "Reminders are only available for platform-managed documents.");
+  }
+
+  if (!document.sentAt) {
+    throw new AppError(400, "Document has not been sent yet.");
+  }
+
+  const workflowState = deriveWorkflowState(document);
+
+  if (workflowState === "completed") {
+    throw new AppError(400, "Document workflow is already complete.");
+  }
+
+  if (document.workflowStatus === "canceled" || document.workflowStatus === "rejected") {
+    throw new AppError(400, "Cannot send reminders for a canceled or rejected workflow.");
+  }
+
+  const eligibleSignerIds = getEligibleSignerIdsForNotifications(document);
+
+  if (eligibleSignerIds.length === 0) {
+    throw new AppError(400, "No pending signers to remind.");
+  }
+
+  // For external signers, reuse or refresh their signing token so the reminder link still works
+  const signerTokens = new Map<string, string>();
+  const externalEligible = document.signers.filter(
+    (s) => eligibleSignerIds.includes(s.id) && s.participantType === "external",
+  );
+
+  for (const signer of externalEligible) {
+    const expiresAt = document.dueAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const token = await getOrReuseSigningToken(document.id, signer.id, signer.email, expiresAt);
+    signerTokens.set(signer.id, token);
+  }
+
+  await queueEligibleSignerNotifications(document, user.id, eligibleSignerIds, {
+    reason: "reminder",
+    actorLabel: user.name,
+    appOrigin,
+    signerTokens,
+  });
+
+  const finalDocument = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(finalDocument, user.id) };
 }
 
 export async function processQueuedNotifications(limit = 10) {

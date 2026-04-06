@@ -154,6 +154,7 @@ export const documentSchema = z.object({
   name: z.string(),
   fileName: z.string(),
   storagePath: z.string(),
+  workspaceId: z.string().nullable().default(null),
   deliveryMode: deliveryModeSchema.default("self_managed"),
   distributionTarget: z.string().nullable().default(null),
   lockPolicy: lockPolicySchema.default("owner_only"),

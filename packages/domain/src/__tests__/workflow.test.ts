@@ -17,6 +17,7 @@ const baseDocument: DocumentRecord = {
   name: "Demo agreement",
   fileName: "demo-agreement.pdf",
   storagePath: "user_owner/doc_1/demo-agreement.pdf",
+  workspaceId: null,
   deliveryMode: "self_managed",
   distributionTarget: null,
   lockPolicy: "owner_only",

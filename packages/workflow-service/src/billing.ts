@@ -18,6 +18,7 @@ type BillingPlanRow = {
   included_completed_docs: number;
   included_ocr_pages: number;
   included_storage_gb: number;
+  included_signing_tokens: number;
   active: boolean;
 };
 
@@ -113,7 +114,7 @@ async function listActivePlans() {
   const { data, error } = await adminClient
     .from("billing_plans")
     .select(
-      "key, name, monthly_price_usd, included_internal_seats, included_completed_docs, included_ocr_pages, included_storage_gb, active",
+      "key, name, monthly_price_usd, included_internal_seats, included_completed_docs, included_ocr_pages, included_storage_gb, included_signing_tokens, active",
     )
     .eq("active", true)
     .order("monthly_price_usd", { ascending: true });
@@ -257,6 +258,22 @@ async function upsertSubscriptionRecord(
   }
 }
 
+async function getSigningTokenUsageForPeriod(workspaceId: string, periodStart: string | null) {
+  const adminClient = createServiceRoleClient();
+  let query = adminClient
+    .from("billing_usage_events")
+    .select("quantity")
+    .eq("workspace_id", workspaceId)
+    .eq("meter_key", "signing_token");
+
+  if (periodStart) {
+    query = query.gte("occurred_at", periodStart);
+  }
+
+  const { data } = await query;
+  return (data ?? []).reduce((sum: number, row: { quantity: number }) => sum + (row.quantity ?? 0), 0);
+}
+
 export async function getBillingOverviewForAuthorizationHeader(authorizationHeader: string | undefined) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const workspaceContext = await getBillingWorkspaceForUser(user);
@@ -266,6 +283,11 @@ export async function getBillingOverviewForAuthorizationHeader(authorizationHead
     getLatestSubscriptionForWorkspace(workspace.id),
     countWorkspaceMembers(workspace.id),
   ]);
+
+  const currentPlan = subscription ? plans.find((p) => p.key === subscription.billing_plan_key) : null;
+  const includedTokens = currentPlan?.included_signing_tokens ?? 0;
+  const tokensUsed = await getSigningTokenUsageForPeriod(workspace.id, subscription?.current_period_start ?? null);
+  const signingTokensAvailable = Math.max(0, includedTokens - tokensUsed);
 
   return {
     billingMode: isStripeConfigured() ? "live" : "placeholder",
@@ -286,6 +308,11 @@ export async function getBillingOverviewForAuthorizationHeader(authorizationHead
           cancelAtPeriodEnd: subscription.cancel_at_period_end,
         }
       : null,
+    signingTokens: {
+      available: signingTokensAvailable,
+      used: tokensUsed,
+      includedInPlan: includedTokens,
+    },
     plans: plans.map((plan) => ({
       key: plan.key,
       name: plan.name,
@@ -294,7 +321,21 @@ export async function getBillingOverviewForAuthorizationHeader(authorizationHead
       includedCompletedDocs: plan.included_completed_docs,
       includedOcrPages: plan.included_ocr_pages,
       includedStorageGb: Number(plan.included_storage_gb),
+      includedSigningTokens: plan.included_signing_tokens,
     })),
+  };
+}
+
+export async function getWorkspaceSigningTokenBalance(workspaceId: string) {
+  const adminClient = createServiceRoleClient();
+  const subscription = await getLatestSubscriptionForWorkspace(workspaceId);
+  const plans = await listActivePlans();
+  const currentPlan = subscription ? plans.find((p) => p.key === subscription.billing_plan_key) : null;
+  const includedTokens = currentPlan?.included_signing_tokens ?? 0;
+  const tokensUsed = await getSigningTokenUsageForPeriod(workspaceId, subscription?.current_period_start ?? null);
+  return {
+    available: Math.max(0, includedTokens - tokensUsed),
+    includedInPlan: includedTokens,
   };
 }
 

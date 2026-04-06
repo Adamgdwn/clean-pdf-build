@@ -126,9 +126,13 @@ The product is in a strong pilot and tester-readiness stage:
 
 - core document upload, editing, routing, signing, audit, export, lock, and reopen flows are working
 - internal, self-managed, and platform-managed paths are available
-- staged routing, approvals, due dates, waiting-on status, request changes, reject, cancel, and reassignment now exist in the workflow layer
+- staged routing, approvals, due dates, waiting-on status, request changes, reject, cancel, and reassignment exist in the workflow layer
+- external signers can complete their assigned fields via a one-time token link without creating an account
+- overdue and blocked indicators are visible in the document list
+- reminder emails can be sent to pending signers on platform-managed workflows
+- workflow notification emails are live via Resend from `noreply@easydraftdocs.app`
 - billing is still safe to test in placeholder mode while the business setup catches up
-- notification delivery and certificate-backed external signing are still optional next-phase capabilities
+- certificate-backed external signing remains an optional next-phase capability
 
 That means the current build is suitable for a free 30-day tester cohort, but not yet positioned as a fully commercialized paid product.
 
@@ -138,11 +142,16 @@ Current known live status:
 
 - `https://easydraftdocs.app` is live
 - `https://easydraftdocs.app/api/health` is responding from the Vercel API
-- Gmail SMTP support is implemented in the app
-- Gmail SMTP values are already set in Vercel for `Production` and `Development`
-- the remaining email blocker is adding `SMTP_PASSWORD` in Vercel and matching custom SMTP values in Supabase Auth
+- Resend is configured as the workflow email provider
+- `easydraftdocs.app` is a verified sending domain in Resend (DKIM + SPF)
+- workflow notification emails send from `noreply@easydraftdocs.app`
+- the `document_signing_tokens` table is live in production Supabase
+- token-based external signing is active: external signers receive a one-time link and can complete their fields without creating an EasyDraft account
+- signing token quotas are included in each billing plan (starter: 25, team: 100, business: 500)
+- overdue and blocked status badges are visible in the document list
+- remind signers action is available for platform-managed workflows
 
-That means the app is live and the workflow email layer is ready, but production email delivery is not fully active until the Gmail app password is added and Supabase Auth is pointed at the same mailbox.
+The remaining pre-commercialization step is Stripe: add `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` to Vercel once the Stripe account and pricing are ready.
 
 ## Latest Workflow Updates
 
@@ -162,42 +171,41 @@ The current build now includes these workflow and policy improvements:
   - password reset email action
   - test-user deletion
 - routed signer notifications are based on required signature and initial fields only
-- managed notification emails are attempted immediately when SMTP or Resend is configured
+- managed notification emails send immediately via Resend when a workflow is sent or a reminder is triggered
 - collaborator invites are now clearly separated from routed signer setup
 - the document UI shows clearer role labels like `owner + signer`
 - signer-facing actions are less noisy and only show completion controls when the current user is the assigned signer
 - workflow due dates and overdue visibility
+- overdue and blocked indicators are shown as badges in the document list
 - explicit `waiting on` summaries in the document response and UI
 - signer-driven `request changes` and `reject workflow` actions
 - initiator-driven `cancel workflow`
 - participant reassignment for blocked or unavailable signers
+- remind signers action for platform-managed workflows (reuses existing token or issues a fresh one)
+- external signers receive a one-time token link and can complete their assigned fields without an EasyDraft account
+- signing token quotas are tracked per workspace billing period
 - a future-state workflow roadmap document for the team in [future-workflow-roadmap.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/future-workflow-roadmap.md)
 
 ## Immediate Marketability Tasks
 
 ### Adam Next Steps
 
-1. Set up the Stripe account properly:
+1. Run one live email smoke test:
+   - send yourself a tester invite from the admin console
+   - confirm the Supabase invite email arrives (Supabase sends this directly)
+   - send one `platform_managed` workflow to an external email address
+   - confirm the workflow email arrives from `noreply@easydraftdocs.app` and opens back into EasyDraft
+   - click the signing link and verify the guest signing session loads without requiring login
+2. Set up the Stripe account properly:
    - create the Stripe account
    - complete business profile and payout details
    - create the initial product and monthly price
    - decide what the free tester month looks like before billing begins
-2. Finish Gmail SMTP activation:
-   - add `SMTP_PASSWORD` to Vercel using the Google app password for `admin@agoperations.ca`
-   - set Supabase Auth custom SMTP to `smtp.gmail.com`
-   - use `admin@agoperations.ca` as sender email and username
-   - use port `587`
-   - use the same Google app password in Supabase
-3. Run one live email smoke test:
-   - send yourself a tester invite from the admin console
-   - confirm the Supabase invite email arrives
-   - send one `platform_managed` workflow
-   - confirm the workflow email arrives and opens back into EasyDraft
-4. Keep billing in placeholder mode until Stripe is finished, then wire:
+3. Wire Stripe to production once pricing is ready:
    - `STRIPE_SECRET_KEY`
    - `STRIPE_WEBHOOK_SECRET`
    - pricing copy and plan naming that match the real offer
-5. Define the first tester offer clearly:
+4. Define the first tester offer clearly:
    - free for 30 days
    - who it is for
    - what kind of support they can expect
@@ -246,9 +254,7 @@ The current build now includes these workflow and policy improvements:
    - `non_material`
    - `review_required`
    - `resign_required`
-2. Add reminder and resend actions tied to due dates and overdue workflows.
-3. Improve the initiator dashboard so blocked, overdue, and changed workflows are obvious at a glance.
-4. Improve completion packaging:
+2. Improve completion packaging:
    - clearer completion summary
    - cleaner export/share handoff
    - stronger audit presentation

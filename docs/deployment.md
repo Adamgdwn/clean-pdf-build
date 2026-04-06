@@ -55,8 +55,8 @@ Recommended values:
 - `SUPABASE_SIGNATURE_BUCKET` = `signatures`
 - `EASYDRAFT_ADMIN_EMAILS` = `admin@agoperations.ca`
 - `EASYDRAFT_APP_ORIGIN` = `https://easydraftdocs.app`
-- `EASYDRAFT_EMAIL_PROVIDER` = `smtp` for a normal mail server or `resend` if you still want the API provider path
-- `RESEND_API_KEY` = your Resend API key if `EASYDRAFT_EMAIL_PROVIDER=resend`
+- `EASYDRAFT_EMAIL_PROVIDER` = `resend` (recommended) or `smtp` for a self-hosted mail server
+- `RESEND_API_KEY` = your Resend API key if `EASYDRAFT_EMAIL_PROVIDER=resend`; verify your sending domain in the Resend dashboard and add the DKIM and SPF DNS records to your domain
 - `SMTP_HOST` = your SMTP server host if `EASYDRAFT_EMAIL_PROVIDER=smtp`
 - `SMTP_PORT` = your SMTP server port such as `587`
 - `SMTP_SECURE` = `false` for STARTTLS on port `587` or `true` for SMTPS on port `465`
@@ -91,7 +91,7 @@ Recommended production auth values:
   - `https://www.easydraftdocs.com/**`
   - `https://*-adamgoodwin-8648s-projects.vercel.app/**`
 
-### What the migration creates
+### What the migrations create
 
 - `profiles`
 - `documents`
@@ -102,6 +102,8 @@ Recommended production auth values:
 - `document_versions`
 - `document_audit_events`
 - `document_processing_jobs`
+- `document_signing_tokens` (token-based guest signing for external participants)
+- `billing_plans`, `workspace_subscriptions`, `billing_usage_events` (billing and token quota tracking)
 
 It also creates:
 
@@ -160,7 +162,7 @@ Until that integration is wired, `internal_use_only` is the built-in low-cost si
 
 ## Notifications and processor service
 
-Managed signature emails are attempted inline when notifications are queued and a supported email provider is configured. SMTP is now the recommended default if you want to avoid Resend. The separate processor is still useful for retries and for OCR / field-detection workloads.
+Managed signature emails are attempted inline when notifications are queued and a supported email provider is configured. Resend is the recommended provider. The separate processor is still useful for retries and for OCR / field-detection workloads.
 
 ## Processor service
 
