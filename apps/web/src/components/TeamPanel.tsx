@@ -33,7 +33,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
   );
 
   const totalOccupied = team.members.length + team.pendingInvitations.length;
-  const seatCount = subscription?.seat_count ?? 0;
+  const seatCount = subscription?.seatCount ?? 0;
   const isSubscribed = subscription && ["active", "trialing"].includes(subscription.status);
   const overSeat = isSubscribed && totalOccupied > seatCount;
 

@@ -122,7 +122,7 @@ export async function getWorkspaceTeamForAuthorizationHeader(
   if (membersResult.error) throw new AppError(500, membersResult.error.message);
   if (invitationsResult.error) throw new AppError(500, invitationsResult.error.message);
 
-  const members = (membersResult.data ?? []) as WorkspaceMemberRow[];
+  const members = (membersResult.data ?? []) as unknown as WorkspaceMemberRow[];
   const invitations = (invitationsResult.data ?? []) as WorkspaceInvitationRow[];
 
   return {

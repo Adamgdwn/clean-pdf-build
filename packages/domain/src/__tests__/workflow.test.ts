@@ -41,6 +41,7 @@ const baseDocument: DocumentRecord = {
   isScanned: true,
   isOcrComplete: true,
   isFieldDetectionComplete: true,
+  exportSha256: null,
   access: [
     { userId: "user_owner", role: "owner" },
     { userId: "user_signer_1", role: "signer" },

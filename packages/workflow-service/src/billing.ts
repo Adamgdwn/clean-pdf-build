@@ -788,10 +788,11 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string | u
     }
 
     // If this invoice is for a subscription, re-fetch and sync the subscription record
+    // invoice.subscription was removed from Stripe's TypeScript types in SDK v17+
+    // but still exists at runtime on invoice objects. Cast through unknown to access it.
+    const rawInvoiceSub = (invoice as unknown as { subscription?: string | { id: string } | null }).subscription;
     const subscriptionId =
-      typeof invoice.subscription === "string"
-        ? invoice.subscription
-        : (invoice.subscription?.id ?? null);
+      typeof rawInvoiceSub === "string" ? rawInvoiceSub : (rawInvoiceSub?.id ?? null);
 
     if (subscriptionId) {
       const subscription = await stripe.subscriptions.retrieve(subscriptionId);
@@ -823,10 +824,11 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string | u
       return { received: true, skipped: true };
     }
 
+    // invoice.subscription was removed from Stripe's TypeScript types in SDK v17+
+    // but still exists at runtime on invoice objects. Cast through unknown to access it.
+    const rawInvoiceSub = (invoice as unknown as { subscription?: string | { id: string } | null }).subscription;
     const subscriptionId =
-      typeof invoice.subscription === "string"
-        ? invoice.subscription
-        : (invoice.subscription?.id ?? null);
+      typeof rawInvoiceSub === "string" ? rawInvoiceSub : (rawInvoiceSub?.id ?? null);
 
     if (subscriptionId) {
       const subscription = await stripe.subscriptions.retrieve(subscriptionId);

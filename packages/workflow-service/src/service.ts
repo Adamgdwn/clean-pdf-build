@@ -61,6 +61,7 @@ type DocumentRow = {
   is_scanned: boolean;
   is_ocr_complete: boolean;
   is_field_detection_complete: boolean;
+  export_sha256: string | null;
 };
 
 type DocumentAccessRow = {
