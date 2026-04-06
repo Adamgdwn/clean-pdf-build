@@ -225,6 +225,7 @@ type WorkflowDocumentResponse = DocumentRecord & {
     dueAt: string | null;
     isOverdue: boolean;
   };
+  eligibleSignerIds: string[];
   signable: boolean;
   completionSummary: ReturnType<typeof getDocumentCompletionSummary>;
   editorHistory: {
@@ -1223,6 +1224,7 @@ function toWorkflowDocumentResponse(
     operationalStatus: overdue ? "overdue" : document.workflowStatus,
     isOverdue: overdue,
     waitingOn,
+    eligibleSignerIds: getEligibleSignerIdsForNotifications(document),
     signable: isDocumentSignable(document),
     completionSummary: getDocumentCompletionSummary(document),
     editorHistory: {

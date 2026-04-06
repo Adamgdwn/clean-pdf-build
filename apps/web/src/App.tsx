@@ -38,6 +38,7 @@ type WorkflowDocument = DocumentRecord & {
     dueAt: string | null;
     isOverdue: boolean;
   };
+  eligibleSignerIds: string[];
   signable: boolean;
   completionSummary: {
     requiredAssignedFields: number;
@@ -188,6 +189,59 @@ const signatureBucket = import.meta.env.VITE_SUPABASE_SIGNATURE_BUCKET ?? "signa
 
 function formatState(state: string) {
   return state.replaceAll("_", " ");
+}
+
+const AUDIT_EVENT_LABELS: Record<string, string> = {
+  "document.uploaded": "Uploaded",
+  "document.prepared": "Prepared",
+  "document.sent": "Sent for signatures",
+  "document.completed": "Completed",
+  "document.locked": "Locked",
+  "document.reopened": "Reopened",
+  "document.changes_requested": "Changes requested",
+  "document.rejected": "Rejected",
+  "document.canceled": "Canceled",
+  "document.signer_reassigned": "Participant reassigned",
+  "document.due_date.updated": "Due date updated",
+  "document.exported": "Exported",
+  "document.delivery_mode.updated": "Delivery mode updated",
+  "field.created": "Field added",
+  "field.assigned": "Field assigned",
+  "field.completed": "Field completed",
+  "processing.ocr.requested": "OCR requested",
+  "processing.ocr.completed": "OCR completed",
+  "processing.field_detection.requested": "Field detection requested",
+  "processing.field_detection.completed": "Field detection completed",
+  "notification.queued": "Notification queued",
+  "notification.sent": "Notification sent",
+};
+
+function formatAuditEventType(type: string) {
+  return AUDIT_EVENT_LABELS[type] ?? formatState(type);
+}
+
+function getSignerFieldStatus(
+  signer: { id: string },
+  fields: Array<{ assigneeSignerId: string | null; required: boolean; kind: string; completedAt: string | null }>,
+  sentAt: string | null,
+  eligibleSignerIds: string[],
+): { label: string; completedAt: string | null; active: boolean } {
+  const actionKinds = new Set(["signature", "initial", "approval"]);
+  const assigned = fields.filter(
+    (f) => f.assigneeSignerId === signer.id && f.required && actionKinds.has(f.kind),
+  );
+  if (assigned.length === 0) return { label: "No required fields", completedAt: null, active: false };
+  const completed = assigned.filter((f) => f.completedAt);
+  if (completed.length === assigned.length) {
+    const latest = completed.reduce((a, b) =>
+      (a.completedAt ?? "") > (b.completedAt ?? "") ? a : b,
+    );
+    return { label: "Signed", completedAt: latest.completedAt, active: false };
+  }
+  if (!sentAt) return { label: "Not sent", completedAt: null, active: false };
+  if (completed.length > 0) return { label: "In progress", completedAt: null, active: eligibleSignerIds.includes(signer.id) };
+  if (eligibleSignerIds.includes(signer.id)) return { label: "Awaiting action", completedAt: null, active: true };
+  return { label: "Waiting", completedAt: null, active: false };
 }
 
 function formatTimestamp(timestamp: string | null) {
@@ -2912,20 +2966,41 @@ export default function App() {
                       <span>{selectedDocument.signers.length}</span>
                     </div>
                     <div className="stack">
-                      {selectedDocument.signers.map((signer) => (
-                        <div key={signer.id} className="row-card">
-                          <div>
-                            <strong>{signer.name}</strong>
-                            <p className="muted">
-                              {signer.email}
-                              {` · ${getParticipantTypeLabel(signer.participantType)}`}
-                              {` · stage ${signer.routingStage}`}
-                              {signer.signingOrder ? ` · order ${signer.signingOrder}` : " · any order"}
-                            </p>
+                      {selectedDocument.signers.map((signer) => {
+                        const signerStatus = getSignerFieldStatus(
+                          signer,
+                          selectedDocument.fields,
+                          selectedDocument.sentAt,
+                          selectedDocument.eligibleSignerIds,
+                        );
+                        return (
+                          <div key={signer.id} className="row-card">
+                            <div>
+                              <strong>{signer.name}</strong>
+                              <p className="muted">
+                                {signer.email}
+                                {` · ${getParticipantTypeLabel(signer.participantType)}`}
+                                {` · stage ${signer.routingStage}`}
+                                {signer.signingOrder ? ` · order ${signer.signingOrder}` : " · any order"}
+                              </p>
+                              {signerStatus.completedAt ? (
+                                <p className="muted">{formatTimestamp(signerStatus.completedAt)}</p>
+                              ) : null}
+                            </div>
+                            <span
+                              className={
+                                signerStatus.label === "Signed"
+                                  ? "status-signed"
+                                  : signerStatus.active
+                                  ? "status-active"
+                                  : undefined
+                              }
+                            >
+                              {signerStatus.label}
+                            </span>
                           </div>
-                          <span>{signer.required ? "Required" : "Optional"}</span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     {canEdit ? (
@@ -3317,11 +3392,11 @@ export default function App() {
                       <span>{selectedDocument.auditTrail.length} events</span>
                     </div>
                     <div className="stack">
-                      {selectedDocument.auditTrail.slice(0, 8).map((event) => (
+                      {selectedDocument.auditTrail.map((event) => (
                         <div key={event.id} className="timeline-item">
                           <strong>{event.summary}</strong>
                           <p className="muted">
-                            {event.type} · {formatTimestamp(event.createdAt)}
+                            {formatAuditEventType(event.type)} · {formatTimestamp(event.createdAt)}
                           </p>
                         </div>
                       ))}
