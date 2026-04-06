@@ -17,6 +17,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
           readAuthorizationHeader(request),
           request.body.documentId,
           getRequestOrigin(request),
+          Array.isArray(request.body.signerIds) ? request.body.signerIds : undefined,
         ),
       );
   } catch (error) {

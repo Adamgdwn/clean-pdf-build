@@ -107,6 +107,9 @@ Store the future values in your secret manager or Vercel using these names for c
    - reopen
    - audit trail
    - version history
+   - per-signer notification status visible in participant list
+   - per-signer Resend button sends reminder only to that signer
+   - Completion certificate opens as printable HTML on completed documents
 
 ## Final release gate
 

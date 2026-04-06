@@ -475,6 +475,10 @@ select {
   font-size: 0.85rem;
 }
 
+.text-danger {
+  color: var(--danger);
+}
+
 .document-button.active {
   border-color: rgba(29, 122, 92, 0.35);
   background: var(--accent-soft);

@@ -70,6 +70,17 @@ Extraction order (in progress):
 3. ✅ BillingPanel — checkout/portal handlers + scoped redirect/error state
 4. Next: DocumentSidebar, WorkflowChecklistPanel, FieldEditorPanel
 
+## Workflow features added
+
+### Per-signer notification status (Session 5)
+Each participant row in the workflow now shows:
+- Last emailed timestamp and delivery status (`queued` / `sent` / `failed`) derived from `document.notifications`
+- Individual **Resend** button for eligible pending signers on platform-managed documents
+- `remindDocumentSignersForAuthorizationHeader` accepts optional `signerIds` to scope reminders to specific signers
+
+### Completion certificate (Session 5)
+A **Certificate** button appears in Document Actions when `workflowState === "completed"`. It generates a standalone HTML page client-side from `document.signers`, `document.fields`, and `document.auditTrail` and opens it in a new tab. The user can print to PDF from there. No server round-trip required.
+
 State that remains in App.tsx intentionally:
 - `session` / `sessionUser` — needed by nearly every handler
 - `guestSigningSession` — consumed by field canvas and field-complete handler

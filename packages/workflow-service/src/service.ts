@@ -4319,6 +4319,7 @@ export async function remindDocumentSignersForAuthorizationHeader(
   authorizationHeader: string | undefined,
   documentId: string,
   appOrigin?: string,
+  signerIds?: string[],
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   await assertPermission(documentId, user, "send_document");
@@ -4342,7 +4343,10 @@ export async function remindDocumentSignersForAuthorizationHeader(
     throw new AppError(400, "Cannot send reminders for a canceled or rejected workflow.");
   }
 
-  const eligibleSignerIds = getEligibleSignerIdsForNotifications(document);
+  const allEligibleSignerIds = getEligibleSignerIdsForNotifications(document);
+  const eligibleSignerIds = signerIds
+    ? allEligibleSignerIds.filter((id) => signerIds.includes(id))
+    : allEligibleSignerIds;
 
   if (eligibleSignerIds.length === 0) {
     throw new AppError(400, "No pending signers to remind.");
