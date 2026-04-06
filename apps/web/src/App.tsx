@@ -9,6 +9,7 @@ import { browserSupabase } from "./lib/supabase";
 import { AuthPanel } from "./components/AuthPanel";
 import { AdminConsole, AdminSidebarSummary } from "./components/AdminPanel";
 import { BillingPanel } from "./components/BillingPanel";
+import { TeamPanel } from "./components/TeamPanel";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import type {
   AccountProfile,
@@ -20,6 +21,7 @@ import type {
   SavedSignature,
   SessionUser,
   WorkflowDocument,
+  WorkspaceTeam,
 } from "./types";
 
 
@@ -274,6 +276,102 @@ type ChecklistStep = {
   done: boolean;
 };
 
+// ---------------------------------------------------------------------------
+// Onboarding prompt — shown once after first sign-up
+// ---------------------------------------------------------------------------
+
+function OnboardingPrompt({
+  session,
+  workspaceTeam,
+  onComplete,
+}: {
+  session: Session;
+  workspaceTeam: WorkspaceTeam;
+  onComplete: () => void;
+}) {
+  const [workspaceName, setWorkspaceName] = useState(workspaceTeam.workspace.name);
+  const [inviteEmails, setInviteEmails] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      // Rename workspace if changed
+      if (workspaceName.trim() && workspaceName.trim() !== workspaceTeam.workspace.name) {
+        await apiFetch("/workspace-update", session, {
+          method: "PATCH",
+          body: JSON.stringify({ name: workspaceName.trim() }),
+        });
+      }
+
+      // Send invitations for each email entered
+      const emails = inviteEmails
+        .split(/[\n,;]+/)
+        .map((e) => e.trim())
+        .filter((e) => e.includes("@"));
+
+      await Promise.allSettled(
+        emails.map((email) =>
+          apiFetch("/workspace-invite", session, {
+            method: "POST",
+            body: JSON.stringify({ email, role: "member" }),
+          }),
+        ),
+      );
+
+      onComplete();
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  return (
+    <section className="card">
+      <div className="section-heading compact">
+        <p className="eyebrow">Welcome to EasyDraftDocs</p>
+      </div>
+      {errorMessage ? <div className="alert">{errorMessage}</div> : null}
+      <form className="stack" onSubmit={handleSubmit}>
+        <label className="form-field">
+          <span>Workspace name</span>
+          <input
+            value={workspaceName}
+            onChange={(e) => setWorkspaceName(e.target.value)}
+          />
+        </label>
+        <label className="form-field">
+          <span>Invite teammates <span className="muted">(optional — one email per line or comma-separated)</span></span>
+          <textarea
+            rows={3}
+            placeholder="alice@company.com, bob@company.com"
+            value={inviteEmails}
+            onChange={(e) => setInviteEmails(e.target.value)}
+          />
+        </label>
+        <div className="action-row">
+          <button className="primary-button" disabled={isLoading} type="submit">
+            {isLoading ? "Saving…" : "Get started"}
+          </button>
+          <button
+            className="ghost-button"
+            disabled={isLoading}
+            onClick={onComplete}
+            type="button"
+          >
+            Skip for now
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
@@ -284,6 +382,9 @@ export default function App() {
   const [digitalSignatureProfiles, setDigitalSignatureProfiles] = useState<DigitalSignatureProfile[]>([]);
   const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
   const [adminUsers, setAdminUsers] = useState<AdminManagedUser[]>([]);
+  const [workspaceTeam, setWorkspaceTeam] = useState<WorkspaceTeam | null>(null);
+  const [pendingInviteToken, setPendingInviteToken] = useState<string | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
@@ -344,6 +445,9 @@ export default function App() {
   const [guestSigningSession, setGuestSigningSession] = useState<GuestSigningSession | null>(null);
   const [renamingDocumentId, setRenamingDocumentId] = useState<string | null>(null);
   const [renameDocName, setRenameDocName] = useState("");
+  const [deleteAccountConfirmEmail, setDeleteAccountConfirmEmail] = useState("");
+  const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -520,6 +624,7 @@ export default function App() {
       setDigitalSignatureProfiles([]);
       setAdminOverview(null);
       setAdminUsers([]);
+      setWorkspaceTeam(null);
       setSelectedDocumentId(null);
       return;
     }
@@ -531,6 +636,11 @@ export default function App() {
   async function refreshBilling(activeSession: Session) {
     const payload = await apiFetch<BillingOverview>("/billing-overview", activeSession);
     setBillingOverview(payload);
+  }
+
+  async function refreshTeam(activeSession: Session) {
+    const payload = await apiFetch<WorkspaceTeam>("/workspace-team", activeSession);
+    setWorkspaceTeam(payload);
   }
 
   async function refreshProfile(activeSession: Session) {
@@ -1202,6 +1312,32 @@ export default function App() {
     setUploadName(null);
   }
 
+  async function handleDeleteAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!session || !accountProfile) {
+      return;
+    }
+
+    setIsDeletingAccount(true);
+    setDeleteAccountError(null);
+
+    try {
+      await apiFetch("/account-delete", session, {
+        method: "POST",
+        body: JSON.stringify({ confirmEmail: deleteAccountConfirmEmail }),
+      });
+      // Account is gone — sign out and clear state
+      await browserSupabase.auth.signOut();
+      handleSignOut();
+      setSession(null);
+      setSessionUser(null);
+    } catch (error) {
+      setDeleteAccountError((error as Error).message);
+      setIsDeletingAccount(false);
+    }
+  }
+
   async function handleUpload(file: File) {
     if (!session || !sessionUser) {
       setErrorMessage("Sign in before uploading a PDF.");
@@ -1341,6 +1477,13 @@ export default function App() {
     const checkoutPlan = params.get("plan");
     const signingToken = params.get("signingToken");
     const signingDocumentId = params.get("documentId");
+    const inviteToken = params.get("invite");
+
+    if (inviteToken) {
+      setPendingInviteToken(inviteToken);
+      params.delete("invite");
+      window.history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`);
+    }
 
     if (checkoutStatus === "success") {
       setNoticeMessage("Billing updated. Stripe redirected back successfully.");
@@ -1410,11 +1553,31 @@ export default function App() {
     Promise.all([
       refreshDocuments(session),
       refreshBilling(session),
+      refreshTeam(session),
       refreshSavedSignatures(session),
       refreshProfile(session),
       refreshDigitalSignatureProfiles(session),
       ...(sessionUser?.isAdmin ? [refreshAdminOverview(session), refreshAdminUsers(session)] : []),
-    ]).catch((error) => setErrorMessage((error as Error).message));
+    ]).then(() => {
+      // Show onboarding prompt once for new users who haven't seen it
+      if (!localStorage.getItem("easydraft_onboarding_seen")) {
+        setShowOnboarding(true);
+      }
+      // Accept a pending invite if one was captured from the URL
+      if (pendingInviteToken) {
+        apiFetch("/workspace-invite-accept", session, {
+          method: "POST",
+          body: JSON.stringify({ token: pendingInviteToken }),
+        })
+          .then(() => {
+            setPendingInviteToken(null);
+            setNoticeMessage("You've joined the workspace.");
+            refreshTeam(session).catch(() => null);
+            refreshBilling(session).catch(() => null);
+          })
+          .catch((err: Error) => setErrorMessage(err.message));
+      }
+    }).catch((error) => setErrorMessage((error as Error).message));
   }, [session, sessionUser?.isAdmin]);
 
   useEffect(() => {
@@ -1523,6 +1686,7 @@ export default function App() {
         <AuthPanel
           sessionUser={sessionUser}
           guestSigningSession={guestSigningSession}
+          hasPendingInvite={pendingInviteToken !== null}
           onSignOut={handleSignOut}
         />
 
@@ -1592,6 +1756,67 @@ export default function App() {
                 Save account
               </button>
             </form>
+          </section>
+        ) : null}
+
+        {sessionUser && accountProfile ? (
+          <section className="card">
+            <div className="section-heading compact">
+              <p className="eyebrow">Your data</p>
+              <span>Privacy</span>
+            </div>
+            <div className="stack">
+              <p className="muted">
+                Your account includes the following data stored on our servers:
+              </p>
+              <ul className="muted" style={{ paddingLeft: "1.25rem", margin: 0 }}>
+                <li>Your profile and preferences</li>
+                <li>Uploaded PDF documents and their fields</li>
+                <li>Saved signatures</li>
+                <li>Workflow audit trail and signer records</li>
+                <li>Workspace and team membership data</li>
+              </ul>
+              <p className="muted">
+                You can export or download any document at any time from the document list.
+                Deleting your account permanently removes all of the above and cannot be undone.
+              </p>
+
+              <div className="row-card" style={{ marginTop: "0.5rem" }}>
+                <p className="eyebrow" style={{ margin: 0, color: "var(--color-danger, #c0392b)" }}>
+                  Danger zone
+                </p>
+              </div>
+
+              <p className="muted">
+                Permanently delete your account and all associated data. Your Stripe subscription
+                will be canceled immediately. This action cannot be reversed.
+              </p>
+
+              <form className="stack form-block" onSubmit={handleDeleteAccount}>
+                <label className="form-field">
+                  <span>Type your email address to confirm</span>
+                  <input
+                    required
+                    autoComplete="off"
+                    placeholder={accountProfile.email}
+                    type="email"
+                    value={deleteAccountConfirmEmail}
+                    onChange={(event) => setDeleteAccountConfirmEmail(event.target.value)}
+                  />
+                </label>
+                {deleteAccountError ? (
+                  <div className="alert">{deleteAccountError}</div>
+                ) : null}
+                <button
+                  className="ghost-button"
+                  disabled={isDeletingAccount || deleteAccountConfirmEmail.trim() === ""}
+                  style={{ color: "var(--color-danger, #c0392b)" }}
+                  type="submit"
+                >
+                  {isDeletingAccount ? "Deleting account…" : "Delete my account and all data"}
+                </button>
+              </form>
+            </div>
           </section>
         ) : null}
 
@@ -1785,6 +2010,28 @@ export default function App() {
 
         {sessionUser && session && billingOverview ? (
           <BillingPanel session={session} billingOverview={billingOverview} />
+        ) : null}
+
+        {sessionUser && session && workspaceTeam ? (
+          <TeamPanel
+            session={session}
+            team={workspaceTeam}
+            billingOverview={billingOverview}
+            onTeamRefresh={() => refreshTeam(session).catch(() => null)}
+          />
+        ) : null}
+
+        {/* Onboarding prompt — shown once to new users */}
+        {sessionUser && session && showOnboarding && workspaceTeam ? (
+          <OnboardingPrompt
+            session={session}
+            workspaceTeam={workspaceTeam}
+            onComplete={() => {
+              localStorage.setItem("easydraft_onboarding_seen", "1");
+              setShowOnboarding(false);
+              refreshTeam(session).catch(() => null);
+            }}
+          />
         ) : null}
 
         {sessionUser?.isAdmin && adminOverview ? (
@@ -2268,6 +2515,18 @@ export default function App() {
                           ? "Opening this for internal actions keeps the document inside EasyDraft. Participants can complete their assigned fields after they log in."
                         : "Marking this ready does not send emails. It simply records that the file is ready for self-managed distribution."}
                   </p>
+                  {selectedDocument.deliveryMode === "platform_managed" &&
+                  selectedDocument.signers.some((s) => s.participantType === "external") ? (
+                    <p className="muted action-note">
+                      {(() => {
+                        const externalCount = selectedDocument.signers.filter(
+                          (s) => s.participantType === "external",
+                        ).length;
+                        const available = billingOverview?.externalTokens.available ?? 0;
+                        return `This document has ${externalCount} external signer${externalCount !== 1 ? "s" : ""}. Sending will use ${externalCount} external signer token${externalCount !== 1 ? "s" : ""} (${available} available). Internal team approvals do not consume tokens.`;
+                      })()}
+                    </p>
+                  ) : null}
                 </div>
 
                 {canManageWorkflow ? (

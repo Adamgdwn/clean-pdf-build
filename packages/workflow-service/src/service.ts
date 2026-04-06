@@ -283,6 +283,7 @@ type AdminManagedUserResponse = {
 
 export type AuthenticatedUser = User & {
   rawEmail: string;
+  workspaceName?: string;
 };
 
 const createDocumentInputSchema = z.object({
@@ -563,7 +564,9 @@ export async function ensureDefaultWorkspaceForUser(user: AuthenticatedUser) {
     return existingWorkspace;
   }
 
-  const workspaceName = user.name?.trim() ? `${user.name.trim()}'s workspace` : "My workspace";
+  const workspaceName =
+    user.workspaceName?.trim() ||
+    (user.name?.trim() ? `${user.name.trim()}'s workspace` : "My workspace");
   const workspaceSlug = [slugify(user.name || user.email.split("@")[0]), user.id.slice(0, 8)]
     .filter(Boolean)
     .join("-");
@@ -845,6 +848,7 @@ export async function resolveAuthenticatedUser(authorizationHeader: string | und
       data.user.user_metadata.full_name ??
       data.user.user_metadata.name ??
       data.user.email.split("@")[0],
+    workspaceName: data.user.user_metadata.workspace_name ?? undefined,
   };
   const normalizedEmail = normalizeEmailAddress(user.rawEmail);
 
@@ -1758,7 +1762,7 @@ async function assertWorkspaceHasSigningTokens(workspaceId: string, count: numbe
   if (available < count) {
     throw new AppError(
       402,
-      `Not enough signing tokens. ${available} available, ${count} needed. Upgrade your plan for a higher monthly allowance.`,
+      `Not enough external signer tokens. ${available} available, ${count} needed. Purchase a token bundle ($12 CAD = 12 tokens) in the Billing section.`,
     );
   }
 }
@@ -2663,6 +2667,100 @@ export async function deleteAdminUserForAuthorizationHeader(
     deletedUserId: parsed.userId,
     email: authUser.email,
   };
+}
+
+export async function deleteOwnAccountForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  confirmEmail: string,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const env = readServerEnv();
+  const adminClient = createServiceRoleClient();
+
+  // Require the user to confirm by typing their own email address
+  if (confirmEmail.trim().toLowerCase() !== user.rawEmail.toLowerCase()) {
+    throw new AppError(400, "The email address you entered does not match your account.");
+  }
+
+  // ── 1. Cancel any active Stripe subscription ─────────────────────────────
+  if (env.STRIPE_SECRET_KEY) {
+    const { data: workspace } = await adminClient
+      .from("workspaces")
+      .select("id")
+      .eq("owner_user_id", user.id)
+      .maybeSingle();
+
+    if (workspace?.id) {
+      const { data: customer } = await adminClient
+        .from("workspace_billing_customers")
+        .select("provider_customer_id")
+        .eq("workspace_id", workspace.id)
+        .maybeSingle();
+
+      const { data: subscription } = await adminClient
+        .from("workspace_subscriptions")
+        .select("provider_subscription_id, status")
+        .eq("workspace_id", workspace.id)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (
+        subscription?.provider_subscription_id &&
+        ["active", "trialing", "past_due"].includes(subscription.status)
+      ) {
+        try {
+          const Stripe = (await import("stripe")).default;
+          const stripe = new Stripe(env.STRIPE_SECRET_KEY);
+          await stripe.subscriptions.cancel(subscription.provider_subscription_id);
+        } catch {
+          // Non-fatal — proceed with deletion even if Stripe cancel fails
+        }
+      }
+
+      void customer; // suppress unused warning
+    }
+  }
+
+  // ── 2. Collect and delete all storage files ───────────────────────────────
+  // Document files
+  const { data: documents } = await adminClient
+    .from("documents")
+    .select("storage_path")
+    .eq("uploaded_by_user_id", user.id)
+    .not("storage_path", "is", null);
+
+  const documentPaths = (documents ?? [])
+    .map((d: { storage_path: string }) => d.storage_path)
+    .filter(Boolean);
+
+  if (documentPaths.length > 0) {
+    await adminClient.storage.from(env.SUPABASE_DOCUMENT_BUCKET).remove(documentPaths);
+  }
+
+  // Saved signature images
+  const { data: signatures } = await adminClient
+    .from("saved_signatures")
+    .select("storage_path")
+    .eq("user_id", user.id)
+    .not("storage_path", "is", null);
+
+  const signaturePaths = (signatures ?? [])
+    .map((s: { storage_path: string }) => s.storage_path)
+    .filter(Boolean);
+
+  if (signaturePaths.length > 0) {
+    await adminClient.storage.from(env.SUPABASE_SIGNATURE_BUCKET).remove(signaturePaths);
+  }
+
+  // ── 3. Delete the auth user — cascades through profile → workspace → docs ─
+  const { error: authDeleteError } = await adminClient.auth.admin.deleteUser(user.id, false);
+
+  if (authDeleteError) {
+    throw new AppError(500, `Account deletion failed: ${authDeleteError.message}`);
+  }
+
+  return { deleted: true };
 }
 
 export async function listSavedSignaturesForAuthorizationHeader(

@@ -3,6 +3,7 @@ import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import {
   AppError,
   createDigitalSignatureProfileForAuthorizationHeader,
+  deleteOwnAccountForAuthorizationHeader,
   getProfileForAuthorizationHeader,
   listDigitalSignatureProfilesForAuthorizationHeader,
   updateProfileForAuthorizationHeader,
@@ -44,6 +45,18 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
         request.headers.authorization,
         request.body,
       );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/account-delete", async (request, reply) => {
+    try {
+      const { confirmEmail } = request.body as { confirmEmail?: string };
+      if (!confirmEmail) {
+        return reply.code(400).send({ message: "confirmEmail is required." });
+      }
+      return await deleteOwnAccountForAuthorizationHeader(request.headers.authorization, confirmEmail);
     } catch (error) {
       return sendError(reply, error);
     }

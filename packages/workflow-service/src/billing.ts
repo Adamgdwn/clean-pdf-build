@@ -10,10 +10,14 @@ import {
 } from "./service.js";
 import { createServiceRoleClient } from "./supabase.js";
 
+// ---------------------------------------------------------------------------
+// Internal row types
+// ---------------------------------------------------------------------------
+
 type BillingPlanRow = {
   key: string;
   name: string;
-  monthly_price_usd: number;
+  monthly_price_usd: number; // stored as CAD whole-dollar amount per the new model
   included_internal_seats: number;
   included_completed_docs: number;
   included_ocr_pages: number;
@@ -58,22 +62,33 @@ type WorkspaceSubscriptionRow = {
   updated_at: string;
 };
 
-const checkoutInputSchema = z.object({
-  planKey: z.string().min(1),
+// ---------------------------------------------------------------------------
+// Input validation
+// ---------------------------------------------------------------------------
+
+const subscriptionCheckoutInputSchema = z.object({
+  planKey: z.string().min(1).default("easydraft_team"),
+  seatCount: z.number().int().min(1).max(500).default(1),
 });
+
+// ---------------------------------------------------------------------------
+// Stripe client
+// ---------------------------------------------------------------------------
 
 let cachedStripeClient: Stripe | null = null;
 
 function isStripeConfigured() {
-  const env = readServerEnv();
-  return Boolean(env.STRIPE_SECRET_KEY);
+  return Boolean(readServerEnv().STRIPE_SECRET_KEY);
 }
 
 function getStripeClient() {
   const env = readServerEnv();
 
   if (!env.STRIPE_SECRET_KEY) {
-    throw new AppError(503, "Stripe is not configured yet. Add STRIPE_SECRET_KEY in Vercel and local env.");
+    throw new AppError(
+      503,
+      "Stripe is not configured yet. Add STRIPE_SECRET_KEY to your environment.",
+    );
   }
 
   if (!cachedStripeClient) {
@@ -83,11 +98,19 @@ function getStripeClient() {
   return cachedStripeClient;
 }
 
+// ---------------------------------------------------------------------------
+// Permissions
+// ---------------------------------------------------------------------------
+
 function requireBillingPermission(membership: WorkspaceMembershipRow | null) {
   if (!membership || !["owner", "admin", "billing_admin"].includes(membership.role)) {
     throw new AppError(403, "You do not have permission to manage billing for this workspace.");
   }
 }
+
+// ---------------------------------------------------------------------------
+// Workspace helpers
+// ---------------------------------------------------------------------------
 
 async function getBillingWorkspaceForUser(user: AuthenticatedUser) {
   const workspace = (await ensureDefaultWorkspaceForUser(user)) as WorkspaceRow;
@@ -158,6 +181,10 @@ async function countWorkspaceMembers(workspaceId: string) {
   return count ?? 0;
 }
 
+// ---------------------------------------------------------------------------
+// Stripe customer management
+// ---------------------------------------------------------------------------
+
 async function getOrCreateStripeCustomer(workspace: WorkspaceRow, user: AuthenticatedUser) {
   const adminClient = createServiceRoleClient();
   const { data, error } = await adminClient
@@ -204,7 +231,9 @@ async function getOrCreateStripeCustomer(workspace: WorkspaceRow, user: Authenti
       throw new AppError(500, updateError.message);
     }
   } else {
-    const { error: insertError } = await adminClient.from("workspace_billing_customers").insert(payload);
+    const { error: insertError } = await adminClient
+      .from("workspace_billing_customers")
+      .insert(payload);
 
     if (insertError) {
       throw new AppError(500, insertError.message);
@@ -213,6 +242,10 @@ async function getOrCreateStripeCustomer(workspace: WorkspaceRow, user: Authenti
 
   return customer.id;
 }
+
+// ---------------------------------------------------------------------------
+// Subscription helpers
+// ---------------------------------------------------------------------------
 
 function formatStripeTimestamp(timestamp: number | null) {
   return timestamp ? new Date(timestamp * 1000).toISOString() : null;
@@ -228,6 +261,7 @@ async function upsertSubscriptionRecord(
   const seatCount = primaryItem?.quantity ?? 1;
   const billingPlanKey = subscription.metadata.plan_key || fallbackPlanKey;
   const existing = await getLatestSubscriptionForWorkspace(workspaceId);
+
   const payload = {
     workspace_id: workspaceId,
     provider: "stripe",
@@ -242,7 +276,10 @@ async function upsertSubscriptionRecord(
   };
 
   if (existing) {
-    const { error } = await adminClient.from("workspace_subscriptions").update(payload).eq("id", existing.id);
+    const { error } = await adminClient
+      .from("workspace_subscriptions")
+      .update(payload)
+      .eq("id", existing.id);
 
     if (error) {
       throw new AppError(500, error.message);
@@ -258,36 +295,117 @@ async function upsertSubscriptionRecord(
   }
 }
 
-async function getSigningTokenUsageForPeriod(workspaceId: string, periodStart: string | null) {
+async function lookupWorkspaceIdForCustomer(customerId: string) {
   const adminClient = createServiceRoleClient();
-  let query = adminClient
-    .from("billing_usage_events")
-    .select("quantity")
-    .eq("workspace_id", workspaceId)
-    .eq("meter_key", "signing_token");
+  const { data, error } = await adminClient
+    .from("workspace_billing_customers")
+    .select("workspace_id")
+    .eq("provider_customer_id", customerId)
+    .maybeSingle();
 
-  if (periodStart) {
-    query = query.gte("occurred_at", periodStart);
+  if (error) {
+    throw new AppError(500, error.message);
   }
 
-  const { data } = await query;
-  return (data ?? []).reduce((sum: number, row: { quantity: number }) => sum + (row.quantity ?? 0), 0);
+  return (data?.workspace_id ?? null) as string | null;
 }
 
-export async function getBillingOverviewForAuthorizationHeader(authorizationHeader: string | undefined) {
+// ---------------------------------------------------------------------------
+// External token balance (prepaid model)
+//
+// Balance = sum of all "external_token_credit" usage events
+//           minus sum of all "signing_token" (usage) events
+// Both are all-time totals — tokens do not expire or reset per period.
+// ---------------------------------------------------------------------------
+
+async function computeExternalTokenBalance(workspaceId: string) {
+  const adminClient = createServiceRoleClient();
+
+  const [creditResult, usageResult] = await Promise.all([
+    adminClient
+      .from("billing_usage_events")
+      .select("quantity")
+      .eq("workspace_id", workspaceId)
+      .eq("meter_key", "external_token_credit"),
+    adminClient
+      .from("billing_usage_events")
+      .select("quantity")
+      .eq("workspace_id", workspaceId)
+      .eq("meter_key", "signing_token"),
+  ]);
+
+  const purchased = (creditResult.data ?? []).reduce(
+    (sum: number, row: { quantity: number }) => sum + (row.quantity ?? 0),
+    0,
+  );
+  const used = (usageResult.data ?? []).reduce(
+    (sum: number, row: { quantity: number }) => sum + (row.quantity ?? 0),
+    0,
+  );
+
+  return {
+    available: Math.max(0, purchased - used),
+    used,
+    purchased,
+  };
+}
+
+// Exported function consumed by service.ts to gate external sends.
+export async function getWorkspaceSigningTokenBalance(workspaceId: string) {
+  const { available, purchased } = await computeExternalTokenBalance(workspaceId);
+  return { available, includedInPlan: purchased };
+}
+
+// ---------------------------------------------------------------------------
+// Webhook idempotency
+// ---------------------------------------------------------------------------
+
+/**
+ * Attempts to mark a Stripe event as processed.
+ * Returns true if this is the first time we've seen this event (safe to process).
+ * Returns false if it was already processed (skip to avoid double-crediting).
+ */
+async function markStripeEventProcessed(
+  eventId: string,
+  eventType: string,
+  workspaceId: string | null,
+): Promise<boolean> {
+  const adminClient = createServiceRoleClient();
+  const { error } = await adminClient.from("stripe_processed_events").insert({
+    stripe_event_id: eventId,
+    event_type: eventType,
+    workspace_id: workspaceId,
+  });
+
+  // Unique constraint violation = already processed
+  if (error) {
+    if (error.code === "23505") {
+      return false;
+    }
+
+    throw new AppError(500, `Failed to record Stripe event: ${error.message}`);
+  }
+
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Public API: billing overview
+// ---------------------------------------------------------------------------
+
+export async function getBillingOverviewForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const workspaceContext = await getBillingWorkspaceForUser(user);
-  const { workspace, membership } = workspaceContext;
+  const { workspace, membership } = await getBillingWorkspaceForUser(user);
+
   const [plans, subscription, internalMemberCount] = await Promise.all([
     listActivePlans(),
     getLatestSubscriptionForWorkspace(workspace.id),
     countWorkspaceMembers(workspace.id),
   ]);
 
-  const currentPlan = subscription ? plans.find((p) => p.key === subscription.billing_plan_key) : null;
-  const includedTokens = currentPlan?.included_signing_tokens ?? 0;
-  const tokensUsed = await getSigningTokenUsageForPeriod(workspace.id, subscription?.current_period_start ?? null);
-  const signingTokensAvailable = Math.max(0, includedTokens - tokensUsed);
+  const tokenBalance = await computeExternalTokenBalance(workspace.id);
 
   return {
     billingMode: isStripeConfigured() ? "live" : "placeholder",
@@ -306,38 +424,29 @@ export async function getBillingOverviewForAuthorizationHeader(authorizationHead
           seatCount: subscription.seat_count,
           currentPeriodEnd: subscription.current_period_end,
           cancelAtPeriodEnd: subscription.cancel_at_period_end,
+          trialEndsAt: subscription.trial_ends_at ?? null,
         }
       : null,
-    signingTokens: {
-      available: signingTokensAvailable,
-      used: tokensUsed,
-      includedInPlan: includedTokens,
+    externalTokens: {
+      available: tokenBalance.available,
+      used: tokenBalance.used,
+      purchased: tokenBalance.purchased,
     },
     plans: plans.map((plan) => ({
       key: plan.key,
       name: plan.name,
-      monthlyPriceUsd: plan.monthly_price_usd,
+      monthlyPriceCad: plan.monthly_price_usd,
       includedInternalSeats: plan.included_internal_seats,
       includedCompletedDocs: plan.included_completed_docs,
       includedOcrPages: plan.included_ocr_pages,
       includedStorageGb: Number(plan.included_storage_gb),
-      includedSigningTokens: plan.included_signing_tokens,
     })),
   };
 }
 
-export async function getWorkspaceSigningTokenBalance(workspaceId: string) {
-  const adminClient = createServiceRoleClient();
-  const subscription = await getLatestSubscriptionForWorkspace(workspaceId);
-  const plans = await listActivePlans();
-  const currentPlan = subscription ? plans.find((p) => p.key === subscription.billing_plan_key) : null;
-  const includedTokens = currentPlan?.included_signing_tokens ?? 0;
-  const tokensUsed = await getSigningTokenUsageForPeriod(workspaceId, subscription?.current_period_start ?? null);
-  return {
-    available: Math.max(0, includedTokens - tokensUsed),
-    includedInPlan: includedTokens,
-  };
-}
+// ---------------------------------------------------------------------------
+// Public API: subscription checkout
+// ---------------------------------------------------------------------------
 
 export async function createCheckoutSessionForAuthorizationHeader(
   authorizationHeader: string | undefined,
@@ -350,11 +459,17 @@ export async function createCheckoutSessionForAuthorizationHeader(
 
   const existingSubscription = await getLatestSubscriptionForWorkspace(workspace.id);
 
-  if (existingSubscription && ["trialing", "active", "past_due", "incomplete"].includes(existingSubscription.status)) {
-    throw new AppError(409, "This workspace already has a subscription. Use the billing portal to manage it.");
+  if (
+    existingSubscription &&
+    ["trialing", "active", "past_due", "incomplete"].includes(existingSubscription.status)
+  ) {
+    throw new AppError(
+      409,
+      "This workspace already has a subscription. Use the billing portal to manage it.",
+    );
   }
 
-  const parsed = checkoutInputSchema.parse(input);
+  const parsed = subscriptionCheckoutInputSchema.parse(input);
   const plans = await listActivePlans();
   const selectedPlan = plans.find((plan) => plan.key === parsed.planKey);
 
@@ -370,6 +485,7 @@ export async function createCheckoutSessionForAuthorizationHeader(
 
   const stripe = getStripeClient();
   const customerId = await getOrCreateStripeCustomer(workspace, user);
+
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     customer: customerId,
@@ -377,11 +493,16 @@ export async function createCheckoutSessionForAuthorizationHeader(
     success_url: `${origin}?checkout=success`,
     cancel_url: `${origin}?checkout=cancelled`,
     allow_promotion_codes: true,
+    // No payment method required during the 30-day free trial.
+    // Stripe will email the customer before the trial ends to collect one.
+    payment_method_collection: "if_required",
     metadata: {
       workspace_id: workspace.id,
       plan_key: selectedPlan.key,
+      checkout_type: "subscription",
     },
     subscription_data: {
+      trial_period_days: 30,
       metadata: {
         workspace_id: workspace.id,
         plan_key: selectedPlan.key,
@@ -389,20 +510,17 @@ export async function createCheckoutSessionForAuthorizationHeader(
     },
     line_items: [
       {
-        quantity: 1,
+        quantity: parsed.seatCount,
         price_data: {
-          currency: "usd",
-          unit_amount: selectedPlan.monthly_price_usd * 100,
+          currency: "cad",
+          unit_amount: selectedPlan.monthly_price_usd * 100, // e.g. $12 CAD = 1200 cents
           recurring: {
             interval: "month",
           },
           product_data: {
-            name: `EasyDraft ${selectedPlan.name}`,
-            description: `${selectedPlan.included_completed_docs} completed docs, ${selectedPlan.included_ocr_pages} OCR pages, ${selectedPlan.included_storage_gb} GB storage.`,
-            metadata: {
-              workspace_id: workspace.id,
-              plan_key: selectedPlan.key,
-            },
+            name: selectedPlan.name, // "EasyDraftDocs - Team"
+            description:
+              "Internal team members are billed at $12 CAD per user/month. External signers are not billed as users.",
           },
         },
       },
@@ -413,10 +531,81 @@ export async function createCheckoutSessionForAuthorizationHeader(
     throw new AppError(500, "Stripe did not return a checkout URL.");
   }
 
-  return {
-    url: session.url,
-  };
+  return { url: session.url };
 }
+
+// ---------------------------------------------------------------------------
+// Public API: external token purchase checkout
+// ---------------------------------------------------------------------------
+
+// Constants for the token bundle
+const TOKEN_BUNDLE_PRICE_CAD = 12; // $12 CAD
+const TOKEN_BUNDLE_SIZE = 12;      // 12 tokens per bundle
+
+export async function createTokenCheckoutSessionForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  origin: string,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const { workspace, membership } = await getBillingWorkspaceForUser(user);
+  requireBillingPermission(membership);
+
+  // Only subscribed workspaces can purchase tokens
+  const subscription = await getLatestSubscriptionForWorkspace(workspace.id);
+
+  if (!subscription || !["active", "trialing"].includes(subscription.status)) {
+    throw new AppError(
+      402,
+      "An active team subscription is required before purchasing external signer tokens.",
+    );
+  }
+
+  if (!isStripeConfigured()) {
+    return {
+      url: `${origin}?checkout=placeholder&plan=token_bundle`,
+    };
+  }
+
+  const stripe = getStripeClient();
+  const customerId = await getOrCreateStripeCustomer(workspace, user);
+
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    customer: customerId,
+    client_reference_id: workspace.id,
+    success_url: `${origin}?checkout=success`,
+    cancel_url: `${origin}?checkout=cancelled`,
+    metadata: {
+      workspace_id: workspace.id,
+      checkout_type: "token_purchase",
+      token_quantity: String(TOKEN_BUNDLE_SIZE),
+    },
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: "cad",
+          unit_amount: TOKEN_BUNDLE_PRICE_CAD * 100, // $12 CAD = 1200 cents
+          product_data: {
+            name: "EasyDraftDocs External Signer Tokens",
+            description:
+              `${TOKEN_BUNDLE_SIZE} tokens. 1 token = 1 external workflow sent outside your organization.`,
+          },
+        },
+      },
+    ],
+  });
+
+  if (!session.url) {
+    throw new AppError(500, "Stripe did not return a checkout URL.");
+  }
+
+  return { url: session.url };
+}
+
+// ---------------------------------------------------------------------------
+// Public API: billing portal
+// ---------------------------------------------------------------------------
 
 export async function createBillingPortalSessionForAuthorizationHeader(
   authorizationHeader: string | undefined,
@@ -439,25 +628,12 @@ export async function createBillingPortalSessionForAuthorizationHeader(
     return_url: origin,
   });
 
-  return {
-    url: session.url,
-  };
+  return { url: session.url };
 }
 
-async function lookupWorkspaceIdForCustomer(customerId: string) {
-  const adminClient = createServiceRoleClient();
-  const { data, error } = await adminClient
-    .from("workspace_billing_customers")
-    .select("workspace_id")
-    .eq("provider_customer_id", customerId)
-    .maybeSingle();
-
-  if (error) {
-    throw new AppError(500, error.message);
-  }
-
-  return (data?.workspace_id ?? null) as string | null;
-}
+// ---------------------------------------------------------------------------
+// Public API: Stripe webhook handler
+// ---------------------------------------------------------------------------
 
 export async function handleStripeWebhook(rawBody: Buffer, signature: string | undefined) {
   const env = readServerEnv();
@@ -473,16 +649,31 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string | u
   const stripe = getStripeClient();
   const event = stripe.webhooks.constructEvent(rawBody, signature, env.STRIPE_WEBHOOK_SECRET);
 
+  const adminClient = createServiceRoleClient();
+
+  // ------------------------------------------------------------------
+  // checkout.session.completed
+  // ------------------------------------------------------------------
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
-    const workspaceId = session.metadata?.workspace_id ?? session.client_reference_id;
-    const planKey = session.metadata?.plan_key ?? "starter";
-    const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
-    const subscriptionId =
-      typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+    const workspaceId = session.metadata?.workspace_id ?? session.client_reference_id ?? null;
+    const checkoutType = session.metadata?.checkout_type ?? "subscription";
+    const customerId =
+      typeof session.customer === "string" ? session.customer : (session.customer?.id ?? null);
 
-    if (workspaceId && customerId) {
-      const adminClient = createServiceRoleClient();
+    if (!workspaceId) {
+      return { received: true };
+    }
+
+    // Idempotency check
+    const isNew = await markStripeEventProcessed(event.id, event.type, workspaceId);
+
+    if (!isNew) {
+      return { received: true, skipped: true };
+    }
+
+    // Upsert the billing customer record
+    if (customerId) {
       const { data: existingCustomer } = await adminClient
         .from("workspace_billing_customers")
         .select("id")
@@ -497,18 +688,50 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string | u
       };
 
       if (existingCustomer?.id) {
-        await adminClient.from("workspace_billing_customers").update(billingPayload).eq("id", existingCustomer.id);
+        await adminClient
+          .from("workspace_billing_customers")
+          .update(billingPayload)
+          .eq("id", existingCustomer.id);
       } else {
         await adminClient.from("workspace_billing_customers").insert(billingPayload);
       }
+    }
+
+    if (checkoutType === "token_purchase" && session.payment_status === "paid") {
+      // Credit tokens — confirmed by Stripe payment, not by client-side redirect
+      const tokenQty = parseInt(session.metadata?.token_quantity ?? String(TOKEN_BUNDLE_SIZE), 10);
+      await adminClient.from("billing_usage_events").insert({
+        workspace_id: workspaceId,
+        meter_key: "external_token_credit",
+        quantity: tokenQty,
+        occurred_at: new Date().toISOString(),
+        metadata: {
+          stripe_event_id: event.id,
+          stripe_session_id: session.id,
+          checkout_type: "token_purchase",
+        },
+      });
+    } else if (checkoutType === "subscription" || checkoutType == null) {
+      // Sync subscription record
+      const subscriptionId =
+        typeof session.subscription === "string"
+          ? session.subscription
+          : (session.subscription?.id ?? null);
 
       if (subscriptionId) {
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-        await upsertSubscriptionRecord(workspaceId, subscription, planKey);
+        await upsertSubscriptionRecord(
+          workspaceId,
+          subscription,
+          session.metadata?.plan_key ?? "easydraft_team",
+        );
       }
     }
   }
 
+  // ------------------------------------------------------------------
+  // customer.subscription.created / updated / deleted
+  // ------------------------------------------------------------------
   if (
     event.type === "customer.subscription.created" ||
     event.type === "customer.subscription.updated" ||
@@ -516,11 +739,98 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string | u
   ) {
     const subscription = event.data.object as Stripe.Subscription;
     const customerId =
-      typeof subscription.customer === "string" ? subscription.customer : subscription.customer.id;
-    const workspaceId = subscription.metadata.workspace_id || (await lookupWorkspaceIdForCustomer(customerId));
+      typeof subscription.customer === "string"
+        ? subscription.customer
+        : subscription.customer.id;
+    const workspaceId =
+      subscription.metadata.workspace_id || (await lookupWorkspaceIdForCustomer(customerId));
 
-    if (workspaceId) {
-      await upsertSubscriptionRecord(workspaceId, subscription, subscription.metadata.plan_key || "starter");
+    if (!workspaceId) {
+      return { received: true };
+    }
+
+    // Idempotency check
+    const isNew = await markStripeEventProcessed(event.id, event.type, workspaceId);
+
+    if (!isNew) {
+      return { received: true, skipped: true };
+    }
+
+    await upsertSubscriptionRecord(
+      workspaceId,
+      subscription,
+      subscription.metadata.plan_key || "easydraft_team",
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // invoice.paid — belt-and-suspenders subscription active confirmation
+  // ------------------------------------------------------------------
+  if (event.type === "invoice.paid") {
+    const invoice = event.data.object as Stripe.Invoice;
+    const customerId =
+      typeof invoice.customer === "string" ? invoice.customer : (invoice.customer?.id ?? null);
+
+    if (!customerId) {
+      return { received: true };
+    }
+
+    const workspaceId = await lookupWorkspaceIdForCustomer(customerId);
+
+    if (!workspaceId) {
+      return { received: true };
+    }
+
+    const isNew = await markStripeEventProcessed(event.id, event.type, workspaceId);
+
+    if (!isNew) {
+      return { received: true, skipped: true };
+    }
+
+    // If this invoice is for a subscription, re-fetch and sync the subscription record
+    const subscriptionId =
+      typeof invoice.subscription === "string"
+        ? invoice.subscription
+        : (invoice.subscription?.id ?? null);
+
+    if (subscriptionId) {
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      await upsertSubscriptionRecord(workspaceId, subscription, "easydraft_team");
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // invoice.payment_failed — mark subscription as past_due
+  // ------------------------------------------------------------------
+  if (event.type === "invoice.payment_failed") {
+    const invoice = event.data.object as Stripe.Invoice;
+    const customerId =
+      typeof invoice.customer === "string" ? invoice.customer : (invoice.customer?.id ?? null);
+
+    if (!customerId) {
+      return { received: true };
+    }
+
+    const workspaceId = await lookupWorkspaceIdForCustomer(customerId);
+
+    if (!workspaceId) {
+      return { received: true };
+    }
+
+    const isNew = await markStripeEventProcessed(event.id, event.type, workspaceId);
+
+    if (!isNew) {
+      return { received: true, skipped: true };
+    }
+
+    const subscriptionId =
+      typeof invoice.subscription === "string"
+        ? invoice.subscription
+        : (invoice.subscription?.id ?? null);
+
+    if (subscriptionId) {
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      await upsertSubscriptionRecord(workspaceId, subscription, "easydraft_team");
     }
   }
 

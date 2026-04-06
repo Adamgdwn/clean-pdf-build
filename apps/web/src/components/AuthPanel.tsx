@@ -6,14 +6,16 @@ import type { GuestSigningSession, SessionUser } from "../types";
 type Props = {
   sessionUser: SessionUser | null;
   guestSigningSession: GuestSigningSession | null;
+  hasPendingInvite: boolean;
   onSignOut: () => void;
 };
 
-export function AuthPanel({ sessionUser, guestSigningSession, onSignOut }: Props) {
+export function AuthPanel({ sessionUser, guestSigningSession, hasPendingInvite, onSignOut }: Props) {
   const [authMode, setAuthMode] = useState<"sign_in" | "sign_up">("sign_in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [workspaceName, setWorkspaceName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
@@ -34,13 +36,16 @@ export function AuthPanel({ sessionUser, guestSigningSession, onSignOut }: Props
           password,
           options: {
             emailRedirectTo: window.location.origin,
-            data: { full_name: fullName },
+            data: {
+              full_name: fullName,
+              workspace_name: workspaceName.trim() || undefined,
+            },
           },
         });
         if (error) throw error;
         setNoticeMessage(
           data.session
-            ? "Account created and signed in. You can start using EasyDraft now."
+            ? "Account created and signed in. You can start using EasyDraftDocs now."
             : "Account created. Check your email to confirm your address before signing in.",
         );
       }
@@ -85,6 +90,12 @@ export function AuthPanel({ sessionUser, guestSigningSession, onSignOut }: Props
         </div>
       ) : (
         <form className="stack" onSubmit={handleAuthSubmit}>
+          {hasPendingInvite ? (
+            <div className="alert success">
+              You have a pending invitation. Sign up or sign in to join the workspace.
+            </div>
+          ) : null}
+
           <div className="pill-row">
             <button
               className={`pill-button ${authMode === "sign_in" ? "active" : ""}`}
@@ -101,12 +112,28 @@ export function AuthPanel({ sessionUser, guestSigningSession, onSignOut }: Props
               Sign up
             </button>
           </div>
+
           {authMode === "sign_up" ? (
-            <label className="form-field">
-              <span>Full name</span>
-              <input value={fullName} onChange={(event) => setFullName(event.target.value)} />
-            </label>
+            <>
+              <label className="form-field">
+                <span>Full name</span>
+                <input
+                  required
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
+                />
+              </label>
+              <label className="form-field">
+                <span>Team or company name <span className="muted">(optional)</span></span>
+                <input
+                  placeholder="e.g. Acme Corp"
+                  value={workspaceName}
+                  onChange={(event) => setWorkspaceName(event.target.value)}
+                />
+              </label>
+            </>
           ) : null}
+
           <label className="form-field">
             <span>Email</span>
             <input
@@ -128,10 +155,13 @@ export function AuthPanel({ sessionUser, guestSigningSession, onSignOut }: Props
           <button className="primary-button" disabled={isLoading} type="submit">
             {authMode === "sign_in" ? "Continue" : "Create account"}
           </button>
-          <p className="muted">
-            If you were invited, sign up or sign in with the same email address from your invite.
-            Any pending document access will attach automatically after you enter the app.
-          </p>
+
+          {!hasPendingInvite ? (
+            <p className="muted">
+              If you were invited, sign in with the same email from your invite and the workspace
+              will attach automatically.
+            </p>
+          ) : null}
         </form>
       )}
     </section>

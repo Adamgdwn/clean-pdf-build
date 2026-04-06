@@ -62,21 +62,23 @@ export type BillingOverview = {
     seatCount: number;
     currentPeriodEnd: string | null;
     cancelAtPeriodEnd: boolean;
+    trialEndsAt: string | null;
   } | null;
-  signingTokens: {
+  /** Prepaid external signer token balance (all-time credits minus all-time usage). */
+  externalTokens: {
     available: number;
     used: number;
-    includedInPlan: number;
+    purchased: number;
   };
   plans: Array<{
     key: string;
     name: string;
-    monthlyPriceUsd: number;
+    /** Price in CAD whole dollars per seat per month. */
+    monthlyPriceCad: number;
     includedInternalSeats: number;
     includedCompletedDocs: number;
     includedOcrPages: number;
     includedStorageGb: number;
-    includedSigningTokens: number;
   }>;
 };
 
@@ -146,6 +148,33 @@ export type AdminOverview = {
     billing_email: string | null;
     created_at: string;
   }>;
+};
+
+export type WorkspaceTeamMember = {
+  userId: string;
+  role: string;
+  displayName: string;
+  email: string | null;
+  isCurrentUser: boolean;
+  joinedAt: string;
+};
+
+export type WorkspaceTeamInvitation = {
+  id: string;
+  email: string;
+  role: string;
+  expiresAt: string;
+  createdAt: string;
+};
+
+export type WorkspaceTeam = {
+  workspace: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+  members: WorkspaceTeamMember[];
+  pendingInvitations: WorkspaceTeamInvitation[];
 };
 
 export type AdminManagedUser = {

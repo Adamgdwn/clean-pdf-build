@@ -4,6 +4,7 @@ import {
   AppError,
   createBillingPortalSessionForAuthorizationHeader,
   createCheckoutSessionForAuthorizationHeader,
+  createTokenCheckoutSessionForAuthorizationHeader,
   getBillingOverviewForAuthorizationHeader,
 } from "@clean-pdf/workflow-service";
 
@@ -40,6 +41,17 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
   app.post("/billing-portal", async (request, reply) => {
     try {
       return await createBillingPortalSessionForAuthorizationHeader(
+        request.headers.authorization,
+        getOrigin(request),
+      );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/billing-token-checkout", async (request, reply) => {
+    try {
+      return await createTokenCheckoutSessionForAuthorizationHeader(
         request.headers.authorization,
         getOrigin(request),
       );
