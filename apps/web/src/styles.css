@@ -649,6 +649,12 @@ select {
   justify-content: center;
 }
 
+.field-canvas-box-signer {
+  background: rgba(16, 72, 48, 0.12);
+  border-color: rgba(16, 72, 48, 0.5);
+  color: #0e3d29;
+}
+
 .field-canvas-handle {
   width: 16px;
   height: 16px;

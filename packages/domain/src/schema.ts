@@ -179,6 +179,7 @@ export const documentSchema = z.object({
   isScanned: z.boolean().default(false),
   isOcrComplete: z.boolean().default(false),
   isFieldDetectionComplete: z.boolean().default(false),
+  exportSha256: z.string().nullable().default(null),
   access: z.array(documentAccessSchema),
   signers: z.array(signerSchema),
   fields: z.array(fieldSchema),

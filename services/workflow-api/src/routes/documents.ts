@@ -25,6 +25,7 @@ import {
   reopenDocumentForAuthorizationHeader,
   redoDocumentEditorForAuthorizationHeader,
   completeFieldForAuthorizationHeader,
+  placeAndCompleteSignatureFieldForAuthorizationHeader,
   sendDocumentForAuthorizationHeader,
   updateDocumentWorkflowSettingsForAuthorizationHeader,
   updateDocumentRoutingStrategyForAuthorizationHeader,
@@ -328,6 +329,19 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
         request.headers.authorization,
         documentId,
         jobType,
+      );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/document-field-sign", async (request, reply) => {
+    try {
+      const { documentId, ...rest } = request.body as { documentId: string; [key: string]: unknown };
+      return await placeAndCompleteSignatureFieldForAuthorizationHeader(
+        request.headers.authorization,
+        documentId,
+        rest,
       );
     } catch (error) {
       return sendError(reply, error);

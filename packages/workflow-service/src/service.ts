@@ -19,6 +19,7 @@ import {
   type User,
   type WorkflowOperationalStatus,
 } from "../../domain/src/index.js";
+import { createHash } from "crypto";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { z } from "zod";
 
@@ -784,6 +785,7 @@ function mapDocumentRecord(
     isScanned: row.is_scanned,
     isOcrComplete: row.is_ocr_complete,
     isFieldDetectionComplete: row.is_field_detection_complete,
+    exportSha256: row.export_sha256 ?? null,
     access: accessRows.map((entry) => ({
       userId: entry.user_id,
       role: entry.role,
@@ -2070,8 +2072,31 @@ async function renderDocumentExportToStorage(document: DocumentRecord) {
     }
   }
 
+  // ─── TODO: Certificate-backed PDF digital signature ──────────────────────
+  // When a verified DigitalSignatureProfile exists for this document's workspace,
+  // embed a cryptographic PAdES/CAdES signature into the PDF bytes here, before
+  // saving, so the signed PDF is self-verifying without needing this audit trail.
+  //
+  // Steps required once a provider is wired in:
+  //   1. Look up a verified profile:
+  //        SELECT * FROM digital_signature_profiles
+  //        WHERE status = 'verified' AND workspace_id = document.workspaceId LIMIT 1
+  //   2. Call the provider's remote signing API with the PDF bytes (or a SHA-256 hash):
+  //        - easy_draft_remote  → EasyDraftDocs managed certificate service
+  //        - qualified_remote   → eIDAS/ETSI-compliant TSP (GlobalSign, DocuSign, etc.)
+  //        - organization_hsm   → Customer's own PKCS#11 HSM
+  //   3. Embed the returned PKCS#7 signature as a /Sig annotation in the PDF.
+  //        Note: pdf-lib does not support /Sig natively.
+  //        Use node-signpdf (https://github.com/vbuch/node-signpdf) or a provider SDK.
+  //   4. Re-assign exportBytes to the signed PDF bytes before the Buffer.from() call below.
+  //
+  // See DigitalSignatureProfileRow in this file for the profile data model.
+  // ─────────────────────────────────────────────────────────────────────────
+
   const exportBytes = await pdfDocument.save();
+  const exportSha256 = createHash("sha256").update(Buffer.from(exportBytes)).digest("hex");
   const exportPath = `${document.uploadedByUserId}/${document.id}/exports/latest.pdf`;
+
   const { error: uploadError } = await adminClient.storage
     .from(env.SUPABASE_DOCUMENT_BUCKET)
     .upload(exportPath, Buffer.from(exportBytes), {
@@ -2083,13 +2108,19 @@ async function renderDocumentExportToStorage(document: DocumentRecord) {
     throw new AppError(500, uploadError.message);
   }
 
-  return exportPath;
+  // Persist the hash so it can appear in completion certificates and audit records.
+  await adminClient
+    .from("documents")
+    .update({ export_sha256: exportSha256 })
+    .eq("id", document.id);
+
+  return { exportPath, exportSha256 };
 }
 
 async function createExportSignedUrl(document: DocumentRecord, expiresInSeconds: number) {
   const env = readServerEnv();
   const adminClient = createServiceRoleClient();
-  const exportPath = await renderDocumentExportToStorage(document);
+  const { exportPath } = await renderDocumentExportToStorage(document);
   const { data, error } = await adminClient.storage
     .from(env.SUPABASE_DOCUMENT_BUCKET)
     .createSignedUrl(exportPath, expiresInSeconds);
@@ -4266,6 +4297,95 @@ export async function resolveSigningTokenSession(token: string, documentId: stri
     document: signerResponse,
     previewUrl: previewData?.signedUrl ?? null,
   };
+}
+
+const placeSignatureInputSchema = z.object({
+  x: z.number().min(0),
+  y: z.number().min(0),
+  width: z.number().positive().max(800),
+  height: z.number().positive().max(400),
+  page: z.number().int().positive(),
+  savedSignatureId: z.string().uuid().optional().nullable(),
+  label: z.string().max(80).optional(),
+});
+
+/**
+ * Creates a new signature field at the signer's chosen position and immediately
+ * completes it. Used when a document has no pre-placed field for this signer.
+ */
+export async function placeAndCompleteSignatureFieldForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const parsed = placeSignatureInputSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+  const document = await requireDocumentBundle(documentId);
+
+  if (!isDocumentSignable(document)) {
+    throw new AppError(400, "This document is not open for signing.");
+  }
+
+  const signer = ensureSignerCanRespondToWorkflow(document, user);
+
+  let appliedSavedSignature: SavedSignatureRow | null = null;
+
+  if (parsed.savedSignatureId) {
+    const { data: signatureRow, error: signatureError } = await adminClient
+      .from("saved_signatures")
+      .select("id, user_id, label, title_text, signature_type, typed_text, storage_path, is_default, created_at")
+      .eq("id", parsed.savedSignatureId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (signatureError) throw new AppError(500, signatureError.message);
+    if (!signatureRow) throw new AppError(404, "Saved signature not found.");
+    appliedSavedSignature = signatureRow as SavedSignatureRow;
+  }
+
+  const completionValue =
+    appliedSavedSignature?.signature_type === "typed"
+      ? appliedSavedSignature.typed_text
+      : appliedSavedSignature?.storage_path ?? signer.name ?? "Signed";
+
+  const fieldLabel = parsed.label?.trim() || `Signature — ${signer.name}`;
+  const completedAt = new Date().toISOString();
+
+  const { data: fieldData, error: fieldError } = await adminClient
+    .from("document_fields")
+    .insert({
+      document_id: documentId,
+      page: parsed.page,
+      kind: "signature",
+      label: fieldLabel,
+      required: false,
+      assignee_signer_id: signer.id,
+      source: "manual",
+      x: parsed.x,
+      y: parsed.y,
+      width: parsed.width,
+      height: parsed.height,
+      value: completionValue,
+      applied_saved_signature_id: appliedSavedSignature?.id ?? null,
+      completed_at: completedAt,
+      completed_by_signer_id: signer.id,
+    })
+    .select("id")
+    .single();
+
+  if (fieldError || !fieldData) {
+    throw new AppError(500, fieldError?.message ?? "Unable to place signature field.");
+  }
+
+  await appendAuditEvent(documentId, user.id, "field.completed", `${signer.name} placed and signed a free-form signature field`, {
+    page: parsed.page,
+    usedSavedSignature: Boolean(appliedSavedSignature),
+    freePlaced: true,
+  });
+
+  const updatedDocument = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(updatedDocument, user.id) };
 }
 
 export async function completeFieldForSigningToken(
