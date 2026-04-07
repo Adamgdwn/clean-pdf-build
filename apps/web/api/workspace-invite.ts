@@ -5,13 +5,19 @@ import {
   revokeWorkspaceInvitationForAuthorizationHeader,
 } from "../../../packages/workflow-service/src/index.js";
 
-import { readAuthorizationHeader, sendError } from "./_utils.js";
+import { enforceRateLimit, readAuthorizationHeader, sendError } from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   const auth = readAuthorizationHeader(request);
 
   try {
     if (request.method === "POST") {
+      enforceRateLimit(request, response, {
+        key: "api:workspace-invite",
+        limit: 10,
+        windowMs: 60_000,
+      });
+
       return response.status(200).json(
         await createWorkspaceInvitationForAuthorizationHeader(auth, request.body),
       );

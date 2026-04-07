@@ -30,6 +30,7 @@ import {
   updateDocumentWorkflowSettingsForAuthorizationHeader,
   updateDocumentRoutingStrategyForAuthorizationHeader,
   undoDocumentEditorForAuthorizationHeader,
+  getCanonicalAppOrigin,
 } from "@clean-pdf/workflow-service";
 
 function sendError(reply: FastifyReply, error: unknown) {
@@ -38,11 +39,6 @@ function sendError(reply: FastifyReply, error: unknown) {
 }
 
 export const documentRoutes: FastifyPluginAsync = async (app) => {
-  function getOrigin(request: { headers: { origin?: string | string[] }; protocol: string; host: string }) {
-    const originHeader = request.headers.origin;
-    return (Array.isArray(originHeader) ? originHeader[0] : originHeader) ?? `${request.protocol}://${request.host}`;
-  }
-
   app.get("/documents", async (request, reply) => {
     try {
       return await listDocumentsForAuthorizationHeader(request.headers.authorization);
@@ -92,7 +88,7 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
       return await sendDocumentForAuthorizationHeader(
         request.headers.authorization,
         documentId,
-        getOrigin(request),
+        getCanonicalAppOrigin(),
       );
     } catch (error) {
       return sendError(reply, error);
@@ -205,7 +201,7 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
           ...(request.body as Record<string, unknown>),
           signerId,
         },
-        getOrigin(request),
+        getCanonicalAppOrigin(),
       );
     } catch (error) {
       return sendError(reply, error);
@@ -246,7 +242,7 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
         documentId,
         fieldId,
         request.body,
-        getOrigin(request),
+        getCanonicalAppOrigin(),
       );
     } catch (error) {
       return sendError(reply, error);
@@ -260,7 +256,7 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
         request.headers.authorization,
         documentId,
         request.body,
-        getOrigin(request),
+        getCanonicalAppOrigin(),
       );
     } catch (error) {
       return sendError(reply, error);
@@ -274,7 +270,7 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
         request.headers.authorization,
         documentId,
         request.body,
-        getOrigin(request),
+        getCanonicalAppOrigin(),
       );
     } catch (error) {
       return sendError(reply, error);
@@ -300,7 +296,7 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
       return await remindDocumentSignersForAuthorizationHeader(
         request.headers.authorization,
         documentId,
-        getOrigin(request),
+        getCanonicalAppOrigin(),
       );
     } catch (error) {
       return sendError(reply, error);
@@ -371,7 +367,7 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
         documentId,
         fieldId,
         { value: value ?? null },
-        getOrigin(request),
+        getCanonicalAppOrigin(),
       );
     } catch (error) {
       return sendError(reply, error);

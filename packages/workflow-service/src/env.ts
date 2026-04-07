@@ -23,6 +23,7 @@ const optionalBooleanFromEnv = z.preprocess((value) => {
 }, z.boolean().optional());
 
 const serverEnvSchema = z.object({
+  NODE_ENV: z.enum(["development", "test", "production"]).optional(),
   SUPABASE_URL: z.string().url(),
   SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
@@ -44,6 +45,9 @@ const serverEnvSchema = z.object({
     .enum(["qualified_remote", "organization_hsm", "easy_draft_remote"])
     .optional(),
   EASYDRAFT_DIGITAL_SIGNING_API_KEY: z.string().min(1).optional(),
+  EASYDRAFT_REQUIRE_STRIPE: optionalBooleanFromEnv,
+  EASYDRAFT_REQUIRE_EMAIL_DELIVERY: optionalBooleanFromEnv,
+  EASYDRAFT_PROCESSOR_SECRET: z.string().min(1).optional(),
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
 });
@@ -53,7 +57,7 @@ export type ServerEnv = z.infer<typeof serverEnvSchema>;
 let cachedEnv: ServerEnv | null = null;
 
 export function readServerEnv(source: Record<string, string | undefined> = process.env) {
-  if (cachedEnv) {
+  if (source === process.env && cachedEnv) {
     return cachedEnv;
   }
 
@@ -63,6 +67,26 @@ export function readServerEnv(source: Record<string, string | undefined> = proce
     throw new Error(`Missing required server environment variables: ${parsed.error.message}`);
   }
 
-  cachedEnv = parsed.data;
-  return cachedEnv;
+  if (source === process.env) {
+    cachedEnv = parsed.data;
+    return cachedEnv;
+  }
+
+  return parsed.data;
+}
+
+export function getCanonicalAppOrigin(env: ServerEnv = readServerEnv()) {
+  return env.EASYDRAFT_APP_ORIGIN.replace(/\/+$/, "");
+}
+
+export function shouldRequireStripe(env: ServerEnv = readServerEnv()) {
+  return env.EASYDRAFT_REQUIRE_STRIPE ?? env.NODE_ENV === "production";
+}
+
+export function shouldRequireEmailDelivery(env: ServerEnv = readServerEnv()) {
+  return env.EASYDRAFT_REQUIRE_EMAIL_DELIVERY ?? env.NODE_ENV === "production";
+}
+
+export function shouldRequireProcessorSecret(env: ServerEnv = readServerEnv()) {
+  return env.NODE_ENV === "production";
 }

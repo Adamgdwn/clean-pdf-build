@@ -1,7 +1,7 @@
 import Stripe from "stripe";
 import { z } from "zod";
 
-import { readServerEnv } from "./env.js";
+import { getCanonicalAppOrigin, readServerEnv, shouldRequireStripe } from "./env.js";
 import { AppError } from "./errors.js";
 import {
   ensureDefaultWorkspaceForUser,
@@ -18,6 +18,7 @@ type BillingPlanRow = {
   key: string;
   name: string;
   monthly_price_usd: number; // stored as CAD whole-dollar amount per the new model
+  billing_interval: "month" | "year";
   included_internal_seats: number;
   included_completed_docs: number;
   included_ocr_pages: number;
@@ -62,6 +63,18 @@ type WorkspaceSubscriptionRow = {
   updated_at: string;
 };
 
+function getPlanMonthlyEquivalentCad(plan: Pick<BillingPlanRow, "monthly_price_usd" | "billing_interval">) {
+  return plan.billing_interval === "year" ? plan.monthly_price_usd / 12 : plan.monthly_price_usd;
+}
+
+function comparePlans(left: BillingPlanRow, right: BillingPlanRow) {
+  if (left.billing_interval !== right.billing_interval) {
+    return left.billing_interval === "month" ? -1 : 1;
+  }
+
+  return left.monthly_price_usd - right.monthly_price_usd;
+}
+
 // ---------------------------------------------------------------------------
 // Input validation
 // ---------------------------------------------------------------------------
@@ -78,7 +91,25 @@ const subscriptionCheckoutInputSchema = z.object({
 let cachedStripeClient: Stripe | null = null;
 
 function isStripeConfigured() {
-  return Boolean(readServerEnv().STRIPE_SECRET_KEY);
+  const env = readServerEnv();
+  return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET);
+}
+
+function assertStripeConfigurationReady() {
+  const env = readServerEnv();
+
+  if (isStripeConfigured()) {
+    return true;
+  }
+
+  if (!shouldRequireStripe(env)) {
+    return false;
+  }
+
+  throw new AppError(
+    503,
+    "Stripe billing is required in this environment. Configure STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET.",
+  );
 }
 
 function getStripeClient() {
@@ -137,16 +168,15 @@ async function listActivePlans() {
   const { data, error } = await adminClient
     .from("billing_plans")
     .select(
-      "key, name, monthly_price_usd, included_internal_seats, included_completed_docs, included_ocr_pages, included_storage_gb, included_signing_tokens, active",
+      "key, name, monthly_price_usd, billing_interval, included_internal_seats, included_completed_docs, included_ocr_pages, included_storage_gb, included_signing_tokens, active",
     )
-    .eq("active", true)
-    .order("monthly_price_usd", { ascending: true });
+    .eq("active", true);
 
   if (error) {
     throw new AppError(500, error.message);
   }
 
-  return (data ?? []) as BillingPlanRow[];
+  return ((data ?? []) as BillingPlanRow[]).sort(comparePlans);
 }
 
 async function getLatestSubscriptionForWorkspace(workspaceId: string) {
@@ -396,6 +426,7 @@ async function markStripeEventProcessed(
 export async function getBillingOverviewForAuthorizationHeader(
   authorizationHeader: string | undefined,
 ) {
+  const stripeReady = assertStripeConfigurationReady();
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const { workspace, membership } = await getBillingWorkspaceForUser(user);
 
@@ -408,7 +439,7 @@ export async function getBillingOverviewForAuthorizationHeader(
   const tokenBalance = await computeExternalTokenBalance(workspace.id);
 
   return {
-    billingMode: isStripeConfigured() ? "live" : "placeholder",
+    billingMode: stripeReady ? ("live" as const) : ("placeholder" as const),
     workspace: {
       id: workspace.id,
       name: workspace.name,
@@ -435,7 +466,9 @@ export async function getBillingOverviewForAuthorizationHeader(
     plans: plans.map((plan) => ({
       key: plan.key,
       name: plan.name,
-      monthlyPriceCad: plan.monthly_price_usd,
+      priceCad: plan.monthly_price_usd,
+      billingInterval: plan.billing_interval,
+      monthlyEquivalentPriceCad: getPlanMonthlyEquivalentCad(plan),
       includedInternalSeats: plan.included_internal_seats,
       includedCompletedDocs: plan.included_completed_docs,
       includedOcrPages: plan.included_ocr_pages,
@@ -453,6 +486,7 @@ export async function createCheckoutSessionForAuthorizationHeader(
   input: unknown,
   origin: string,
 ) {
+  const appOrigin = getCanonicalAppOrigin();
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const { workspace, membership } = await getBillingWorkspaceForUser(user);
   requireBillingPermission(membership);
@@ -477,9 +511,9 @@ export async function createCheckoutSessionForAuthorizationHeader(
     throw new AppError(404, "Billing plan not found.");
   }
 
-  if (!isStripeConfigured()) {
+  if (!assertStripeConfigurationReady()) {
     return {
-      url: `${origin}?checkout=placeholder&plan=${encodeURIComponent(selectedPlan.key)}`,
+      url: `${appOrigin}?checkout=placeholder&plan=${encodeURIComponent(selectedPlan.key)}`,
     };
   }
 
@@ -490,8 +524,8 @@ export async function createCheckoutSessionForAuthorizationHeader(
     mode: "subscription",
     customer: customerId,
     client_reference_id: workspace.id,
-    success_url: `${origin}?checkout=success`,
-    cancel_url: `${origin}?checkout=cancelled`,
+    success_url: `${appOrigin}?checkout=success`,
+    cancel_url: `${appOrigin}?checkout=cancelled`,
     allow_promotion_codes: true,
     // No payment method required during the 30-day free trial.
     // Stripe will email the customer before the trial ends to collect one.
@@ -513,14 +547,16 @@ export async function createCheckoutSessionForAuthorizationHeader(
         quantity: parsed.seatCount,
         price_data: {
           currency: "cad",
-          unit_amount: selectedPlan.monthly_price_usd * 100, // e.g. $12 CAD = 1200 cents
+          unit_amount: selectedPlan.monthly_price_usd * 100,
           recurring: {
-            interval: "month",
+            interval: selectedPlan.billing_interval,
           },
           product_data: {
-            name: selectedPlan.name, // "EasyDraftDocs - Team"
+            name: selectedPlan.name,
             description:
-              "Internal team members are billed at $12 CAD per user/month. External signers are not billed as users.",
+              selectedPlan.billing_interval === "year"
+                ? "Internal team members are billed at $120 CAD per user/year. External signers are not billed as users."
+                : "Internal team members are billed at $12 CAD per user/month. External signers are not billed as users.",
           },
         },
       },
@@ -546,6 +582,7 @@ export async function createTokenCheckoutSessionForAuthorizationHeader(
   authorizationHeader: string | undefined,
   origin: string,
 ) {
+  const appOrigin = getCanonicalAppOrigin();
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const { workspace, membership } = await getBillingWorkspaceForUser(user);
   requireBillingPermission(membership);
@@ -560,9 +597,9 @@ export async function createTokenCheckoutSessionForAuthorizationHeader(
     );
   }
 
-  if (!isStripeConfigured()) {
+  if (!assertStripeConfigurationReady()) {
     return {
-      url: `${origin}?checkout=placeholder&plan=token_bundle`,
+      url: `${appOrigin}?checkout=placeholder&plan=token_bundle`,
     };
   }
 
@@ -573,8 +610,8 @@ export async function createTokenCheckoutSessionForAuthorizationHeader(
     mode: "payment",
     customer: customerId,
     client_reference_id: workspace.id,
-    success_url: `${origin}?checkout=success`,
-    cancel_url: `${origin}?checkout=cancelled`,
+    success_url: `${appOrigin}?checkout=success`,
+    cancel_url: `${appOrigin}?checkout=cancelled`,
     metadata: {
       workspace_id: workspace.id,
       checkout_type: "token_purchase",
@@ -611,13 +648,14 @@ export async function createBillingPortalSessionForAuthorizationHeader(
   authorizationHeader: string | undefined,
   origin: string,
 ) {
+  const appOrigin = getCanonicalAppOrigin();
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const { workspace, membership } = await getBillingWorkspaceForUser(user);
   requireBillingPermission(membership);
 
-  if (!isStripeConfigured()) {
+  if (!assertStripeConfigurationReady()) {
     return {
-      url: `${origin}?billing=portal_placeholder&workspace=${encodeURIComponent(workspace.slug)}`,
+      url: `${appOrigin}?billing=portal_placeholder&workspace=${encodeURIComponent(workspace.slug)}`,
     };
   }
 
@@ -625,7 +663,7 @@ export async function createBillingPortalSessionForAuthorizationHeader(
   const stripe = getStripeClient();
   const session = await stripe.billingPortal.sessions.create({
     customer: customerId,
-    return_url: origin,
+    return_url: appOrigin,
   });
 
   return { url: session.url };
@@ -639,7 +677,14 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string | u
   const env = readServerEnv();
 
   if (!env.STRIPE_WEBHOOK_SECRET) {
-    return { received: true, placeholder: true };
+    if (!shouldRequireStripe(env)) {
+      return { received: true, placeholder: true };
+    }
+
+    throw new AppError(
+      503,
+      "Stripe webhook handling is required in this environment. Configure STRIPE_WEBHOOK_SECRET.",
+    );
   }
 
   if (!signature) {

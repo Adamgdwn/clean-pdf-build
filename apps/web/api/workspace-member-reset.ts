@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-import { createCheckoutSessionForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
+import { sendWorkspaceMemberPasswordResetForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
 import { enforceRateLimit, getRequestOrigin, readAuthorizationHeader, sendError } from "./_utils.js";
 
@@ -11,17 +11,16 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
   try {
     enforceRateLimit(request, response, {
-      key: "api:billing-checkout",
-      limit: 8,
-      windowMs: 60_000,
+      key: "api:workspace-member-reset",
+      limit: 5,
+      windowMs: 10 * 60_000,
     });
 
     return response.status(200).json(
-      await createCheckoutSessionForAuthorizationHeader(
-        readAuthorizationHeader(request),
-        request.body,
-        getRequestOrigin(request),
-      ),
+      await sendWorkspaceMemberPasswordResetForAuthorizationHeader(readAuthorizationHeader(request), {
+        ...request.body,
+        redirectTo: getRequestOrigin(request),
+      }),
     );
   } catch (error) {
     return sendError(response, error);

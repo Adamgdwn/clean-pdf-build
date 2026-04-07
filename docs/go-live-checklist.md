@@ -24,6 +24,9 @@ Use this after workflow testing passes and before you present EasyDraft as produ
    - `SUPABASE_SIGNATURE_BUCKET`
    - `EASYDRAFT_ADMIN_EMAILS`
    - `EASYDRAFT_APP_ORIGIN`
+   - `EASYDRAFT_REQUIRE_STRIPE=true`
+   - `EASYDRAFT_REQUIRE_EMAIL_DELIVERY=true`
+   - `EASYDRAFT_PROCESSOR_SECRET`
 2. Keep `EASYDRAFT_APP_ORIGIN` set to `https://easydraftdocs.app`.
 3. Confirm the custom domains are attached and issuing valid certificates:
    - `easydraftdocs.app`

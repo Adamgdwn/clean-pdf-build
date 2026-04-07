@@ -171,6 +171,13 @@ select {
   font-size: 1.2rem;
 }
 
+.metric p {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
 .eyebrow {
   margin: 0 0 8px;
   color: var(--accent);
@@ -183,6 +190,28 @@ select {
 .grid {
   display: grid;
   grid-template-columns: 1.05fr 1.25fr;
+  gap: 20px;
+}
+
+.owner-portal {
+  display: grid;
+  gap: 20px;
+}
+
+.owner-hero-panel {
+  padding: 22px;
+}
+
+.owner-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.owner-portal-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
   gap: 20px;
 }
 
@@ -354,6 +383,10 @@ select {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.portal-switcher {
+  margin-bottom: 10px;
 }
 
 .pill-button {
@@ -696,13 +729,28 @@ select {
   .shell,
   .grid,
   .hero,
-  .split {
+  .split,
+  .owner-portal-grid {
     grid-template-columns: 1fr;
+  }
+
+  .owner-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .sidebar {
     border-right: 0;
     border-bottom: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 720px) {
+  .hero-grid,
+  .meta-grid,
+  .compact-grid,
+  .admin-metrics,
+  .owner-metrics-grid {
+    grid-template-columns: 1fr;
   }
 }
 

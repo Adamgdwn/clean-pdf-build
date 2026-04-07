@@ -16,7 +16,7 @@ A production-ready PDF workflow platform. Teams upload contracts and agreements,
 - External signers via one-time token link — no account needed
 - Full audit trail, version history, lock/reopen, and completion certificate with SHA-256 hash
 - Team invitations with workspace membership and role management
-- Stripe billing: 30-day free trial (no card), $12 CAD/seat/month, prepaid external signer tokens
+- Stripe billing: 30-day free trial (no card), $12 CAD/seat/month or $120 CAD/seat/year, prepaid external signer tokens
 - Self-service account deletion: cancels Stripe, deletes all storage, cascades DB
 
 ---
@@ -57,7 +57,7 @@ A production-ready PDF workflow platform. Teams upload contracts and agreements,
 ### What is a stub / next phase
 - **Certificate-backed PDF signing** — `DigitalSignatureProfile` records and the UI exist; the provider wiring (PAdES/CAdES embedding) is a clearly marked TODO in `renderDocumentExportToStorage` in `service.ts`. Safe to leave until there is proven customer demand.
 - **Change-impact classification** — edits after partial signing are audited but not yet classified as `non_material`, `review_required`, or `resign_required`.
-- **Rate limiting** — no per-IP or per-user rate limiting on API endpoints. Acceptable for internal pilot; add before public launch.
+- **Rate limiting depth** — basic in-memory throttling is now in place for sensitive API paths, but a shared/distributed limiter would still be better before heavier public traffic.
 
 ---
 
@@ -73,7 +73,7 @@ A production-ready PDF workflow platform. Teams upload contracts and agreements,
 
 2. **Verify Stripe is wired in production**
    - `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` must be set in Vercel
-   - Confirm the `easydraft_team` billing plan row exists in the `billing_plans` table
+   - Confirm the `easydraft_team` and `easydraft_team_annual` billing plan rows exist in the `billing_plans` table
    - Test a full checkout → webhook → subscription sync in Stripe test mode first
    - See `STRIPE_INTEGRATION_NOTES.md` for the full setup checklist
 
@@ -100,11 +100,10 @@ A production-ready PDF workflow platform. Teams upload contracts and agreements,
    - `resign_required` — signed text or field placement changed — flag impacted signatures, require resigning
    See the scenario test matrix in this README for the expected behavior.
 
-6. **Add rate limiting**
-   Add `@fastify/rate-limit` to the workflow API and equivalent middleware on Vercel functions, targeting:
-   - Signing token validation (brute force risk)
-   - Document upload (file spam)
-   - Notification dispatch
+6. **Upgrade rate limiting beyond single-instance memory**
+   Sensitive API paths now have baseline throttling. Before heavier external traffic:
+   - move to a shared store or edge-native rate limiter
+   - keep the strictest limits on signing token validation, document upload, and notification dispatch
 
 7. **Tighten the signer experience**
    The current signer flow works but is clinical. Before showing it to clients:
@@ -178,8 +177,9 @@ See `.env.example`. Required for a working deployment:
 | `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` | Client-side Supabase |
 | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | Server-side Supabase |
 | `EASYDRAFT_ADMIN_EMAILS` | Comma-separated admin email addresses |
-| `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` | Stripe billing (falls back to placeholder mode if absent) |
-| `RESEND_API_KEY` or SMTP vars | Email delivery (notifications silently skipped if absent) |
+| `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` | Stripe billing; required when `EASYDRAFT_REQUIRE_STRIPE=true` or in production runtime |
+| `RESEND_API_KEY` or SMTP vars | Email delivery; required when `EASYDRAFT_REQUIRE_EMAIL_DELIVERY=true` or in production runtime |
+| `EASYDRAFT_PROCESSOR_SECRET` | Shared secret for processor endpoints; required in production runtime |
 | `SUPABASE_DOCUMENT_BUCKET` + `SUPABASE_SIGNATURE_BUCKET` | Storage bucket names |
 
 ---

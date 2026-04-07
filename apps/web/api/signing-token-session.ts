@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import { resolveSigningTokenSession } from "../../../packages/workflow-service/src/index.js";
 
-import { sendError } from "./_utils.js";
+import { enforceRateLimit, sendError } from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== "POST") {
@@ -10,6 +10,12 @@ export default async function handler(request: VercelRequest, response: VercelRe
   }
 
   try {
+    enforceRateLimit(request, response, {
+      key: "api:signing-token-session",
+      limit: 10,
+      windowMs: 5 * 60_000,
+    });
+
     const { token, documentId } = request.body as { token: string; documentId: string };
 
     if (!token || !documentId) {

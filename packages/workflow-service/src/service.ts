@@ -23,7 +23,12 @@ import { createHash } from "crypto";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { z } from "zod";
 
-import { readServerEnv } from "./env.js";
+import {
+  getCanonicalAppOrigin,
+  readServerEnv,
+  shouldRequireEmailDelivery,
+  shouldRequireStripe,
+} from "./env.js";
 import { AppError } from "./errors.js";
 import { deliverNotificationEmail, getConfiguredNotificationEmailProvider } from "./notifications.js";
 import { createAuthClient, createServiceRoleClient } from "./supabase.js";
@@ -1439,11 +1444,28 @@ function hasNotificationEmailConfig() {
   return Boolean(getConfiguredNotificationEmailProvider(env));
 }
 
+function assertNotificationEmailReady() {
+  const env = readServerEnv();
+
+  if (getConfiguredNotificationEmailProvider(env)) {
+    return true;
+  }
+
+  if (!shouldRequireEmailDelivery(env)) {
+    return false;
+  }
+
+  throw new AppError(
+    503,
+    "Managed email delivery is required in this environment. Configure Resend or SMTP before sending platform-managed workflows.",
+  );
+}
+
 function getNotificationActionOrigin(notification: NotificationRow) {
   const env = readServerEnv();
   const metadataOrigin =
     typeof notification.metadata?.appOrigin === "string" ? notification.metadata.appOrigin.trim() : "";
-  const candidateOrigin = metadataOrigin || env.EASYDRAFT_APP_ORIGIN;
+  const candidateOrigin = metadataOrigin || getCanonicalAppOrigin(env);
 
   return candidateOrigin.replace(/\/+$/, "");
 }
@@ -1495,14 +1517,29 @@ function buildNotificationEmailContent(notification: NotificationRow, document: 
 async function deliverNotificationRow(notification: NotificationRow) {
   const env = readServerEnv();
   const configuredProvider = getConfiguredNotificationEmailProvider(env);
+  const adminClient = createServiceRoleClient();
 
   if (!configuredProvider) {
+    if (shouldRequireEmailDelivery(env)) {
+      await adminClient
+        .from("document_notifications")
+        .update({
+          status: "failed",
+          provider: "unconfigured",
+        })
+        .eq("id", notification.id);
+
+      throw new AppError(
+        503,
+        "Managed email delivery is required in this environment. Configure Resend or SMTP before sending platform-managed workflows.",
+      );
+    }
+
     return { delivered: false, reason: "provider_not_configured" } as const;
   }
 
   const document = await requireDocumentBundle(notification.document_id);
   const emailContent = buildNotificationEmailContent(notification, document);
-  const adminClient = createServiceRoleClient();
 
   try {
     const delivery = await deliverNotificationEmail(env, {
@@ -1733,6 +1770,13 @@ function getPendingRequiredAssignedFields(document: DocumentRecord) {
 async function assertWorkspaceHasActivePlan(workspaceId: string) {
   const env = readServerEnv();
   if (!env.STRIPE_SECRET_KEY) {
+    if (shouldRequireStripe(env)) {
+      throw new AppError(
+        503,
+        "Stripe billing is required in this environment. Configure STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET before sending documents.",
+      );
+    }
+
     return; // placeholder mode — no billing gate
   }
 
@@ -1757,6 +1801,13 @@ async function assertWorkspaceHasActivePlan(workspaceId: string) {
 async function assertWorkspaceHasSigningTokens(workspaceId: string, count: number) {
   const env = readServerEnv();
   if (!env.STRIPE_SECRET_KEY) {
+    if (shouldRequireStripe(env)) {
+      throw new AppError(
+        503,
+        "Stripe billing is required in this environment. Configure STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET before sending external signing links.",
+      );
+    }
+
     return; // placeholder mode — unlimited tokens
   }
 
@@ -2424,7 +2475,7 @@ export async function getAdminOverviewForAuthorizationHeader(
 
   const planRowsResponse = await adminClient
     .from("billing_plans")
-    .select("key, name, monthly_price_usd")
+    .select("key, name, monthly_price_usd, billing_interval")
     .eq("active", true);
 
   if (planRowsResponse.error) {
@@ -2432,9 +2483,15 @@ export async function getAdminOverviewForAuthorizationHeader(
   }
 
   const planPriceByKey = new Map(
-    ((planRowsResponse.data ?? []) as Array<{ key: string; name: string; monthly_price_usd: number }>).map(
-      (plan) => [plan.key, plan.monthly_price_usd],
-    ),
+    ((planRowsResponse.data ?? []) as Array<{
+      key: string;
+      name: string;
+      monthly_price_usd: number;
+      billing_interval?: "month" | "year";
+    }>).map((plan) => [
+      plan.key,
+      (plan.billing_interval ?? "month") === "year" ? plan.monthly_price_usd / 12 : plan.monthly_price_usd,
+    ]),
   );
   const subscriptions = (subscriptionsResponse.data ??
     []) as Array<{
@@ -2448,7 +2505,11 @@ export async function getAdminOverviewForAuthorizationHeader(
   }>;
   const estimatedMrrUsd = subscriptions
     .filter((subscription) => ["active", "trialing", "past_due"].includes(subscription.status))
-    .reduce((sum, subscription) => sum + (planPriceByKey.get(subscription.billing_plan_key) ?? 0), 0);
+    .reduce(
+      (sum, subscription) =>
+        sum + (planPriceByKey.get(subscription.billing_plan_key) ?? 0) * subscription.seat_count,
+      0,
+    );
 
   return {
     metrics: {
@@ -2611,7 +2672,7 @@ export async function sendAdminPasswordResetForAuthorizationHeader(
 
   const authClient = createAuthClient();
   const { error } = await authClient.auth.resetPasswordForEmail(authUser.email, {
-    redirectTo: parsed.redirectTo ?? readServerEnv().EASYDRAFT_APP_ORIGIN,
+    redirectTo: parsed.redirectTo ?? getCanonicalAppOrigin(),
   });
 
   if (error) {
@@ -2620,7 +2681,7 @@ export async function sendAdminPasswordResetForAuthorizationHeader(
 
   return {
     email: authUser.email,
-    redirectTo: parsed.redirectTo ?? readServerEnv().EASYDRAFT_APP_ORIGIN,
+    redirectTo: parsed.redirectTo ?? getCanonicalAppOrigin(),
   };
 }
 
@@ -2638,11 +2699,11 @@ export async function sendAdminUserInviteForAuthorizationHeader(
     return {
       email: existingUser.email,
       status: existingUser.email_confirmed_at ? ("existing_account" as const) : ("pending_invite" as const),
-      redirectTo: parsed.redirectTo ?? readServerEnv().EASYDRAFT_APP_ORIGIN,
+      redirectTo: parsed.redirectTo ?? getCanonicalAppOrigin(),
     };
   }
 
-  const redirectTo = parsed.redirectTo ?? readServerEnv().EASYDRAFT_APP_ORIGIN;
+  const redirectTo = parsed.redirectTo ?? getCanonicalAppOrigin();
   const { data, error } = await adminClient.auth.admin.inviteUserByEmail(parsed.email, {
     redirectTo,
     data: {
@@ -3351,6 +3412,10 @@ export async function sendDocumentForAuthorizationHeader(
 
   if (currentDocument.workspaceId) {
     await assertWorkspaceHasActivePlan(currentDocument.workspaceId);
+  }
+
+  if (currentDocument.deliveryMode === "platform_managed") {
+    assertNotificationEmailReady();
   }
 
   const now = new Date().toISOString();
@@ -4547,6 +4612,8 @@ export async function remindDocumentSignersForAuthorizationHeader(
   if (document.deliveryMode !== "platform_managed") {
     throw new AppError(400, "Reminders are only available for platform-managed documents.");
   }
+
+  assertNotificationEmailReady();
 
   if (!document.sentAt) {
     throw new AppError(400, "Document has not been sent yet.");

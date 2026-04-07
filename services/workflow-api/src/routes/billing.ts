@@ -1,10 +1,11 @@
-import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyPluginAsync, FastifyReply } from "fastify";
 
 import {
   AppError,
   createBillingPortalSessionForAuthorizationHeader,
   createCheckoutSessionForAuthorizationHeader,
   createTokenCheckoutSessionForAuthorizationHeader,
+  getCanonicalAppOrigin,
   getBillingOverviewForAuthorizationHeader,
 } from "@clean-pdf/workflow-service";
 
@@ -14,10 +15,6 @@ function sendError(reply: FastifyReply, error: unknown) {
 }
 
 export const billingRoutes: FastifyPluginAsync = async (app) => {
-  function getOrigin(request: FastifyRequest) {
-    return request.headers.origin ?? `${request.protocol}://${request.host}`;
-  }
-
   app.get("/billing-overview", async (request, reply) => {
     try {
       return await getBillingOverviewForAuthorizationHeader(request.headers.authorization);
@@ -31,7 +28,7 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
       return await createCheckoutSessionForAuthorizationHeader(
         request.headers.authorization,
         request.body,
-        getOrigin(request),
+        getCanonicalAppOrigin(),
       );
     } catch (error) {
       return sendError(reply, error);
@@ -42,7 +39,7 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
     try {
       return await createBillingPortalSessionForAuthorizationHeader(
         request.headers.authorization,
-        getOrigin(request),
+        getCanonicalAppOrigin(),
       );
     } catch (error) {
       return sendError(reply, error);
@@ -53,7 +50,7 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
     try {
       return await createTokenCheckoutSessionForAuthorizationHeader(
         request.headers.authorization,
-        getOrigin(request),
+        getCanonicalAppOrigin(),
       );
     } catch (error) {
       return sendError(reply, error);

@@ -2,6 +2,7 @@ import type { FastifyPluginAsync, FastifyReply } from "fastify";
 
 import {
   AppError,
+  getCanonicalAppOrigin,
   deleteAdminUserForAuthorizationHeader,
   getAdminOverviewForAuthorizationHeader,
   listAdminUsersForAuthorizationHeader,
@@ -35,8 +36,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     try {
       return await sendAdminPasswordResetForAuthorizationHeader(request.headers.authorization, {
         ...(request.body as Record<string, unknown>),
-        redirectTo:
-          ((request.headers.origin as string | undefined) ?? "").trim() || "http://localhost:5173",
+        redirectTo: getCanonicalAppOrigin(),
       });
     } catch (error) {
       return sendError(reply, error);
@@ -47,8 +47,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     try {
       return await sendAdminUserInviteForAuthorizationHeader(request.headers.authorization, {
         ...(request.body as Record<string, unknown>),
-        redirectTo:
-          ((request.headers.origin as string | undefined) ?? "").trim() || "http://localhost:5173",
+        redirectTo: getCanonicalAppOrigin(),
       });
     } catch (error) {
       return sendError(reply, error);

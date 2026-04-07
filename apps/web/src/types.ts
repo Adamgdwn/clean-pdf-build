@@ -73,8 +73,11 @@ export type BillingOverview = {
   plans: Array<{
     key: string;
     name: string;
-    /** Price in CAD whole dollars per seat per month. */
-    monthlyPriceCad: number;
+    /** Price in CAD whole dollars per seat for the selected billing interval. */
+    priceCad: number;
+    billingInterval: "month" | "year";
+    /** Normalized monthly equivalent for admin metrics and comparisons. */
+    monthlyEquivalentPriceCad: number;
     includedInternalSeats: number;
     includedCompletedDocs: number;
     includedOcrPages: number;

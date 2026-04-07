@@ -5,7 +5,7 @@ import {
   listDocumentsForAuthorizationHeader,
 } from "../../../packages/workflow-service/src/index.js";
 
-import { readAuthorizationHeader, sendError } from "./_utils.js";
+import { enforceRateLimit, readAuthorizationHeader, sendError } from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   try {
@@ -16,6 +16,12 @@ export default async function handler(request: VercelRequest, response: VercelRe
     }
 
     if (request.method === "POST") {
+      enforceRateLimit(request, response, {
+        key: "api:documents-create",
+        limit: 20,
+        windowMs: 10 * 60_000,
+      });
+
       return response
         .status(200)
         .json(

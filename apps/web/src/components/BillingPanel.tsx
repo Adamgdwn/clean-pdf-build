@@ -21,13 +21,32 @@ function daysUntil(timestamp: string | null) {
 
 function subscriptionStatusLabel(status: string) {
   switch (status) {
-    case "active":     return "Active";
-    case "trialing":   return "Free trial";
-    case "past_due":   return "Past due — payment required";
-    case "canceled":   return "Canceled";
-    case "incomplete": return "Incomplete";
-    default:           return status;
+    case "active":
+      return "Active";
+    case "trialing":
+      return "Free trial";
+    case "past_due":
+      return "Past due — payment required";
+    case "canceled":
+      return "Canceled";
+    case "incomplete":
+      return "Incomplete";
+    default:
+      return status;
   }
+}
+
+function formatPlanUnitPrice(
+  plan: BillingOverview["plans"][number],
+  seatCount = 1,
+) {
+  const total = plan.priceCad * seatCount;
+  const intervalLabel = plan.billingInterval === "year" ? "year" : "month";
+  return `$${total} CAD / ${intervalLabel}`;
+}
+
+function formatPerSeatPrice(plan: BillingOverview["plans"][number]) {
+  return `$${plan.priceCad} CAD per user / ${plan.billingInterval}`;
 }
 
 type Props = {
@@ -36,31 +55,37 @@ type Props = {
   onBillingRefresh?: () => void;
 };
 
-export function BillingPanel({ session, billingOverview, onBillingRefresh }: Props) {
+export function BillingPanel({ session, billingOverview }: Props) {
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [seatCount, setSeatCount] = useState(
     billingOverview.subscription?.seatCount ?? billingOverview.workspace.internalMemberCount ?? 1,
   );
+  const [selectedPlanKey, setSelectedPlanKey] = useState(
+    billingOverview.subscription?.planKey ?? billingOverview.plans[0]?.key ?? "",
+  );
 
   const { subscription, externalTokens, plans, workspace, billingMode } = billingOverview;
-  const teamPlan = plans[0] ?? null; // only one active plan (easydraft_team)
   const isSubscribed = subscription !== null && ["active", "trialing"].includes(subscription.status);
   const isTrialing = subscription?.status === "trialing";
   const trialDaysLeft = daysUntil(subscription?.trialEndsAt ?? null);
   const renewalDate = formatDate(subscription?.currentPeriodEnd ?? null);
   const trialEndDate = formatDate(subscription?.trialEndsAt ?? null);
   const cancelAtEnd = subscription?.cancelAtPeriodEnd ?? false;
+  const selectedPlan =
+    plans.find((plan) => plan.key === selectedPlanKey) ?? plans[0] ?? null;
+  const currentPlan =
+    (subscription ? plans.find((plan) => plan.key === subscription.planKey) : null) ?? selectedPlan;
 
   async function handleSubscriptionCheckout() {
-    if (!teamPlan) return;
+    if (!selectedPlan) return;
     setIsRedirecting(true);
     setErrorMessage(null);
 
     try {
       const payload = await apiFetch<{ url: string }>("/billing-checkout", session, {
         method: "POST",
-        body: JSON.stringify({ planKey: teamPlan.key, seatCount }),
+        body: JSON.stringify({ planKey: selectedPlan.key, seatCount }),
       });
       window.location.assign(payload.url);
     } catch (error) {
@@ -117,20 +142,17 @@ export function BillingPanel({ session, billingOverview, onBillingRefresh }: Pro
       {errorMessage ? <div className="alert">{errorMessage}</div> : null}
 
       <div className="stack">
-        {/* ------------------------------------------------------------------ */}
-        {/* Team subscription section                                           */}
-        {/* ------------------------------------------------------------------ */}
         <div className="row-card">
           <p className="eyebrow" style={{ margin: 0 }}>
             Team subscription
           </p>
         </div>
 
-        {isSubscribed && subscription ? (
+        {isSubscribed && subscription && currentPlan ? (
           <>
             <div className="row-card">
               <div>
-                <strong>EasyDraftDocs — Team</strong>
+                <strong>{currentPlan.name}</strong>
                 <p className="muted">
                   {subscriptionStatusLabel(subscription.status)}
                   {cancelAtEnd ? " · Cancels at period end" : ""}
@@ -141,7 +163,9 @@ export function BillingPanel({ session, billingOverview, onBillingRefresh }: Pro
                   {subscription.seatCount} seat{subscription.seatCount !== 1 ? "s" : ""}
                 </strong>
                 <p className="muted">
-                  {isTrialing ? "Free during trial" : `$${subscription.seatCount * (teamPlan?.monthlyPriceCad ?? 12)} CAD / month`}
+                  {isTrialing
+                    ? "Free during trial"
+                    : formatPlanUnitPrice(currentPlan, subscription.seatCount)}
                 </p>
               </div>
             </div>
@@ -156,9 +180,12 @@ export function BillingPanel({ session, billingOverview, onBillingRefresh }: Pro
 
             {isTrialing ? (
               <p className="muted">
-                After your trial, you'll be charged ${subscription.seatCount * (teamPlan?.monthlyPriceCad ?? 12)} CAD/month
-                for {subscription.seatCount} seat{subscription.seatCount !== 1 ? "s" : ""}.
-                Add a payment method before your trial ends to continue uninterrupted.
+                After your trial, you&apos;ll be charged{" "}
+                {formatPlanUnitPrice(currentPlan, subscription.seatCount)} for{" "}
+                {subscription.seatCount} seat{subscription.seatCount !== 1 ? "s" : ""}.
+                {currentPlan.billingInterval === "year"
+                  ? " That works out to $10 CAD per user / month equivalent."
+                  : ""}
               </p>
             ) : renewalDate ? (
               <p className="muted">
@@ -167,8 +194,8 @@ export function BillingPanel({ session, billingOverview, onBillingRefresh }: Pro
             ) : null}
 
             <p className="muted">
-              Internal team members are billed at $12 CAD per user/month. External signers are not
-              billed as users.
+              Internal team members are billed on the {currentPlan.billingInterval === "year" ? "annual" : "monthly"} plan you selected.
+              External signers are not billed as users. Tokens remain $12 CAD for 12.
             </p>
 
             <button
@@ -179,20 +206,31 @@ export function BillingPanel({ session, billingOverview, onBillingRefresh }: Pro
               {isRedirecting ? "Redirecting…" : isTrialing ? "Add payment method" : "Manage billing"}
             </button>
           </>
-        ) : teamPlan ? (
+        ) : selectedPlan ? (
           <>
-            <div className="row-card">
-              <div>
-                <strong>{teamPlan.name}</strong>
-                <p className="muted">
-                  30 days free, then ${teamPlan.monthlyPriceCad} CAD per user / month
-                </p>
-              </div>
+            <div className="stack">
+              {plans.map((plan) => (
+                <label key={plan.key} className="row-card" style={{ cursor: "pointer" }}>
+                  <div>
+                    <strong>{plan.name}</strong>
+                    <p className="muted">{formatPerSeatPrice(plan)}</p>
+                    {plan.billingInterval === "year" ? (
+                      <p className="muted">$10 CAD per user / month equivalent when billed annually.</p>
+                    ) : null}
+                  </div>
+                  <input
+                    type="radio"
+                    name="billing-plan"
+                    checked={selectedPlanKey === plan.key}
+                    onChange={() => setSelectedPlanKey(plan.key)}
+                  />
+                </label>
+              ))}
             </div>
 
             <p className="muted">
-              No credit card required to start. Cancel anytime. Internal team members are billed
-              at $12 CAD per user/month after the trial. External signers are not billed as users.
+              No credit card required to start. Cancel anytime during the 30-day trial. External
+              signers are not billed as users, and tokens stay at $12 CAD for 12.
             </p>
 
             <div className="row-card">
@@ -212,7 +250,10 @@ export function BillingPanel({ session, billingOverview, onBillingRefresh }: Pro
             </div>
 
             <p className="muted">
-              After the trial: ${seatCount * teamPlan.monthlyPriceCad} CAD / month
+              After the trial: {formatPlanUnitPrice(selectedPlan, seatCount)}
+              {selectedPlan.billingInterval === "year"
+                ? ` ($${selectedPlan.monthlyEquivalentPriceCad * seatCount} CAD / month equivalent)`
+                : ""}
             </p>
 
             <button
@@ -220,16 +261,15 @@ export function BillingPanel({ session, billingOverview, onBillingRefresh }: Pro
               disabled={isRedirecting}
               onClick={handleSubscriptionCheckout}
             >
-              {isRedirecting ? "Redirecting…" : `Start free trial — ${seatCount} seat${seatCount !== 1 ? "s" : ""}`}
+              {isRedirecting
+                ? "Redirecting…"
+                : `Start free trial — ${seatCount} seat${seatCount !== 1 ? "s" : ""}`}
             </button>
           </>
         ) : (
           <p className="muted">No plans available. Contact support.</p>
         )}
 
-        {/* ------------------------------------------------------------------ */}
-        {/* External signer tokens section                                      */}
-        {/* ------------------------------------------------------------------ */}
         <div className="row-card" style={{ marginTop: "1rem" }}>
           <p className="eyebrow" style={{ margin: 0 }}>
             External signer tokens
@@ -256,16 +296,12 @@ export function BillingPanel({ session, billingOverview, onBillingRefresh }: Pro
         </p>
 
         {isSubscribed ? (
-          <button
-            className="ghost-button"
-            disabled={isRedirecting}
-            onClick={handleTokenCheckout}
-          >
+          <button className="ghost-button" disabled={isRedirecting} onClick={handleTokenCheckout}>
             {isRedirecting ? "Redirecting…" : "Buy 12 tokens — $12 CAD"}
           </button>
         ) : (
           <p className="muted">
-            Subscribe to the team plan above to purchase external signer tokens.
+            Subscribe to a team plan above to purchase external signer tokens.
           </p>
         )}
       </div>

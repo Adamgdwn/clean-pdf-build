@@ -7,6 +7,7 @@ import {
   getWorkspaceTeamForAuthorizationHeader,
   resendWorkspaceInvitationForAuthorizationHeader,
   revokeWorkspaceInvitationForAuthorizationHeader,
+  sendWorkspaceMemberPasswordResetForAuthorizationHeader,
   updateWorkspaceNameForAuthorizationHeader,
 } from "@clean-pdf/workflow-service";
 
@@ -90,6 +91,17 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
   app.patch("/workspace-update", async (request, reply) => {
     try {
       return await updateWorkspaceNameForAuthorizationHeader(
+        request.headers.authorization,
+        request.body,
+      );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/workspace-member-reset", async (request, reply) => {
+    try {
+      return await sendWorkspaceMemberPasswordResetForAuthorizationHeader(
         request.headers.authorization,
         request.body,
       );

@@ -7,10 +7,8 @@ import { getDocumentSendReadiness } from "@clean-pdf/domain";
 import { apiFetch } from "./lib/api";
 import { browserSupabase } from "./lib/supabase";
 import { AuthPanel } from "./components/AuthPanel";
-import { AdminConsole, AdminSidebarSummary } from "./components/AdminPanel";
-import { BillingPanel } from "./components/BillingPanel";
-import { TeamPanel } from "./components/TeamPanel";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { OwnerPortal } from "./components/OwnerPortal";
 import type {
   AccountProfile,
   AdminManagedUser,
@@ -23,6 +21,8 @@ import type {
   WorkflowDocument,
   WorkspaceTeam,
 } from "./types";
+
+type PortalView = "workspace" | "owner";
 
 
 
@@ -383,6 +383,7 @@ export default function App() {
   const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
   const [adminUsers, setAdminUsers] = useState<AdminManagedUser[]>([]);
   const [workspaceTeam, setWorkspaceTeam] = useState<WorkspaceTeam | null>(null);
+  const [portalView, setPortalView] = useState<PortalView>("workspace");
   const [pendingInviteToken, setPendingInviteToken] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
@@ -1505,6 +1506,11 @@ export default function App() {
     const signingToken = params.get("signingToken");
     const signingDocumentId = params.get("documentId");
     const inviteToken = params.get("invite");
+    const requestedPortal = params.get("portal");
+
+    if (requestedPortal === "workspace" || requestedPortal === "owner") {
+      setPortalView(requestedPortal);
+    }
 
     if (inviteToken) {
       setPendingInviteToken(inviteToken);
@@ -1665,6 +1671,28 @@ export default function App() {
     };
   }, [localPreviewUrl]);
 
+  const canAccessOwnerPortal = Boolean(
+    sessionUser &&
+      (sessionUser.isAdmin ||
+        ["owner", "admin", "billing_admin"].includes(
+          billingOverview?.workspace.membershipRole ?? "",
+        )),
+  );
+
+  function updatePortalView(nextView: PortalView) {
+    setPortalView(nextView);
+    const params = new URLSearchParams(window.location.search);
+    params.set("portal", nextView);
+    const query = params.toString();
+    window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+  }
+
+  useEffect(() => {
+    if (portalView === "owner" && !canAccessOwnerPortal) {
+      setPortalView("workspace");
+    }
+  }, [portalView, canAccessOwnerPortal]);
+
   useEffect(() => {
     function handlePointerMove(event: PointerEvent) {
       const dragState = dragStateRef.current;
@@ -1727,6 +1755,38 @@ export default function App() {
           hasPendingInvite={pendingInviteToken !== null}
           onSignOut={handleSignOut}
         />
+
+        {sessionUser ? (
+          <section className="card">
+            <div className="section-heading compact">
+              <p className="eyebrow">Portals</p>
+              <span>{portalView === "owner" ? "Owner portal" : "User workspace"}</span>
+            </div>
+            <div className="pill-row portal-switcher">
+              <button
+                className={`pill-button ${portalView === "workspace" ? "active" : ""}`}
+                onClick={() => updatePortalView("workspace")}
+                type="button"
+              >
+                User workspace
+              </button>
+              {canAccessOwnerPortal ? (
+                <button
+                  className={`pill-button ${portalView === "owner" ? "active" : ""}`}
+                  onClick={() => updatePortalView("owner")}
+                  type="button"
+                >
+                  Owner portal
+                </button>
+              ) : null}
+            </div>
+            <p className="muted">
+              {canAccessOwnerPortal
+                ? "Separate everyday document work from company oversight without using a different login."
+                : "Use the workspace here for everyday documents, signatures, and routing."}
+            </p>
+          </section>
+        ) : null}
 
         <ErrorBoundary label="profile and billing">
         {sessionUser && accountProfile ? (
@@ -2046,21 +2106,8 @@ export default function App() {
           </section>
         ) : null}
 
-        {sessionUser && session && billingOverview ? (
-          <BillingPanel session={session} billingOverview={billingOverview} />
-        ) : null}
-
-        {sessionUser && session && workspaceTeam ? (
-          <TeamPanel
-            session={session}
-            team={workspaceTeam}
-            billingOverview={billingOverview}
-            onTeamRefresh={() => refreshTeam(session).catch(() => null)}
-          />
-        ) : null}
-
         {/* Onboarding prompt — shown once to new users */}
-        {sessionUser && session && showOnboarding && workspaceTeam ? (
+        {portalView === "workspace" && sessionUser && session && showOnboarding && workspaceTeam ? (
           <OnboardingPrompt
             session={session}
             workspaceTeam={workspaceTeam}
@@ -2072,10 +2119,7 @@ export default function App() {
           />
         ) : null}
 
-        {sessionUser?.isAdmin && adminOverview ? (
-          <AdminSidebarSummary adminOverview={adminOverview} adminUsers={adminUsers} />
-        ) : null}
-
+        {portalView === "workspace" ? (
         <section className="card">
           <div className="section-heading compact">
             <p className="eyebrow">Documents</p>
@@ -2151,6 +2195,7 @@ export default function App() {
             )}
           </div>
         </section>
+        ) : null}
         </ErrorBoundary>
       </aside>
 
@@ -2171,18 +2216,22 @@ export default function App() {
             <div className="metric">
               <span>Hosting</span>
               <strong>EasyDraft</strong>
+              <p>One workspace for drafts, approvals, signatures, and exports.</p>
             </div>
             <div className="metric">
-              <span>Backend core</span>
-              <strong>Supabase</strong>
+              <span>Team access</span>
+              <strong>One secure sign-in for your whole crew</strong>
+              <p>Owners, admins, and teammates all come through the same EasyDraft login.</p>
             </div>
             <div className="metric">
               <span>Storage</span>
-              <strong>Private bucket</strong>
+              <strong>Your document vault, minus the clutter</strong>
+              <p>Private uploads, signed previews, and clean handoffs that stay easy to find later.</p>
             </div>
             <div className="metric">
               <span>Distribution</span>
               <strong>Self, internal, or managed</strong>
+              <p>Send it yourself, keep it internal, or let EasyDraft handle the follow-up.</p>
             </div>
           </div>
         </header>
@@ -2190,22 +2239,29 @@ export default function App() {
         {errorMessage ? <div className="alert">{errorMessage}</div> : null}
         {noticeMessage ? <div className="alert success">{noticeMessage}</div> : null}
 
-        {sessionUser?.isAdmin && session && adminOverview ? (
-          <ErrorBoundary label="Admin console">
-            <AdminConsole
+        {portalView === "owner" && sessionUser && session ? (
+          <ErrorBoundary label="Owner portal">
+            <OwnerPortal
               session={session}
               sessionUser={sessionUser}
+              documents={documents}
+              workspaceTeam={workspaceTeam}
+              billingOverview={billingOverview}
               adminOverview={adminOverview}
               adminUsers={adminUsers}
-              onRefresh={() => {
-                Promise.all([refreshAdminOverview(session), refreshAdminUsers(session)]).catch(
-                  (error) => setErrorMessage((error as Error).message),
-                );
+              onRefreshTeam={() => refreshTeam(session).catch((error) => setErrorMessage((error as Error).message))}
+              onRefreshBilling={() => refreshBilling(session).catch((error) => setErrorMessage((error as Error).message))}
+              onRefreshAdmin={() => {
+                const requests = sessionUser.isAdmin
+                  ? [refreshAdminOverview(session), refreshAdminUsers(session)]
+                  : [];
+                Promise.all(requests).catch((error) => setErrorMessage((error as Error).message));
               }}
             />
           </ErrorBoundary>
         ) : null}
 
+        {portalView === "workspace" ? (
         <ErrorBoundary label="document workspace">
         <section className="grid">
           <div className="panel">
@@ -3480,6 +3536,7 @@ export default function App() {
           </div>
         </section>
         </ErrorBoundary>
+        ) : null}
       </main>
     </div>
   );

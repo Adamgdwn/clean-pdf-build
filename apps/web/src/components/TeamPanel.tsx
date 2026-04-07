@@ -20,7 +20,7 @@ type Props = {
 
 export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Props) {
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"member" | "admin" | "billing_admin">("member");
+  const [inviteRole, setInviteRole] = useState<"owner" | "member" | "admin" | "billing_admin">("member");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
@@ -31,6 +31,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
   const isOwnerOrAdmin = team.members.some(
     (m) => m.isCurrentUser && ["owner", "admin"].includes(m.role),
   );
+  const isCurrentUserOwner = team.members.some((m) => m.isCurrentUser && m.role === "owner");
 
   const totalOccupied = team.members.length + team.pendingInvitations.length;
   const seatCount = subscription?.seatCount ?? 0;
@@ -120,6 +121,26 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
     }
   }
 
+  async function handleSendReset(userId: string, email: string | null) {
+    if (!email) return;
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      const payload = await apiFetch<{ email: string }>("/workspace-member-reset", session, {
+        method: "POST",
+        body: JSON.stringify({ userId }),
+      });
+      setNoticeMessage(`Password reset email sent to ${payload.email}.`);
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   return (
     <section className="card">
       <div className="section-heading compact">
@@ -170,7 +191,19 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
               <strong>{member.displayName}{member.isCurrentUser ? " (you)" : ""}</strong>
               <p className="muted">{member.email ?? ""}</p>
             </div>
-            <span className="muted">{ROLE_LABELS[member.role] ?? member.role}</span>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+              <span className="muted">{ROLE_LABELS[member.role] ?? member.role}</span>
+              {isOwnerOrAdmin && member.email ? (
+                <button
+                  className="ghost-button"
+                  disabled={isLoading}
+                  onClick={() => handleSendReset(member.userId, member.email)}
+                  type="button"
+                >
+                  Send reset
+                </button>
+              ) : null}
+            </div>
           </div>
         ))}
 
@@ -214,9 +247,14 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
           <>
             <p className="eyebrow" style={{ marginTop: "0.5rem" }}>Invite a teammate</p>
             <p className="muted">
-              Internal team members are billed at $12 CAD per user/month. External signers are not
-              billed as users.
+              Internal team members are billed at either $12 CAD per user/month or $120 CAD per
+              user/year. External signers are not billed as users.
             </p>
+            {isCurrentUserOwner ? (
+              <p className="muted">
+                Owners can also invite another owner or representative from here.
+              </p>
+            ) : null}
             <form className="stack" onSubmit={handleInvite}>
               <label className="form-field">
                 <span>Email address</span>
@@ -233,8 +271,9 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
                   <span>Role</span>
                   <select
                     value={inviteRole}
-                    onChange={(e) => setInviteRole(e.target.value as "member" | "admin" | "billing_admin")}
+                    onChange={(e) => setInviteRole(e.target.value as "owner" | "member" | "admin" | "billing_admin")}
                   >
+                    {isCurrentUserOwner ? <option value="owner">Owner / company rep</option> : null}
                     <option value="member">Member</option>
                     <option value="admin">Admin</option>
                     <option value="billing_admin">Billing admin</option>

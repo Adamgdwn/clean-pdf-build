@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import { sendAdminUserInviteForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
-import { getRequestOrigin, readAuthorizationHeader, sendError } from "./_utils.js";
+import { enforceRateLimit, getRequestOrigin, readAuthorizationHeader, sendError } from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== "POST") {
@@ -10,6 +10,12 @@ export default async function handler(request: VercelRequest, response: VercelRe
   }
 
   try {
+    enforceRateLimit(request, response, {
+      key: "api:admin-user-invite",
+      limit: 5,
+      windowMs: 10 * 60_000,
+    });
+
     return response
       .status(200)
       .json(

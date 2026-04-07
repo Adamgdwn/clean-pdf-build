@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { readServerEnv } from "./env.js";
+import { getCanonicalAppOrigin, readServerEnv } from "./env.js";
 import { AppError } from "./errors.js";
 import { deliverNotificationEmail } from "./notifications.js";
 import {
@@ -8,7 +8,7 @@ import {
   resolveAuthenticatedUser,
   type AuthenticatedUser,
 } from "./service.js";
-import { createServiceRoleClient } from "./supabase.js";
+import { createAuthClient, createServiceRoleClient } from "./supabase.js";
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -22,6 +22,14 @@ type WorkspaceMemberRow = {
   profiles: {
     id: string;
     display_name: string | null;
+    email: string;
+  } | null;
+};
+
+type WorkspaceMemberResetRow = {
+  user_id: string;
+  role: string;
+  profiles: {
     email: string;
   } | null;
 };
@@ -85,11 +93,16 @@ async function requireWorkspaceWithRole(
 
 const createInvitationSchema = z.object({
   email: z.string().trim().email(),
-  role: z.enum(["member", "admin", "billing_admin"]).default("member"),
+  role: z.enum(["owner", "member", "admin", "billing_admin"]).default("member"),
 });
 
 const updateWorkspaceNameSchema = z.object({
   name: z.string().trim().min(1).max(100),
+});
+
+const sendWorkspacePasswordResetSchema = z.object({
+  userId: z.string().uuid(),
+  redirectTo: z.string().trim().url().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -158,11 +171,15 @@ export async function createWorkspaceInvitationForAuthorizationHeader(
   input: unknown,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace } = await requireWorkspaceWithRole(user, ["owner", "admin"]);
+  const { workspace, memberRole } = await requireWorkspaceWithRole(user, ["owner", "admin"]);
   const parsed = createInvitationSchema.parse(input);
   const email = normalizeEmail(parsed.email);
   const adminClient = createServiceRoleClient();
   const env = readServerEnv();
+
+  if (parsed.role === "owner" && memberRole !== "owner") {
+    throw new AppError(403, "Only the workspace owner can invite another owner.");
+  }
 
   // Check if already a member
   const { data: existingProfile } = await adminClient
@@ -434,6 +451,60 @@ export async function updateWorkspaceNameForAuthorizationHeader(
   if (error) throw new AppError(500, error.message);
 
   return { updated: true, name: parsed.name };
+}
+
+// ---------------------------------------------------------------------------
+// Public API: send password reset for a workspace member
+// ---------------------------------------------------------------------------
+
+export async function sendWorkspaceMemberPasswordResetForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const { workspace, memberRole } = await requireWorkspaceWithRole(user, ["owner", "admin"]);
+  const parsed = sendWorkspacePasswordResetSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+
+  const { data: membership, error } = await adminClient
+    .from("workspace_memberships")
+    .select("user_id, role, profiles(email)")
+    .eq("workspace_id", workspace.id)
+    .eq("user_id", parsed.userId)
+    .maybeSingle();
+  const typedMembership = membership as WorkspaceMemberResetRow | null;
+
+  if (error) throw new AppError(500, error.message);
+  if (!typedMembership) {
+    throw new AppError(404, "That user is not a member of this workspace.");
+  }
+
+  const targetRole = typedMembership.role;
+  const targetEmail = typedMembership.profiles?.email;
+
+  if (!targetEmail) {
+    throw new AppError(404, "That user does not have a sign-in email on file.");
+  }
+
+  if (targetRole === "owner" && memberRole !== "owner" && typedMembership.user_id !== user.id) {
+    throw new AppError(403, "Only the workspace owner can reset another owner's password.");
+  }
+
+  const authClient = createAuthClient();
+  const redirectTo = parsed.redirectTo ?? getCanonicalAppOrigin();
+  const { error: resetError } = await authClient.auth.resetPasswordForEmail(targetEmail, {
+    redirectTo,
+  });
+
+  if (resetError) {
+    throw new AppError(500, resetError.message);
+  }
+
+  return {
+    email: targetEmail,
+    redirectTo,
+    sent: true,
+  };
 }
 
 // ---------------------------------------------------------------------------

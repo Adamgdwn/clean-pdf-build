@@ -1,6 +1,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-import { AppError } from "../../../packages/workflow-service/src/index.js";
+import {
+  AppError,
+  consumeRateLimit,
+  getCanonicalAppOrigin,
+  type RateLimitPolicy,
+} from "../../../packages/workflow-service/src/index.js";
 
 export function readAuthorizationHeader(request: VercelRequest) {
   const authorization = request.headers.authorization;
@@ -12,24 +17,8 @@ export function readAuthorizationHeader(request: VercelRequest) {
   return authorization;
 }
 
-export function getRequestOrigin(request: VercelRequest) {
-  const originHeader = request.headers.origin;
-  const explicitOrigin = Array.isArray(originHeader) ? originHeader[0] : originHeader;
-
-  if (explicitOrigin) {
-    return explicitOrigin;
-  }
-
-  const protocolHeader = request.headers["x-forwarded-proto"];
-  const protocol = Array.isArray(protocolHeader) ? protocolHeader[0] : protocolHeader;
-  const hostHeader = request.headers["x-forwarded-host"] ?? request.headers.host;
-  const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
-
-  if (!host) {
-    throw new AppError(400, "Unable to determine request origin.");
-  }
-
-  return `${protocol ?? "https"}://${host}`;
+export function getRequestOrigin(_: VercelRequest) {
+  return getCanonicalAppOrigin();
 }
 
 export async function readRawBody(request: VercelRequest) {
@@ -48,4 +37,32 @@ export function sendError(response: VercelResponse, error: unknown) {
   return response.status(typedError.statusCode ?? 500).json({
     message: typedError.message ?? "Unexpected error",
   });
+}
+
+function setRateLimitHeaders(response: VercelResponse, limit: number, remaining: number, resetAt: number) {
+  response.setHeader("X-RateLimit-Limit", String(limit));
+  response.setHeader("X-RateLimit-Remaining", String(remaining));
+  response.setHeader("X-RateLimit-Reset", String(Math.floor(resetAt / 1000)));
+}
+
+function getClientIdentifier(request: VercelRequest) {
+  const forwardedFor = request.headers["x-forwarded-for"];
+  const headerValue = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+  const forwardedIp = headerValue?.split(",")[0]?.trim();
+
+  return forwardedIp || request.socket.remoteAddress || "unknown";
+}
+
+export function enforceRateLimit(
+  request: VercelRequest,
+  response: VercelResponse,
+  policy: RateLimitPolicy,
+) {
+  const result = consumeRateLimit(getClientIdentifier(request), policy);
+  setRateLimitHeaders(response, result.limit, result.remaining, result.resetAt);
+
+  if (!result.allowed) {
+    response.setHeader("Retry-After", String(result.retryAfterSeconds));
+    throw new AppError(429, "Too many requests. Please wait a moment and try again.");
+  }
 }

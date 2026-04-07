@@ -40,6 +40,9 @@ Set these in Vercel for Preview and Production:
 - `EASYDRAFT_NOTIFICATION_FROM_EMAIL`
 - `EASYDRAFT_NOTIFICATION_FROM_NAME`
 - `EASYDRAFT_NOTIFICATION_REPLY_TO`
+- `EASYDRAFT_REQUIRE_STRIPE`
+- `EASYDRAFT_REQUIRE_EMAIL_DELIVERY`
+- `EASYDRAFT_PROCESSOR_SECRET`
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 
@@ -65,6 +68,9 @@ Recommended values:
 - `EASYDRAFT_NOTIFICATION_FROM_EMAIL` = verified sender address for notifications
 - `EASYDRAFT_NOTIFICATION_FROM_NAME` = optional human-friendly sender name such as `EasyDraft`
 - `EASYDRAFT_NOTIFICATION_REPLY_TO` = optional reply-to mailbox for notification responses
+- `EASYDRAFT_REQUIRE_STRIPE` = `true` in environments where billing must fail closed if Stripe is missing
+- `EASYDRAFT_REQUIRE_EMAIL_DELIVERY` = `true` in environments where managed sends must fail closed if email is missing
+- `EASYDRAFT_PROCESSOR_SECRET` = shared secret required by the processor service in production; send it as `x-processor-secret` or `Authorization: Bearer <secret>`
 - `STRIPE_SECRET_KEY` = your Stripe secret key for the environment
 - `STRIPE_WEBHOOK_SECRET` = the signing secret for the `POST /api/stripe-webhook` endpoint
 
@@ -162,11 +168,11 @@ Until that integration is wired, `internal_use_only` is the built-in low-cost si
 
 ## Notifications and processor service
 
-Managed signature emails are attempted inline when notifications are queued and a supported email provider is configured. Resend is the recommended provider. The separate processor is still useful for retries and for OCR / field-detection workloads.
+Managed signature emails are attempted inline when notifications are queued and a supported email provider is configured. In production runtime, platform-managed sends now fail closed if email delivery is not configured. Resend is the recommended provider. The separate processor is still useful for retries and for OCR / field-detection workloads.
 
 ## Processor service
 
-The local processor service is still a separate boundary by design. It currently advances queued jobs with mocked OCR and field-detection outputs.
+The local processor service is still a separate boundary by design. It currently advances queued jobs with mocked OCR and field-detection outputs. In production runtime it now requires `EASYDRAFT_PROCESSOR_SECRET`.
 
 Near-term production options:
 

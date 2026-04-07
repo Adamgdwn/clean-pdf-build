@@ -22,6 +22,7 @@ The product names that will appear in the Stripe dashboard after first use:
 | Product name | Type | Price |
 |---|---|---|
 | `EasyDraftDocs - Team` | Recurring subscription | $12 CAD / seat / month |
+| `EasyDraftDocs - Team Annual` | Recurring subscription | $120 CAD / seat / year |
 | `EasyDraftDocs External Signer Tokens` | One-time payment | $12 CAD per bundle |
 
 ### Customer Portal
@@ -60,7 +61,7 @@ All events are processed **idempotently** via the `stripe_processed_events` tabl
 2. Stripe stores the quantity on the Subscription item.
 3. On `customer.subscription.created/updated` webhooks, `subscription.items.data[0].quantity` is synced to `workspace_subscriptions.seat_count`.
 4. Seat changes (upgrades/downgrades) go through the Customer Portal — Stripe fires `customer.subscription.updated` which re-syncs the count.
-5. `seat_count` is displayed in the Billing Panel. The monthly cost shown in the UI is `seat_count × $12 CAD`.
+5. `seat_count` is displayed in the Billing Panel. The UI shows either monthly billing (`seat_count × $12 CAD`) or annual billing (`seat_count × $120 CAD`) depending on the selected plan.
 
 There is currently **no server-side enforcement** that `seat_count` matches actual workspace member count. That is intentional — the launch model trusts the customer to select the correct number of seats.
 
@@ -130,7 +131,7 @@ Both sums are **all-time** (tokens do not expire or reset per billing period). T
 
 3. **Test subscription checkout:**
    - Open the app, go to Billing.
-   - Enter seat count, click Subscribe.
+   - Enter seat count, choose either Monthly or Annual, and click Subscribe.
    - Use Stripe test card `4242 4242 4242 4242`, any future expiry, any CVC.
    - On success, the CLI terminal shows `checkout.session.completed` followed by `customer.subscription.created`.
    - Refresh the app — the Billing Panel should show the active subscription.

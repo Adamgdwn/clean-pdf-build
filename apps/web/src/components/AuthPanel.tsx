@@ -61,6 +61,29 @@ export function AuthPanel({ sessionUser, guestSigningSession, hasPendingInvite, 
     onSignOut();
   }
 
+  async function handlePasswordReset() {
+    if (!email.trim()) {
+      setErrorMessage("Enter your email first, then request a password reset link.");
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      const { error } = await browserSupabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: window.location.origin,
+      });
+      if (error) throw error;
+      setNoticeMessage(`Password reset email sent to ${email.trim()}.`);
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   return (
     <section className="card">
       <p className="eyebrow">Authentication</p>
@@ -90,6 +113,10 @@ export function AuthPanel({ sessionUser, guestSigningSession, hasPendingInvite, 
         </div>
       ) : (
         <form className="stack" onSubmit={handleAuthSubmit}>
+          <p className="muted">
+            Owners, administrators, and employees all sign in here. There is no separate admin portal.
+          </p>
+
           {hasPendingInvite ? (
             <div className="alert success">
               You have a pending invitation. Sign up or sign in to join the workspace.
@@ -155,6 +182,17 @@ export function AuthPanel({ sessionUser, guestSigningSession, hasPendingInvite, 
           <button className="primary-button" disabled={isLoading} type="submit">
             {authMode === "sign_in" ? "Continue" : "Create account"}
           </button>
+
+          {authMode === "sign_in" ? (
+            <button
+              className="ghost-button"
+              disabled={isLoading}
+              onClick={handlePasswordReset}
+              type="button"
+            >
+              Forgot password
+            </button>
+          ) : null}
 
           {!hasPendingInvite ? (
             <p className="muted">
