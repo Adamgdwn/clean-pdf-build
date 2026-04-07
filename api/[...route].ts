@@ -1,6 +1,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import adminOverviewHandler from "../apps/web/api/admin-overview.js";
+import adminUsersHandler from "../apps/web/api/admin-users.js";
+import authPasswordHandler from "../apps/web/api/auth-password.js";
+import authPasswordFormHandler from "../apps/web/api/auth-password-form.js";
+import authPasswordResetHandler from "../apps/web/api/auth-password-reset.js";
+import authRegisterHandler from "../apps/web/api/auth-register.js";
 import billingCheckoutHandler from "../apps/web/api/billing-checkout.js";
 import billingOverviewHandler from "../apps/web/api/billing-overview.js";
 import billingPortalHandler from "../apps/web/api/billing-portal.js";
@@ -28,18 +33,31 @@ import documentSignersHandler from "../apps/web/api/document-signers.js";
 import documentUndoHandler from "../apps/web/api/document-undo.js";
 import documentWorkflowHandler from "../apps/web/api/document-workflow.js";
 import documentHandler from "../apps/web/api/document.js";
+import documentsListHandler from "../apps/web/api/documents-list.js";
 import documentsHandler from "../apps/web/api/documents.js";
 import healthHandler from "../apps/web/api/health.js";
 import profileHandler from "../apps/web/api/profile.js";
 import savedSignaturesHandler from "../apps/web/api/saved-signatures.js";
 import sessionHandler from "../apps/web/api/session.js";
+import storageUploadHandler from "../apps/web/api/storage-upload.js";
 import stripeWebhookHandler from "../apps/web/api/stripe-webhook.js";
+import workspaceInviteAcceptHandler from "../apps/web/api/workspace-invite-accept.js";
+import workspaceInviteResendHandler from "../apps/web/api/workspace-invite-resend.js";
+import workspaceInviteHandler from "../apps/web/api/workspace-invite.js";
+import workspaceMemberResetHandler from "../apps/web/api/workspace-member-reset.js";
+import workspaceTeamHandler from "../apps/web/api/workspace-team.js";
+import workspaceUpdateHandler from "../apps/web/api/workspace-update.js";
 
 type RouteHandler = (request: VercelRequest, response: VercelResponse) => Promise<unknown> | unknown;
 
 const routeHandlers: Record<string, RouteHandler> = {
   "admin-overview": adminOverviewHandler,
   "admin-user-invite": adminUserInviteHandler,
+  "admin-users": adminUsersHandler,
+  "auth-password": authPasswordHandler,
+  "auth-password-form": authPasswordFormHandler,
+  "auth-password-reset": authPasswordResetHandler,
+  "auth-register": authRegisterHandler,
   "billing-checkout": billingCheckoutHandler,
   "billing-overview": billingOverviewHandler,
   "billing-portal": billingPortalHandler,
@@ -66,12 +84,20 @@ const routeHandlers: Record<string, RouteHandler> = {
   "document-undo": documentUndoHandler,
   "document-workflow": documentWorkflowHandler,
   document: documentHandler,
+  "documents-list": documentsListHandler,
   documents: documentsHandler,
   health: healthHandler,
   profile: profileHandler,
   "saved-signatures": savedSignaturesHandler,
   session: sessionHandler,
+  "storage-upload": storageUploadHandler,
   "stripe-webhook": stripeWebhookHandler,
+  "workspace-invite": workspaceInviteHandler,
+  "workspace-invite-accept": workspaceInviteAcceptHandler,
+  "workspace-invite-resend": workspaceInviteResendHandler,
+  "workspace-member-reset": workspaceMemberResetHandler,
+  "workspace-team": workspaceTeamHandler,
+  "workspace-update": workspaceUpdateHandler,
 };
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {

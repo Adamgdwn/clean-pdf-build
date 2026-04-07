@@ -5,7 +5,7 @@ import type { Session } from "@supabase/supabase-js";
 import { getDocumentSendReadiness } from "@clean-pdf/domain";
 
 import { apiFetch } from "./lib/api";
-import { browserSupabase } from "./lib/supabase";
+import { clearStoredSession, loadStoredSession, persistSession } from "./lib/session-storage";
 import { AuthPanel } from "./components/AuthPanel";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { OwnerPortal } from "./components/OwnerPortal";
@@ -23,6 +23,10 @@ import type {
 } from "./types";
 
 type PortalView = "workspace" | "owner";
+
+const shouldRestoreSessionFromRedirect =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("signedIn") === "1";
 
 
 
@@ -270,6 +274,28 @@ function getQuickRouteLabels(deliveryMode: WorkflowDocument["deliveryMode"]) {
   };
 }
 
+function getFallbackSessionUser(currentSession: Session): SessionUser | null {
+  const user = currentSession.user;
+  const email = user.email ?? null;
+
+  if (!user.id || !email) {
+    return null;
+  }
+
+  const rawName = user.user_metadata?.full_name;
+  const name =
+    typeof rawName === "string" && rawName.trim().length > 0
+      ? rawName.trim()
+      : email.split("@")[0] || "EasyDraft user";
+
+  return {
+    id: user.id,
+    name,
+    email,
+    isAdmin: false,
+  };
+}
+
 type ChecklistStep = {
   label: string;
   detail: string;
@@ -430,9 +456,14 @@ export default function App() {
   const [profileProductUpdatesOptIn, setProfileProductUpdatesOptIn] = useState(true);
   const [digitalSignatureLabel, setDigitalSignatureLabel] = useState("");
   const [digitalSignatureTitle, setDigitalSignatureTitle] = useState("");
+  const [digitalSignatureSignerName, setDigitalSignatureSignerName] = useState("");
+  const [digitalSignatureSignerEmail, setDigitalSignatureSignerEmail] = useState("");
+  const [digitalSignatureOrganizationName, setDigitalSignatureOrganizationName] = useState("");
   const [digitalSignatureProvider, setDigitalSignatureProvider] =
     useState<"easy_draft_remote" | "qualified_remote" | "organization_hsm">("easy_draft_remote");
   const [digitalSignatureAssuranceLevel, setDigitalSignatureAssuranceLevel] = useState("advanced");
+  const [activeSigningReason, setActiveSigningReason] = useState("approve");
+  const [activeSigningLocation, setActiveSigningLocation] = useState("");
   const [nextSignerName, setNextSignerName] = useState("");
   const [nextSignerEmail, setNextSignerEmail] = useState("");
   const [fieldX, setFieldX] = useState("120");
@@ -623,6 +654,7 @@ export default function App() {
     setSession(currentSession);
 
     if (!currentSession) {
+      clearStoredSession();
       setSessionUser(null);
       setDocuments([]);
       setBillingOverview(null);
@@ -636,8 +668,20 @@ export default function App() {
       return;
     }
 
-    const payload = await apiFetch<{ user: SessionUser }>("/session", currentSession);
-    setSessionUser(payload.user);
+    persistSession(currentSession);
+    const fallbackUser = getFallbackSessionUser(currentSession);
+    if (fallbackUser) {
+      setSessionUser(fallbackUser);
+    }
+
+    try {
+      const payload = await apiFetch<{ user: SessionUser }>("/session", currentSession);
+      setSessionUser(payload.user);
+    } catch (error) {
+      if (!fallbackUser) {
+        throw error;
+      }
+    }
   }
 
   async function refreshBilling(activeSession: Session) {
@@ -687,7 +731,10 @@ export default function App() {
   }
 
   async function refreshDocuments(activeSession: Session) {
-    const payload = await apiFetch<{ documents: WorkflowDocument[] }>("/documents", activeSession);
+    const payload = await apiFetch<{ documents: WorkflowDocument[] }>("/documents-list", activeSession, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
     setDocuments(payload.documents);
     setSelectedDocumentId((currentId) => currentId ?? payload.documents[0]?.id ?? null);
   }
@@ -737,7 +784,12 @@ export default function App() {
     }
   }
 
-  async function runGuestFieldComplete(fieldId: string, value?: string | null) {
+  async function runGuestFieldComplete(
+    fieldId: string,
+    signingReason?: string | null,
+    signingLocation?: string | null,
+    value?: string | null,
+  ) {
     if (!guestSigningSession) {
       return;
     }
@@ -754,6 +806,8 @@ export default function App() {
           token: guestSigningSession.signerToken,
           documentId: guestSigningSession.documentId,
           fieldId,
+          signingReason: signingReason ?? null,
+          signingLocation: signingLocation ?? null,
           value: value ?? null,
         }),
       });
@@ -1185,18 +1239,25 @@ export default function App() {
     setNoticeMessage(null);
 
     try {
-      await apiFetch<{ profile: DigitalSignatureProfile }>("/digital-signatures", session, {
+      const payload = await apiFetch<{ profile: DigitalSignatureProfile }>("/digital-signatures", session, {
         method: "POST",
         body: JSON.stringify({
           label: digitalSignatureLabel,
           titleText: digitalSignatureTitle.trim() || null,
+          signerName: digitalSignatureSignerName.trim(),
+          signerEmail: digitalSignatureSignerEmail.trim() || null,
+          organizationName: digitalSignatureOrganizationName.trim() || null,
           provider: digitalSignatureProvider,
           assuranceLevel: digitalSignatureAssuranceLevel,
         }),
       });
+      setDigitalSignatureProfiles((current) => [payload.profile, ...current.filter((profile) => profile.id !== payload.profile.id)]);
       setDigitalSignatureLabel("");
       setDigitalSignatureTitle("");
-      await refreshDigitalSignatureProfiles(session);
+      setDigitalSignatureSignerName("");
+      setDigitalSignatureSignerEmail("");
+      setDigitalSignatureOrganizationName("");
+      refreshDigitalSignatureProfiles(session).catch(() => null);
       setNoticeMessage(
         "Digital-signature profile request saved. Certificate-backed signing still requires provider verification before it can be used on PDFs.",
       );
@@ -1291,15 +1352,26 @@ export default function App() {
         }
 
         storagePath = `${sessionUser.id}/saved-signatures/${crypto.randomUUID()}-${file.name}`;
-        const { error: uploadError } = await browserSupabase.storage
-          .from(signatureBucket)
-          .upload(storagePath, file, {
-            contentType: file.type || "image/png",
-            upsert: false,
-          });
+        let uploadResponse: Response;
+        try {
+          uploadResponse = await fetch(
+            `/api/storage-upload?bucket=${encodeURIComponent(signatureBucket)}&path=${encodeURIComponent(storagePath)}`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${session.access_token}`,
+                "Content-Type": file.type || "image/png",
+              },
+              body: file,
+            },
+          );
+        } catch (error) {
+          throw new Error(`Network error calling /storage-upload: ${(error as Error).message}`);
+        }
 
-        if (uploadError) {
-          throw uploadError;
+        if (!uploadResponse.ok) {
+          const payload = (await uploadResponse.json().catch(() => null)) as { message?: string } | null;
+          throw new Error(payload?.message ?? "Failed to upload saved signature.");
         }
       }
 
@@ -1314,6 +1386,10 @@ export default function App() {
           isDefault: savedSignatures.length === 0,
         }),
       });
+      setSavedSignatures((current) => [
+        payload.signature,
+        ...current.filter((signature) => signature.id !== payload.signature.id),
+      ]);
 
       setSavedSignatureLabel("");
       setSavedSignatureTitle("");
@@ -1325,7 +1401,7 @@ export default function App() {
         uploadInput.value = "";
       }
 
-      await refreshSavedSignatures(session);
+      refreshSavedSignatures(session).catch(() => null);
       setNoticeMessage("Saved signature added to your EasyDraft profile.");
     } catch (error) {
       setErrorMessage((error as Error).message);
@@ -1335,9 +1411,12 @@ export default function App() {
   }
 
   function handleSignOut() {
+    clearStoredSession();
     setPreviewUrl(null);
     setLocalPreviewUrl(null);
     setUploadName(null);
+    setSession(null);
+    setSessionUser(null);
   }
 
   async function handleDeleteAccount(event: FormEvent<HTMLFormElement>) {
@@ -1356,7 +1435,6 @@ export default function App() {
         body: JSON.stringify({ confirmEmail: deleteAccountConfirmEmail }),
       });
       // Account is gone — sign out and clear state
-      await browserSupabase.auth.signOut();
       handleSignOut();
       setSession(null);
       setSessionUser(null);
@@ -1389,15 +1467,21 @@ export default function App() {
       });
       setUploadName(file.name);
 
-      const { error: uploadError } = await browserSupabase.storage
-        .from(documentBucket)
-        .upload(storagePath, file, {
-          contentType: file.type || "application/pdf",
-          upsert: false,
-        });
+      const uploadResponse = await fetch(
+        `/api/storage-upload?bucket=${encodeURIComponent(documentBucket)}&path=${encodeURIComponent(storagePath)}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            "Content-Type": file.type || "application/pdf",
+          },
+          body: file,
+        },
+      );
 
-      if (uploadError) {
-        throw uploadError;
+      if (!uploadResponse.ok) {
+        const payload = (await uploadResponse.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(payload?.message ?? "Failed to upload PDF.");
       }
 
       const payload = await apiFetch<{ document: WorkflowDocument }>("/documents", session, {
@@ -1507,6 +1591,8 @@ export default function App() {
     const signingDocumentId = params.get("documentId");
     const inviteToken = params.get("invite");
     const requestedPortal = params.get("portal");
+    const authError = params.get("authError");
+    const signedIn = params.get("signedIn");
 
     if (requestedPortal === "workspace" || requestedPortal === "owner") {
       setPortalView(requestedPortal);
@@ -1536,6 +1622,10 @@ export default function App() {
       setNoticeMessage("Billing portal placeholder opened. Live billing will activate once Stripe is configured.");
     }
 
+    if (authError) {
+      setErrorMessage(authError);
+    }
+
     if (signingToken && signingDocumentId) {
       fetch("/api/signing-token-session", {
         method: "POST",
@@ -1559,32 +1649,34 @@ export default function App() {
     params.delete("plan");
     params.delete("billing");
     params.delete("signingToken");
+    params.delete("authError");
+    params.delete("signedIn");
     const query = params.toString();
     window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
   }, []);
 
   useEffect(() => {
-    const authSubscription = browserSupabase.auth.onAuthStateChange((_, nextSession) => {
-      refreshSession(nextSession).catch((error) => setErrorMessage((error as Error).message));
-    });
-
-    browserSupabase.auth
-      .getSession()
-      .then(({ data }) => refreshSession(data.session))
-      .catch((error) => setErrorMessage((error as Error).message));
-
-    return () => {
-      authSubscription.data.subscription.unsubscribe();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!session) {
+    if (!shouldRestoreSessionFromRedirect) {
+      clearStoredSession();
+      refreshSession(null).catch(() => null);
       return;
     }
 
-    Promise.all([
-      refreshDocuments(session),
+    const storedSession = loadStoredSession();
+    refreshSession(storedSession)
+      .catch(() => {
+        clearStoredSession();
+        return refreshSession(null);
+      })
+      .catch(() => null);
+  }, []);
+
+  useEffect(() => {
+    if (!session || !sessionUser) {
+      return;
+    }
+
+    Promise.allSettled([
       refreshBilling(session),
       refreshTeam(session),
       refreshSavedSignatures(session),
@@ -1610,8 +1702,8 @@ export default function App() {
           })
           .catch((err: Error) => setErrorMessage(err.message));
       }
-    }).catch((error) => setErrorMessage((error as Error).message));
-  }, [session, sessionUser?.isAdmin]);
+    });
+  }, [session, sessionUser, sessionUser?.isAdmin]);
 
   useEffect(() => {
     setSignerParticipantType(deliveryMode === "internal_use_only" ? "internal" : "external");
@@ -1674,8 +1766,11 @@ export default function App() {
   const canAccessOwnerPortal = Boolean(
     sessionUser &&
       (sessionUser.isAdmin ||
+        (!workspaceTeam && !billingOverview) ||
         ["owner", "admin", "billing_admin"].includes(
-          billingOverview?.workspace.membershipRole ?? "",
+          billingOverview?.workspace.membershipRole ??
+            workspaceTeam?.members.find((member) => member.isCurrentUser)?.role ??
+            "",
         )),
   );
 
@@ -1753,6 +1848,9 @@ export default function App() {
           sessionUser={sessionUser}
           guestSigningSession={guestSigningSession}
           hasPendingInvite={pendingInviteToken !== null}
+          onSessionCreated={(nextSession) => {
+            refreshSession(nextSession).catch((error) => setErrorMessage((error as Error).message));
+          }}
           onSignOut={handleSignOut}
         />
 
@@ -2045,6 +2143,14 @@ export default function App() {
                   <div>
                     <strong>{profile.label}</strong>
                     <p className="muted">
+                      Digitally signed by {profile.signerName}
+                    </p>
+                    <p className="muted">
+                      {profile.titleText ? `${profile.titleText} · ` : ""}
+                      {profile.organizationName ? `${profile.organizationName} · ` : ""}
+                      {profile.signerEmail ?? "Email not set"}
+                    </p>
+                    <p className="muted">
                       {profile.provider} · {profile.assuranceLevel}
                     </p>
                   </div>
@@ -2062,10 +2168,37 @@ export default function App() {
                   />
                 </label>
                 <label className="form-field">
+                  <span>Signer full name</span>
+                  <input
+                    required
+                    placeholder="Adam Goodwin"
+                    value={digitalSignatureSignerName}
+                    onChange={(event) => setDigitalSignatureSignerName(event.target.value)}
+                  />
+                </label>
+                <label className="form-field">
+                  <span>Signer email</span>
+                  <input
+                    type="email"
+                    placeholder="admin@agoperations.ca"
+                    value={digitalSignatureSignerEmail}
+                    onChange={(event) => setDigitalSignatureSignerEmail(event.target.value)}
+                  />
+                </label>
+                <label className="form-field">
                   <span>Title text</span>
                   <input
+                    placeholder="VP Operations"
                     value={digitalSignatureTitle}
                     onChange={(event) => setDigitalSignatureTitle(event.target.value)}
+                  />
+                </label>
+                <label className="form-field">
+                  <span>Organization</span>
+                  <input
+                    placeholder="AG Operations"
+                    value={digitalSignatureOrganizationName}
+                    onChange={(event) => setDigitalSignatureOrganizationName(event.target.value)}
                   />
                 </label>
                 <div className="form-grid compact-grid">
@@ -2097,6 +2230,20 @@ export default function App() {
                       <option value="qualified">Qualified</option>
                     </select>
                   </label>
+                </div>
+                <div className="row-card">
+                  <div>
+                    <strong>Preview appearance</strong>
+                    <p className="muted">
+                      Digitally signed by {digitalSignatureSignerName || "Signer name"}
+                    </p>
+                    <p className="muted">
+                      {digitalSignatureTitle || "Title"} · {digitalSignatureOrganizationName || "Organization"}
+                    </p>
+                    <p className="muted">
+                      Reason will be selected at signing time. Date will be stamped at signing time.
+                    </p>
+                  </div>
                 </div>
                 <button className="ghost-button" disabled={isLoading} type="submit">
                   Request digital signing profile
@@ -3013,6 +3160,33 @@ export default function App() {
                       <span>{selectedDocument.fields.length}</span>
                     </div>
                     <div className="stack">
+                      {currentUserIsActiveWorkflowSigner ? (
+                        <div className="row-card">
+                          <label className="form-field" style={{ flex: 1, margin: 0 }}>
+                            <span>Reason for signing</span>
+                            <select
+                              value={activeSigningReason}
+                              onChange={(event) => setActiveSigningReason(event.target.value)}
+                            >
+                              <option value="author">Author</option>
+                              <option value="approve">Approve</option>
+                              <option value="verify">Verify</option>
+                              <option value="review">Review</option>
+                              <option value="acknowledge">Acknowledge</option>
+                              <option value="witness">Witness</option>
+                              <option value="certify">Certify</option>
+                            </select>
+                          </label>
+                          <label className="form-field" style={{ flex: 1, margin: 0 }}>
+                            <span>Signing location <span className="muted">(optional)</span></span>
+                            <input
+                              placeholder="Edmonton, Alberta"
+                              value={activeSigningLocation}
+                              onChange={(event) => setActiveSigningLocation(event.target.value)}
+                            />
+                          </label>
+                        </div>
+                      ) : null}
                       {selectedDocument.fields.map((field) => (
                         <div key={field.id} className="row-card">
                           <div>
@@ -3054,13 +3228,25 @@ export default function App() {
                                 disabled={isLoading}
                                 onClick={() =>
                                   guestSigningSession
-                                    ? runGuestFieldComplete(field.id)
+                                    ? runGuestFieldComplete(
+                                        field.id,
+                                        activeSigningReason,
+                                        activeSigningLocation || null,
+                                      )
                                     : runDocumentAction("/document-field-complete", {
                                         documentId: selectedDocument.id,
                                         fieldId: field.id,
                                         savedSignatureId:
                                           field.kind === "signature" || field.kind === "initial"
                                             ? selectedSavedSignatureId || null
+                                            : null,
+                                        signingReason:
+                                          field.kind === "signature" || field.kind === "initial"
+                                            ? activeSigningReason
+                                            : null,
+                                        signingLocation:
+                                          field.kind === "signature" || field.kind === "initial"
+                                            ? activeSigningLocation || null
                                             : null,
                                       })
                                 }
@@ -3252,6 +3438,8 @@ export default function App() {
                                   height: Number(freeSignH),
                                   page: Number(freeSignPage),
                                   savedSignatureId: selectedSavedSignatureId || null,
+                                  signingReason: activeSigningReason,
+                                  signingLocation: activeSigningLocation || null,
                                 }),
                               },
                             );
@@ -3270,6 +3458,32 @@ export default function App() {
                           <p className="eyebrow">Place your own signature</p>
                           <span className="muted">No pre-placed field required</span>
                         </div>
+                        <label className="form-field">
+                          <span>Reason for signing</span>
+                          <select
+                            value={activeSigningReason}
+                            onChange={(event) => setActiveSigningReason(event.target.value)}
+                          >
+                            <option value="author">Author</option>
+                            <option value="approve">Approve</option>
+                            <option value="verify">Verify</option>
+                            <option value="review">Review</option>
+                            <option value="acknowledge">Acknowledge</option>
+                            <option value="witness">Witness</option>
+                            <option value="certify">Certify</option>
+                          </select>
+                        </label>
+                        <label className="form-field">
+                          <span>Signing location <span className="muted">(optional)</span></span>
+                          <input
+                            placeholder="Edmonton, Alberta"
+                            value={activeSigningLocation}
+                            onChange={(event) => setActiveSigningLocation(event.target.value)}
+                          />
+                        </label>
+                        <p className="muted">
+                          Choose the purpose and location for this signing action now. These describe the specific event, not the reusable signature profile.
+                        </p>
                         <p className="muted">
                           Drag the box below to position and resize your signature, then click <em>Place and sign</em>.
                           Your currently selected saved signature will be used.

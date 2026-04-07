@@ -200,6 +200,10 @@ export type DigitalSignatureProfile = {
   id: string;
   label: string;
   titleText: string | null;
+  signerName: string;
+  signerEmail: string | null;
+  organizationName: string | null;
+  signingReason: string | null;
   provider: "easy_draft_remote" | "qualified_remote" | "organization_hsm";
   assuranceLevel: string;
   status: "setup_required" | "requested" | "verified" | "rejected";

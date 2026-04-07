@@ -69,7 +69,7 @@ A production-ready PDF workflow platform. Teams upload contracts and agreements,
    ```bash
    npx supabase db push
    ```
-   Pending migrations add: `export_sha256` column, external signer token ledger, workspace invitations, Stripe CAD billing plan.
+   Pending migrations add: `export_sha256` column, external signer token ledger, workspace invitations, Stripe CAD billing plan, and digital-signature identity fields.
 
 2. **Verify Stripe is wired in production**
    - `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` must be set in Vercel
@@ -78,8 +78,13 @@ A production-ready PDF workflow platform. Teams upload contracts and agreements,
    - See `STRIPE_INTEGRATION_NOTES.md` for the full setup checklist
 
 3. **Run a structured end-to-end smoke test** (one person, ~30 min)
+   Use one owner account and one normal user account.
    - Sign up → receive free trial
+   - Confirm both `User workspace` and `Owner portal` are visible for the owner account
+   - Create one saved signature in the signature library
+   - Create one digital-signature profile with signer identity details
    - Upload a PDF → add a signer → add a signature field → send
+   - During signing, choose a `Reason for signing` and optional `Signing location`
    - Open the signer token link in a private window → complete the field
    - Download the signed PDF → open the completion certificate → verify SHA-256 hash matches `sha256sum` output
    - Invite a teammate → accept the invite → confirm workspace membership
@@ -116,6 +121,7 @@ A production-ready PDF workflow platform. Teams upload contracts and agreements,
    - Pick a provider: `easy_draft_remote`, `qualified_remote`, or `organization_hsm`
    - Use `node-signpdf` or the provider SDK to embed a PKCS#7 `/Sig` annotation
    - The `DigitalSignatureProfile` model and UI are already in place
+   - Keep signer identity in the reusable profile, but capture signing reason and location at signing time
 
 ### Operations
 

@@ -15,6 +15,7 @@ Use this guide if you are responsible for:
 Current admin and operator capabilities include:
 
 - viewing admin metrics
+- switching between user workspace and owner portal
 - reviewing account status
 - sending tester invite emails
 - checking privilege visibility
@@ -60,6 +61,7 @@ Use the refresh action in the admin console after operational changes if the dat
 
 1. Sign in as the admin user.
 2. Confirm the admin console appears.
+3. Confirm the owner portal appears and the company dashboard loads.
 3. Send one tester invite email.
 4. Confirm the metrics render without errors.
 5. Confirm at least one non-admin owner and one signer account exist.
@@ -144,6 +146,9 @@ Also confirm:
 For production confidence, admins or operators should test:
 
 - upload and preview
+- owner portal and user workspace switching
+- saved signature creation
+- digital-signature profile creation
 - internal-use-only flow
 - self-managed flow
 - platform-managed flow
@@ -159,6 +164,7 @@ For production confidence, admins or operators should test:
 - lock and reopen
 - audit trail
 - version history
+- signing reason and optional signing location captured at signing time
 
 ## Notifications and email delivery
 

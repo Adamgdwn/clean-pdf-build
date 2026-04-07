@@ -246,6 +246,26 @@ Current supported saved signature types:
 
 These can be applied to assigned signature and initial fields.
 
+## Digital signature profiles
+
+Users can also create digital-signature profiles that store signer identity details for future certificate-backed signing.
+
+Current profile fields:
+
+- profile label
+- signer full name
+- signer email
+- title text
+- organization
+- provider
+- assurance level
+
+Important behavior:
+
+- `Reason for signing` is not part of the reusable profile
+- `Signing location` is not part of the reusable profile
+- both are chosen at signing time so they describe the actual signing event
+
 ## Current limitations
 
 The following are not yet fully implemented:
@@ -259,5 +279,7 @@ The following are not yet fully implemented:
 - start with a simple one-signer flow
 - test all three path types
 - use clear participant names and emails
+- when signing, choose a clear reason such as `approve` or `verify`
+- add signing location if that context matters for the record
 - verify `waiting on`, due date, and audit history after each action
 - keep notes on any moment where the next step feels unclear

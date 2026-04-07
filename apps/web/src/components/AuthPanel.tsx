@@ -1,16 +1,24 @@
 import { useState, type FormEvent } from "react";
+import type { Session } from "@supabase/supabase-js";
 
-import { browserSupabase } from "../lib/supabase";
+import { apiFetch } from "../lib/api";
 import type { GuestSigningSession, SessionUser } from "../types";
 
 type Props = {
   sessionUser: SessionUser | null;
   guestSigningSession: GuestSigningSession | null;
   hasPendingInvite: boolean;
+  onSessionCreated: (session: Session) => void;
   onSignOut: () => void;
 };
 
-export function AuthPanel({ sessionUser, guestSigningSession, hasPendingInvite, onSignOut }: Props) {
+export function AuthPanel({
+  sessionUser,
+  guestSigningSession,
+  hasPendingInvite,
+  onSessionCreated,
+  onSignOut,
+}: Props) {
   const [authMode, setAuthMode] = useState<"sign_in" | "sign_up">("sign_in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -20,6 +28,26 @@ export function AuthPanel({ sessionUser, guestSigningSession, hasPendingInvite, 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
 
+  function fallbackToBrowserFormSignIn(nextEmail: string, nextPassword: string) {
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = "/api/auth-password-form";
+    form.style.display = "none";
+
+    const emailInput = document.createElement("input");
+    emailInput.name = "email";
+    emailInput.value = nextEmail;
+    form.appendChild(emailInput);
+
+    const passwordInput = document.createElement("input");
+    passwordInput.name = "password";
+    passwordInput.value = nextPassword;
+    form.appendChild(passwordInput);
+
+    document.body.appendChild(form);
+    form.submit();
+  }
+
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsLoading(true);
@@ -28,25 +56,32 @@ export function AuthPanel({ sessionUser, guestSigningSession, hasPendingInvite, 
 
     try {
       if (authMode === "sign_in") {
-        const { error } = await browserSupabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        fallbackToBrowserFormSignIn(email, password);
+        return;
       } else {
-        const { data, error } = await browserSupabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: window.location.origin,
-            data: {
-              full_name: fullName,
-              workspace_name: workspaceName.trim() || undefined,
-            },
+        const payload = await apiFetch<{ session: Session | null; user: { email?: string | null } | null }>(
+          "/auth-register",
+          null,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              email,
+              password,
+              fullName,
+              workspaceName: workspaceName.trim() || undefined,
+            }),
           },
-        });
-        if (error) throw error;
+        );
+        if (payload.session) {
+          onSessionCreated(payload.session);
+        } else {
+          setNoticeMessage(
+            "Account created. Check your email to confirm your address before signing in.",
+          );
+          return;
+        }
         setNoticeMessage(
-          data.session
-            ? "Account created and signed in. You can start using EasyDraftDocs now."
-            : "Account created. Check your email to confirm your address before signing in.",
+          "Account created and signed in. You can start using EasyDraftDocs now.",
         );
       }
     } catch (error) {
@@ -57,7 +92,6 @@ export function AuthPanel({ sessionUser, guestSigningSession, hasPendingInvite, 
   }
 
   async function handleSignOut() {
-    await browserSupabase.auth.signOut();
     onSignOut();
   }
 
@@ -72,10 +106,10 @@ export function AuthPanel({ sessionUser, guestSigningSession, hasPendingInvite, 
     setNoticeMessage(null);
 
     try {
-      const { error } = await browserSupabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: window.location.origin,
+      await apiFetch("/auth-password-reset", null, {
+        method: "POST",
+        body: JSON.stringify({ email: email.trim() }),
       });
-      if (error) throw error;
       setNoticeMessage(`Password reset email sent to ${email.trim()}.`);
     } catch (error) {
       setErrorMessage((error as Error).message);

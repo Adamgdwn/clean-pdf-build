@@ -202,6 +202,13 @@ select {
   padding: 22px;
 }
 
+.owner-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
 .owner-metrics-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -213,6 +220,14 @@ select {
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
   gap: 20px;
+}
+
+.owner-summary-card {
+  padding: 18px;
+}
+
+.owner-summary-card .row-card span {
+  white-space: nowrap;
 }
 
 .panel {
@@ -738,6 +753,10 @@ select {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .owner-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
   .sidebar {
     border-right: 0;
     border-bottom: 1px solid var(--border);
@@ -749,6 +768,7 @@ select {
   .meta-grid,
   .compact-grid,
   .admin-metrics,
+  .owner-summary-grid,
   .owner-metrics-grid {
     grid-template-columns: 1fr;
   }

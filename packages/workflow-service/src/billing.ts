@@ -426,7 +426,7 @@ async function markStripeEventProcessed(
 export async function getBillingOverviewForAuthorizationHeader(
   authorizationHeader: string | undefined,
 ) {
-  const stripeReady = assertStripeConfigurationReady();
+  const stripeReady = isStripeConfigured();
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const { workspace, membership } = await getBillingWorkspaceForUser(user);
 

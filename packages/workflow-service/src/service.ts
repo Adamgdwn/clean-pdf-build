@@ -190,6 +190,10 @@ type DigitalSignatureProfileRow = {
   user_id: string;
   label: string;
   title_text: string | null;
+  signer_name: string;
+  signer_email: string | null;
+  organization_name: string | null;
+  signing_reason: string | null;
   provider: "easy_draft_remote" | "qualified_remote" | "organization_hsm";
   assurance_level: string;
   status: "setup_required" | "requested" | "verified" | "rejected";
@@ -263,6 +267,10 @@ type DigitalSignatureProfileResponse = {
   id: string;
   label: string;
   titleText: string | null;
+  signerName: string;
+  signerEmail: string | null;
+  organizationName: string | null;
+  signingReason: string | null;
   provider: "easy_draft_remote" | "qualified_remote" | "organization_hsm";
   assuranceLevel: string;
   status: "setup_required" | "requested" | "verified" | "rejected";
@@ -374,10 +382,14 @@ const createSavedSignatureInputSchema = z
 
 const completeFieldInputSchema = z.object({
   savedSignatureId: z.string().uuid().nullable().default(null),
+  signingReason: z.string().trim().min(1).max(80).nullable().default(null),
+  signingLocation: z.string().trim().min(1).max(120).nullable().default(null),
 });
 
 const completeFieldTokenInputSchema = z.object({
   value: z.string().trim().max(500).nullable().default(null),
+  signingReason: z.string().trim().min(1).max(80).nullable().default(null),
+  signingLocation: z.string().trim().min(1).max(120).nullable().default(null),
 });
 
 const workflowResponseInputSchema = z.object({
@@ -419,6 +431,16 @@ const adminInviteUserInputSchema = z.object({
 const createDigitalSignatureProfileInputSchema = z.object({
   label: z.string().trim().min(1).max(80),
   titleText: z.string().trim().max(120).nullable().default(null),
+  signerName: z.string().trim().min(1).max(120),
+  signerEmail: z
+    .string()
+    .trim()
+    .email()
+    .transform((value) => normalizeEmailAddress(value))
+    .nullable()
+    .default(null),
+  organizationName: z.string().trim().max(120).nullable().default(null),
+  signingReason: z.string().trim().min(1).max(80),
   provider: z.enum(["easy_draft_remote", "qualified_remote", "organization_hsm"]),
   assuranceLevel: z.string().trim().min(1).max(40).default("advanced"),
 });
@@ -736,6 +758,10 @@ function mapDigitalSignatureProfile(
     id: row.id,
     label: row.label,
     titleText: row.title_text,
+    signerName: row.signer_name,
+    signerEmail: row.signer_email,
+    organizationName: row.organization_name,
+    signingReason: row.signing_reason,
     provider: row.provider,
     assuranceLevel: row.assurance_level,
     status: row.status,
@@ -2352,7 +2378,7 @@ export async function listDigitalSignatureProfilesForAuthorizationHeader(
   const { data, error } = await adminClient
     .from("digital_signature_profiles")
     .select(
-      "id, user_id, label, title_text, provider, assurance_level, status, certificate_fingerprint, provider_reference, created_at, updated_at",
+      "id, user_id, label, title_text, signer_name, signer_email, organization_name, signing_reason, provider, assurance_level, status, certificate_fingerprint, provider_reference, created_at, updated_at",
     )
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
@@ -2383,13 +2409,17 @@ export async function createDigitalSignatureProfileForAuthorizationHeader(
       user_id: user.id,
       label: parsed.label,
       title_text: parsed.titleText?.trim() || null,
+      signer_name: parsed.signerName,
+      signer_email: parsed.signerEmail,
+      organization_name: parsed.organizationName?.trim() || null,
+      signing_reason: parsed.signingReason,
       provider: parsed.provider,
       assurance_level: parsed.assuranceLevel,
       status: providerConnected ? "setup_required" : "requested",
       provider_reference: providerConnected ? `${parsed.provider}-${crypto.randomUUID()}` : null,
     })
     .select(
-      "id, user_id, label, title_text, provider, assurance_level, status, certificate_fingerprint, provider_reference, created_at, updated_at",
+      "id, user_id, label, title_text, signer_name, signer_email, organization_name, signing_reason, provider, assurance_level, status, certificate_fingerprint, provider_reference, created_at, updated_at",
     )
     .single();
 
@@ -3747,6 +3777,8 @@ export async function completeFieldForAuthorizationHeader(
   await appendAuditEvent(documentId, user.id, "field.completed", `Completed field ${field.label}`, {
     page: field.page,
     usedSavedSignature: Boolean(appliedSavedSignature),
+    ...(parsedInput.signingReason ? { signingReason: parsedInput.signingReason } : {}),
+    ...(parsedInput.signingLocation ? { signingLocation: parsedInput.signingLocation } : {}),
   });
 
   const updatedDocument = await requireDocumentBundle(documentId);
@@ -4372,6 +4404,8 @@ const placeSignatureInputSchema = z.object({
   height: z.number().positive().max(400),
   page: z.number().int().positive(),
   savedSignatureId: z.string().uuid().optional().nullable(),
+  signingReason: z.string().trim().min(1).max(80).nullable().default(null),
+  signingLocation: z.string().trim().min(1).max(120).nullable().default(null),
   label: z.string().max(80).optional(),
 });
 
@@ -4448,6 +4482,8 @@ export async function placeAndCompleteSignatureFieldForAuthorizationHeader(
     page: parsed.page,
     usedSavedSignature: Boolean(appliedSavedSignature),
     freePlaced: true,
+    ...(parsed.signingReason ? { signingReason: parsed.signingReason } : {}),
+    ...(parsed.signingLocation ? { signingLocation: parsed.signingLocation } : {}),
   });
 
   const updatedDocument = await requireDocumentBundle(documentId);
@@ -4513,6 +4549,8 @@ export async function completeFieldForSigningToken(
   await appendAuditEvent(documentId, `guest:${signer.email}`, "field.completed", `Completed field ${field.label} (guest signer)`, {
     page: field.page,
     guestSigner: true,
+    ...(parsedInput.signingReason ? { signingReason: parsedInput.signingReason } : {}),
+    ...(parsedInput.signingLocation ? { signingLocation: parsedInput.signingLocation } : {}),
   });
 
   const updatedDocument = await requireDocumentBundle(documentId);

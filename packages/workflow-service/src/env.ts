@@ -1,5 +1,30 @@
 import { z } from "zod";
 
+const trimmedOptionalString = z.preprocess((value) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}, z.string().optional());
+
+const trimmedRequiredString = z.preprocess((value) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  return value.trim();
+}, z.string());
+
+const trimmedNonEmptyString = z.preprocess((value) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  return value.trim();
+}, z.string().min(1));
+
 const optionalBooleanFromEnv = z.preprocess((value) => {
   if (typeof value !== "string") {
     return value;
@@ -24,32 +49,33 @@ const optionalBooleanFromEnv = z.preprocess((value) => {
 
 const serverEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).optional(),
-  SUPABASE_URL: z.string().url(),
-  SUPABASE_ANON_KEY: z.string().min(1),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
-  SUPABASE_DOCUMENT_BUCKET: z.string().min(1).default("documents"),
-  SUPABASE_SIGNATURE_BUCKET: z.string().min(1).default("signatures"),
-  EASYDRAFT_ADMIN_EMAILS: z.string().optional(),
-  EASYDRAFT_APP_ORIGIN: z.string().url().default("https://easydraftdocs.app"),
-  EASYDRAFT_EMAIL_PROVIDER: z.enum(["smtp", "resend"]).optional(),
-  EASYDRAFT_NOTIFICATION_FROM_EMAIL: z.string().email().optional(),
-  EASYDRAFT_NOTIFICATION_FROM_NAME: z.string().min(1).optional(),
-  EASYDRAFT_NOTIFICATION_REPLY_TO: z.string().email().optional(),
-  RESEND_API_KEY: z.string().min(1).optional(),
-  SMTP_HOST: z.string().min(1).optional(),
+  SUPABASE_URL: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string().url()),
+  SUPABASE_ANON_KEY: trimmedNonEmptyString,
+  SUPABASE_SERVICE_ROLE_KEY: trimmedNonEmptyString,
+  SUPABASE_DOCUMENT_BUCKET: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string().min(1)).default("documents"),
+  SUPABASE_SIGNATURE_BUCKET: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string().min(1)).default("signatures"),
+  EASYDRAFT_ADMIN_EMAILS: trimmedOptionalString,
+  EASYDRAFT_APP_ORIGIN: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string().url()).default("https://easydraftdocs.app"),
+  EASYDRAFT_EMAIL_PROVIDER: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.enum(["smtp", "resend"])).optional(),
+  EASYDRAFT_NOTIFICATION_FROM_EMAIL: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string().email()).optional(),
+  EASYDRAFT_NOTIFICATION_FROM_NAME: trimmedOptionalString,
+  EASYDRAFT_NOTIFICATION_REPLY_TO: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string().email()).optional(),
+  RESEND_API_KEY: trimmedOptionalString,
+  SMTP_HOST: trimmedOptionalString,
   SMTP_PORT: z.coerce.number().int().positive().optional(),
   SMTP_SECURE: optionalBooleanFromEnv,
-  SMTP_USER: z.string().min(1).optional(),
-  SMTP_PASSWORD: z.string().min(1).optional(),
-  EASYDRAFT_DIGITAL_SIGNING_PROVIDER: z
-    .enum(["qualified_remote", "organization_hsm", "easy_draft_remote"])
-    .optional(),
-  EASYDRAFT_DIGITAL_SIGNING_API_KEY: z.string().min(1).optional(),
+  SMTP_USER: trimmedOptionalString,
+  SMTP_PASSWORD: trimmedOptionalString,
+  EASYDRAFT_DIGITAL_SIGNING_PROVIDER: z.preprocess(
+    (value) => typeof value === "string" ? value.trim() : value,
+    z.enum(["qualified_remote", "organization_hsm", "easy_draft_remote"]),
+  ).optional(),
+  EASYDRAFT_DIGITAL_SIGNING_API_KEY: trimmedOptionalString,
   EASYDRAFT_REQUIRE_STRIPE: optionalBooleanFromEnv,
   EASYDRAFT_REQUIRE_EMAIL_DELIVERY: optionalBooleanFromEnv,
-  EASYDRAFT_PROCESSOR_SECRET: z.string().min(1).optional(),
-  STRIPE_SECRET_KEY: z.string().min(1).optional(),
-  STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+  EASYDRAFT_PROCESSOR_SECRET: trimmedOptionalString,
+  STRIPE_SECRET_KEY: trimmedOptionalString,
+  STRIPE_WEBHOOK_SECRET: trimmedOptionalString,
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

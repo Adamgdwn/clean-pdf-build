@@ -44,7 +44,10 @@ Use this after workflow testing passes and before you present EasyDraft as produ
    - preview `vercel.app` wildcard if you want preview auth testing
 3. Confirm Email auth is enabled.
 4. Confirm the `documents` bucket exists and remains private.
-5. Confirm all SQL migrations are fully applied, including `20260405120000_signing_tokens.sql`.
+5. Confirm all SQL migrations are fully applied, including:
+   - `20260405120000_signing_tokens.sql`
+   - `20260406223000_annual_billing_plan.sql`
+   - `20260407033000_digital_signature_identity_fields.sql`
 
 ## Stripe
 
@@ -99,6 +102,9 @@ Store the future values in your secret manager or Vercel using these names for c
 1. Confirm `admin@agoperations.ca` is included in `EASYDRAFT_ADMIN_EMAILS`.
 2. Create at least one non-admin owner account and two signer accounts for smoke tests.
 3. Verify:
+   - owner portal opens for the owner account
+   - signature library can save at least one typed signature
+   - digital-signature profile can be created without browser fetch errors
    - upload
    - internal-use-only signing
    - field placement
@@ -113,6 +119,7 @@ Store the future values in your secret manager or Vercel using these names for c
    - per-signer notification status visible in participant list
    - per-signer Resend button sends reminder only to that signer
    - Completion certificate opens as printable HTML on completed documents
+   - signing flow prompts for `Reason for signing` and optional `Signing location`
 
 ## Final release gate
 
