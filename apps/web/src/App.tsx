@@ -1671,19 +1671,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!shouldRestoreSessionFromRedirect) {
-      clearStoredSession();
-      refreshSession(null).catch(() => null);
-      return;
-    }
-
     const storedSession = loadStoredSession();
     refreshSession(storedSession)
       .then(() => {
-        setSessionUser((user) => {
-          if (user) showToast(`Welcome back, ${user.name.split(" ")[0]}.`);
-          return user;
-        });
+        // Show toast only on an explicit sign-in redirect, not on every page load
+        if (shouldRestoreSessionFromRedirect) {
+          setSessionUser((user) => {
+            if (user) showToast(`Welcome back, ${user.name.split(" ")[0]}.`);
+            return user;
+          });
+        }
       })
       .catch(() => {
         clearStoredSession();
@@ -1887,6 +1884,7 @@ export default function App() {
           onSessionCreated={(nextSession) => {
             refreshSession(nextSession).catch((error) => setErrorMessage((error as Error).message));
           }}
+          onRegistered={() => updatePortalView("owner")}
           onSignOut={handleSignOut}
         />
 

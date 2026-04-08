@@ -9,6 +9,7 @@ type Props = {
   guestSigningSession: GuestSigningSession | null;
   hasPendingInvite: boolean;
   onSessionCreated: (session: Session) => void;
+  onRegistered: () => void;
   onSignOut: () => void;
 };
 
@@ -17,6 +18,7 @@ export function AuthPanel({
   guestSigningSession,
   hasPendingInvite,
   onSessionCreated,
+  onRegistered,
   onSignOut,
 }: Props) {
   const [authMode, setAuthMode] = useState<"sign_in" | "sign_up">("sign_in");
@@ -79,6 +81,7 @@ export function AuthPanel({
           return;
         }
         onSessionCreated(payload.session);
+        onRegistered();
         setNoticeMessage("Welcome to EasyDraftDocs — you're all set.");
       }
     } catch (error) {
@@ -170,6 +173,7 @@ export function AuthPanel({
                 <span>Full name</span>
                 <input
                   required
+                  autoComplete="name"
                   value={fullName}
                   onChange={(event) => setFullName(event.target.value)}
                 />
@@ -177,6 +181,7 @@ export function AuthPanel({
               <label className="form-field">
                 <span>Team or company name <span className="muted">(optional)</span></span>
                 <input
+                  autoComplete="organization"
                   placeholder="e.g. Acme Corp"
                   value={workspaceName}
                   onChange={(event) => setWorkspaceName(event.target.value)}
@@ -190,6 +195,7 @@ export function AuthPanel({
             <input
               required
               type="email"
+              autoComplete={authMode === "sign_in" ? "username" : "email"}
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
@@ -199,6 +205,7 @@ export function AuthPanel({
             <input
               required
               type="password"
+              autoComplete={authMode === "sign_in" ? "current-password" : "new-password"}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
