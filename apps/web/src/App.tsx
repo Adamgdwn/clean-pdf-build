@@ -419,6 +419,7 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
@@ -1419,6 +1420,12 @@ export default function App() {
     }
   }
 
+  function scrollSidebarTo(id: string) {
+    const section = document.getElementById(id);
+    if (!sidebarRef.current || !section) return;
+    sidebarRef.current.scrollTo({ top: section.offsetTop - 24, behavior: "smooth" });
+  }
+
   function showToast(message: string) {
     setToast(message);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -1862,7 +1869,7 @@ export default function App() {
 
   return (
     <div className="shell">
-      <aside className="sidebar">
+      <aside ref={sidebarRef} className="sidebar">
         <div className="brand">
           <span className="brand-mark">ED</span>
           <div>
@@ -1878,6 +1885,22 @@ export default function App() {
               <p className="user-name">{sessionUser.name}</p>
               <button className="ghost-button small" onClick={handleSignOut} type="button">Sign out</button>
             </div>
+          </div>
+        ) : null}
+
+        {sessionUser && canAccessOwnerPortal && billingOverview?.subscription &&
+          ["active", "trialing"].includes(billingOverview.subscription.status) ? (
+          <div className="billing-gauge">
+            <span className="billing-gauge-status">
+              {billingOverview.subscription.status === "trialing" && billingOverview.subscription.trialEndsAt
+                ? `Trial: ${Math.max(0, Math.ceil((new Date(billingOverview.subscription.trialEndsAt).getTime() - Date.now()) / 86_400_000))}d left`
+                : "Active"}
+            </span>
+            <span aria-hidden="true" className="billing-gauge-dot">·</span>
+            <span>{billingOverview.externalTokens.available} token{billingOverview.externalTokens.available !== 1 ? "s" : ""}</span>
+            <button className="ghost-button small billing-gauge-link" onClick={() => updatePortalView("owner")} type="button">
+              Billing →
+            </button>
           </div>
         ) : null}
 
@@ -1923,9 +1946,27 @@ export default function App() {
           </section>
         ) : null}
 
+        {sessionUser ? (
+          <nav className="sidebar-nav">
+            {portalView === "workspace" ? (
+              <>
+                <button className="sidebar-nav-item" onClick={() => scrollSidebarTo("section-documents")} type="button">Documents</button>
+                <button className="sidebar-nav-item" onClick={() => scrollSidebarTo("section-signatures")} type="button">Signatures</button>
+                <button className="sidebar-nav-item" onClick={() => scrollSidebarTo("section-account")} type="button">Account</button>
+              </>
+            ) : (
+              <>
+                <button className="sidebar-nav-item" onClick={() => scrollSidebarTo("section-account")} type="button">Account</button>
+                <button className="sidebar-nav-item" onClick={() => scrollSidebarTo("section-signatures")} type="button">Signatures</button>
+              </>
+            )}
+            <a className="sidebar-nav-item" href="/guide.html" rel="noopener noreferrer" target="_blank">Help &amp; guide</a>
+          </nav>
+        ) : null}
+
         <ErrorBoundary label="profile and billing">
         {sessionUser && accountProfile ? (
-          <section className="card">
+          <section className="card" id="section-account">
             <div className="section-heading compact">
               <p className="eyebrow">Account</p>
               <span>{accountProfile.companyName ?? "Personal"}</span>
@@ -2054,15 +2095,14 @@ export default function App() {
         ) : null}
 
         {sessionUser ? (
-          <section className="card">
+          <section className="card" id="section-signatures">
             <div className="section-heading compact">
               <p className="eyebrow">Signature Library</p>
               <span>{savedSignatures.length}</span>
             </div>
             <div className="stack">
-              {savedSignatures.length === 0 ? (
-                <p className="muted">Save one or more signatures for different titles, roles, or signing contexts.</p>
-              ) : (
+              <p className="muted">Re-use your signatures and initials across documents. Save once, select on any document.</p>
+              {savedSignatures.length === 0 ? null : (
                 savedSignatures.map((signature) => (
                   <button
                     key={signature.id}
@@ -2306,7 +2346,7 @@ export default function App() {
         ) : null}
 
         {portalView === "workspace" ? (
-        <section className="card">
+        <section className="card" id="section-documents">
           <div className="section-heading compact">
             <p className="eyebrow">Documents</p>
             <span>{documents.length}</span>
@@ -2437,6 +2477,34 @@ export default function App() {
         {errorMessage ? <div className="alert">{errorMessage}</div> : null}
         {noticeMessage ? <div className="alert success">{noticeMessage}</div> : null}
 
+        {portalView === "workspace" && sessionUser ? (
+          <div className="quick-actions">
+            <p className="eyebrow">Quick actions</p>
+            <div className="quick-actions-grid">
+              <button className="quick-action-item" onClick={() => fileInputRef.current?.click()} type="button">
+                <strong className="quick-action-label">Upload PDF</strong>
+                <span className="muted">Start a new workflow</span>
+              </button>
+              {documents.length > 0 ? (
+                <button className="quick-action-item" onClick={() => setSelectedDocumentId(documents[0].id)} type="button">
+                  <strong className="quick-action-label">Resume last</strong>
+                  <span className="muted">{documents[0].name}</span>
+                </button>
+              ) : null}
+              <button className="quick-action-item" onClick={() => scrollSidebarTo("section-signatures")} type="button">
+                <strong className="quick-action-label">Create signature</strong>
+                <span className="muted">Save for reuse across documents</span>
+              </button>
+              {canAccessOwnerPortal ? (
+                <button className="quick-action-item" onClick={() => updatePortalView("owner")} type="button">
+                  <strong className="quick-action-label">Team &amp; billing</strong>
+                  <span className="muted">Invite teammates, manage plan</span>
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
         {portalView === "owner" && sessionUser && session ? (
           <ErrorBoundary label="Owner portal">
             <OwnerPortal
@@ -2461,6 +2529,16 @@ export default function App() {
 
         {portalView === "workspace" ? (
         <ErrorBoundary label="document workspace">
+        {canAccessOwnerPortal && workspaceTeam ? (
+          <div className="team-summary-bar">
+            <span className="muted">
+              {workspaceTeam.workspace.name} · {workspaceTeam.members.length} member{workspaceTeam.members.length !== 1 ? "s" : ""}
+            </span>
+            <button className="ghost-button small" onClick={() => updatePortalView("owner")} type="button">
+              Manage team →
+            </button>
+          </div>
+        ) : null}
         <section className="grid">
           <div className="panel">
             <div className="panel-header">

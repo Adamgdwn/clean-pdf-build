@@ -219,8 +219,43 @@ export function buildWelcomeEmail(fullName: string, appOrigin: string): string {
         <tr><td style="padding:40px;">
           <p style="margin:0 0 16px;font-size:24px;font-weight:700;color:#18241d;">Welcome, ${firstName}.</p>
           <p style="margin:0 0 24px;font-size:16px;color:#444;line-height:1.6;">
-            You're all set. Upload a PDF, assign signers, and send — EasyDraftDocs handles the routing, notifications, and audit trail automatically.
+            You're all set. Here's how to get the most out of EasyDraftDocs in your first session:
           </p>
+          <table cellpadding="0" cellspacing="0" width="100%" style="margin-bottom:28px;">
+            <tr>
+              <td style="padding:14px 0;border-bottom:1px solid #f0f0f0;vertical-align:top;">
+                <table cellpadding="0" cellspacing="0"><tr>
+                  <td style="width:32px;height:32px;background:#1d7a5c;border-radius:50%;text-align:center;vertical-align:middle;color:#fff;font-size:14px;font-weight:700;">1</td>
+                  <td style="padding-left:14px;vertical-align:top;">
+                    <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:#18241d;">Upload a PDF and send for signature</p>
+                    <p style="margin:0;font-size:14px;color:#666;line-height:1.5;">Assign signers, place signature fields, and send — EasyDraftDocs routes the workflow and notifies each participant automatically.</p>
+                  </td>
+                </tr></table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:14px 0;border-bottom:1px solid #f0f0f0;vertical-align:top;">
+                <table cellpadding="0" cellspacing="0"><tr>
+                  <td style="width:32px;height:32px;background:#1d7a5c;border-radius:50%;text-align:center;vertical-align:middle;color:#fff;font-size:14px;font-weight:700;">2</td>
+                  <td style="padding-left:14px;vertical-align:top;">
+                    <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:#18241d;">Save your signature for reuse</p>
+                    <p style="margin:0;font-size:14px;color:#666;line-height:1.5;">Create a typed or uploaded signature in the Signature Library — select it on any future document without redrawing.</p>
+                  </td>
+                </tr></table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:14px 0;vertical-align:top;">
+                <table cellpadding="0" cellspacing="0"><tr>
+                  <td style="width:32px;height:32px;background:#1d7a5c;border-radius:50%;text-align:center;vertical-align:middle;color:#fff;font-size:14px;font-weight:700;">3</td>
+                  <td style="padding-left:14px;vertical-align:top;">
+                    <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:#18241d;">Invite a teammate</p>
+                    <p style="margin:0;font-size:14px;color:#666;line-height:1.5;">Add editors, co-signers, or viewers to share your workspace and collaborate on documents together.</p>
+                  </td>
+                </tr></table>
+              </td>
+            </tr>
+          </table>
           <table cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
             <tr><td style="background:#1d7a5c;border-radius:8px;">
               <a href="${appOrigin}" style="display:inline-block;padding:14px 28px;color:#ffffff;font-size:16px;font-weight:600;text-decoration:none;">Open EasyDraftDocs →</a>

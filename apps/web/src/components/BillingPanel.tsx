@@ -57,6 +57,7 @@ type Props = {
 
 export function BillingPanel({ session, billingOverview }: Props) {
   const [isRedirecting, setIsRedirecting] = useState(false);
+  const [confirmingTokenPurchase, setConfirmingTokenPurchase] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [seatCount, setSeatCount] = useState(
     billingOverview.subscription?.seatCount ?? billingOverview.workspace.internalMemberCount ?? 1,
@@ -95,6 +96,11 @@ export function BillingPanel({ session, billingOverview }: Props) {
   }
 
   async function handleTokenCheckout() {
+    if (!confirmingTokenPurchase) {
+      setConfirmingTokenPurchase(true);
+      return;
+    }
+    setConfirmingTokenPurchase(false);
     setIsRedirecting(true);
     setErrorMessage(null);
 
@@ -296,9 +302,25 @@ export function BillingPanel({ session, billingOverview }: Props) {
         </p>
 
         {isSubscribed ? (
-          <button className="ghost-button" disabled={isRedirecting} onClick={handleTokenCheckout}>
-            {isRedirecting ? "Redirecting…" : "Buy 12 tokens — $12 CAD"}
-          </button>
+          confirmingTokenPurchase ? (
+            <div className="stack">
+              <div className="alert">
+                This will charge <strong>$12 CAD</strong> to your payment method on file and add 12 external signer tokens to your balance.
+              </div>
+              <div className="row-inline">
+                <button className="primary-button" disabled={isRedirecting} onClick={handleTokenCheckout}>
+                  {isRedirecting ? "Redirecting…" : "Confirm — $12 CAD"}
+                </button>
+                <button className="ghost-button" onClick={() => setConfirmingTokenPurchase(false)} type="button">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button className="ghost-button" disabled={isRedirecting} onClick={handleTokenCheckout}>
+              Buy 12 tokens — $12 CAD
+            </button>
+          )
         ) : (
           <p className="muted">
             Subscribe to a team plan above to purchase external signer tokens.

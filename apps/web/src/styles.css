@@ -42,6 +42,10 @@ select {
   border-right: 1px solid var(--border);
   background: rgba(247, 244, 238, 0.84);
   backdrop-filter: blur(18px);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .brand {
@@ -879,4 +883,118 @@ select {
   align-items: center;
   justify-content: center;
   align-self: flex-start;
+}
+
+/* Billing fuel gauge — slim status strip for owners */
+.billing-gauge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.billing-gauge-dot {
+  opacity: 0.4;
+}
+
+.billing-gauge-link {
+  margin-left: auto;
+}
+
+/* Sidebar toolbox nav */
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 12px;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.sidebar-nav-item {
+  display: block;
+  padding: 7px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 0.12s, color 0.12s;
+}
+
+.sidebar-nav-item:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Quick actions bar in workspace main area */
+.quick-actions {
+  padding: 20px 24px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  margin-bottom: 20px;
+}
+
+.quick-actions > .eyebrow {
+  margin-bottom: 12px;
+}
+
+.quick-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(172px, 1fr));
+  gap: 10px;
+}
+
+.quick-action-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px 16px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.quick-action-item:hover {
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px rgba(29, 122, 92, 0.08);
+}
+
+.quick-action-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #18241d;
+}
+
+/* Team summary bar in workspace for owners */
+.team-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--accent-soft);
+  border: 1px solid rgba(29, 122, 92, 0.15);
+  border-radius: 10px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+/* Inline button row for confirmations */
+.row-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
