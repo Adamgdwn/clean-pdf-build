@@ -125,6 +125,7 @@ Run this once before showing the product to anyone external.
 
 - [ ] Decide if you want to deploy the processor for notification retries and queued OCR / field-detection jobs, or handle these manually for the pilot
 - [ ] Tighten the signer experience before showing to clients (current flow works but is clinical — see README item 7)
+- [ ] The landing page needs to be sign-in and information only, then the homepage is either the client's desktop or the owner's area, depending on sign-in
 
 ---
 
