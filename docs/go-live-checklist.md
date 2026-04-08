@@ -48,6 +48,7 @@ Use this after workflow testing passes and before you present EasyDraft as produ
    - `20260405120000_signing_tokens.sql`
    - `20260406223000_annual_billing_plan.sql`
    - `20260407033000_digital_signature_identity_fields.sql`
+   - `20260407120000_onboarding_flag.sql`
 
 ## Stripe
 
@@ -62,7 +63,16 @@ Use this after workflow testing passes and before you present EasyDraft as produ
    - `customer.subscription.created`
    - `customer.subscription.updated`
    - `customer.subscription.deleted`
-5. Run one checkout test and one billing-portal test after the keys are added.
+   - `invoice.paid`
+   - `invoice.payment_failed`
+5. Configure these **Dashboard settings** (one-time, manual — not settable via API):
+   - `Settings → Billing → Subscriptions and emails` → **enable "Send an invoice for free trials"**
+     Sends the customer a $0 invoice email when their trial subscription is created. Without this, the customer has no confirmation they signed up or what they will owe.
+   - `Settings → Billing → Subscriptions and emails` → **enable "Send emails about upcoming renewals"**
+     Emails the customer ~7 days before trial ends to collect a payment method. Critical because `payment_method_collection: "if_required"` allows sign-up without a card — this email is their only prompt to add one before being charged.
+   - `Settings → Branding` → upload logo, set brand colour, set business name
+     Applies to all Stripe-generated emails and the Customer Portal.
+6. Run one checkout test and one billing-portal test after the keys are added.
 
 ## Notification Email
 

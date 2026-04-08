@@ -32,6 +32,24 @@ The Stripe **Customer Portal** must be enabled and configured in your Stripe das
 
 Minimum recommended configuration: allow cancellation, allow payment method updates.
 
+### Dashboard settings required before going live
+
+These are one-time manual steps in the Stripe Dashboard — they are not configurable via API or code.
+
+**1. Enable $0 invoice for free trial (`Settings → Billing → Subscriptions and emails`)**
+
+By default Stripe does not email an invoice for the free trial month because no payment is due. Turn on **"Send an invoice for free trials"** so customers receive a $0 confirmation invoice when their subscription starts. This gives them a paper trail showing the trial started and what they will owe when it ends.
+
+**2. Enable upcoming renewal reminders (`Settings → Billing → Subscriptions and emails`)**
+
+Turn on **"Send emails about upcoming renewals"** (also called trial reminder). Stripe will automatically email customers approximately 7 days before their trial ends asking them to add a payment method.
+
+> If `payment_method_collection: "if_required"` is in use (as it is here), customers who started the trial without entering a card will receive this email as their only prompt to pay. Without it, some customers will reach the trial end date with no card on file and no warning.
+
+**3. Branding (`Settings → Branding`)**
+
+Set the logo, brand colour, and business name so that Stripe-generated emails and the Customer Portal match the EasyDraftDocs visual identity.
+
 ---
 
 ## Webhook Events Handled
