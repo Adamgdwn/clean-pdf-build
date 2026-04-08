@@ -119,13 +119,4 @@ What would still need explicit product and data-model decisions for full coverag
 
 ## Future-state roadmap
 
-For the next layer of workflow behavior, use [future-workflow-roadmap.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/future-workflow-roadmap.md) as the reference point.
-
-That roadmap intentionally stays simple:
-
-- one clear `waiting on` blocker at a time
-- explicit initiator updates at each meaningful stage
-- reminders and overdue handling before complex escalation logic
-- request changes, reassignment, and cancel as first-class recovery paths
-- change-impact handling after partial completion
-- a completion package that closes the loop cleanly
+For the full current workflow reference (states, routing, delivery modes, field types, permissions), see [future-workflow-roadmap.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/future-workflow-roadmap.md).

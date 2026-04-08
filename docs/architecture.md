@@ -30,7 +30,7 @@ Responsibilities:
 - version history
 - export eligibility
 
-For future-state workflow planning, keep one shared reference in [future-workflow-roadmap.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/future-workflow-roadmap.md). It captures the next operational statuses and initiator feedback loop without turning routing into multiple engines.
+For current workflow reference (states, delivery modes, routing strategies, field types, permissions), see [future-workflow-roadmap.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/future-workflow-roadmap.md).
 
 ### Document-processing service
 

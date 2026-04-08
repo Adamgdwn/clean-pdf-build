@@ -174,10 +174,6 @@ Current notification behavior:
 - originator progress updates are queued on completion events when enabled
 - workflow updates such as changes requested or rejection can notify the initiator
 
-Current limitations:
-
-- reminders and resend controls are not yet implemented
-
 If enabling live email delivery, configure:
 
 - `EASYDRAFT_EMAIL_PROVIDER`

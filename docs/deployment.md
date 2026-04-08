@@ -79,7 +79,12 @@ Recommended values:
 ### Project setup
 
 1. Create a Supabase project.
-2. Apply the SQL in [20260330230000_initial_workflow.sql](/home/adamgoodwin/code/Applications/Clean_pdf_build/supabase/migrations/20260330230000_initial_workflow.sql).
+2. Apply all SQL migrations in `supabase/migrations/` in order. Key migrations:
+   - `20260330230000_initial_workflow.sql` — base tables
+   - `20260405120000_signing_tokens.sql` — external signer token ledger
+   - `20260406223000_annual_billing_plan.sql` — annual billing plan
+   - `20260407033000_digital_signature_identity_fields.sql` — digital-signature profile fields
+   - `20260407120000_onboarding_flag.sql` — server-side onboarding flag on profiles
 3. Confirm the private `documents` bucket exists.
 4. Enable Email auth.
 5. Set your site URL and allowed redirect URLs to your Vercel domains.
@@ -148,6 +153,8 @@ Use Vercel's GitHub integration so each pull request gets a preview deployment a
    - `customer.subscription.created`
    - `customer.subscription.updated`
    - `customer.subscription.deleted`
+   - `invoice.paid`
+   - `invoice.payment_failed`
 3. Copy the webhook signing secret into `STRIPE_WEBHOOK_SECRET`.
 
 The current implementation creates recurring Checkout prices inline from the seeded billing plans, so you do not need to pre-create Stripe Price IDs just to get the first subscription flow working.
