@@ -34,6 +34,9 @@ import { deliverNotificationEmail, getConfiguredNotificationEmailProvider } from
 import { createAuthClient, createServiceRoleClient } from "./supabase.js";
 import { getWorkspaceSigningTokenBalance } from "./billing.js";
 
+const PROFILE_COLUMNS =
+  "id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at, onboarding_completed_at" as const;
+
 type DocumentRow = {
   id: string;
   name: string;
@@ -1208,7 +1211,7 @@ async function requireDocumentBundle(documentId: string) {
     const { data: profileRows, error: profileError } = await adminClient
       .from("profiles")
       .select(
-        "id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at, onboarding_completed_at",
+        PROFILE_COLUMNS,
       )
       .in("id", accessUserIds);
 
@@ -2324,7 +2327,7 @@ export async function getProfileForAuthorizationHeader(authorizationHeader: stri
   const { data, error } = await adminClient
     .from("profiles")
     .select(
-      "id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at, onboarding_completed_at",
+      PROFILE_COLUMNS,
     )
     .eq("id", user.id)
     .maybeSingle();
@@ -2377,7 +2380,7 @@ export async function updateProfileForAuthorizationHeader(
     .update(payload)
     .eq("id", user.id)
     .select(
-      "id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at, onboarding_completed_at",
+      PROFILE_COLUMNS,
     )
     .single();
 
@@ -2602,7 +2605,7 @@ export async function listAdminUsersForAuthorizationHeader(
   const [profilesResponse, membershipsResponse, documentsResponse] = await Promise.all([
     adminClient
       .from("profiles")
-      .select("id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at, onboarding_completed_at")
+      .select(PROFILE_COLUMNS)
       .in("id", userIds),
     adminClient
       .from("workspace_memberships")

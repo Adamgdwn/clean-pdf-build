@@ -10,7 +10,6 @@ type Props = {
   hasPendingInvite: boolean;
   onSessionCreated: (session: Session) => void;
   onRegistered: () => void;
-  onSignOut: () => void;
 };
 
 export function AuthPanel({
@@ -19,7 +18,6 @@ export function AuthPanel({
   hasPendingInvite,
   onSessionCreated,
   onRegistered,
-  onSignOut,
 }: Props) {
   const [authMode, setAuthMode] = useState<"sign_in" | "sign_up">("sign_in");
   const [email, setEmail] = useState("");
@@ -91,10 +89,6 @@ export function AuthPanel({
     }
   }
 
-  async function handleSignOut() {
-    onSignOut();
-  }
-
   async function handlePasswordReset() {
     if (!email.trim()) {
       setErrorMessage("Enter your email first, then request a password reset link.");
@@ -135,9 +129,7 @@ export function AuthPanel({
           <p className="muted">Complete your assigned fields in the document panel to the right.</p>
         </div>
       ) : sessionUser ? (
-        <div className="stack">
-          {sessionUser.isAdmin ? <p className="eyebrow">Admin console enabled</p> : null}
-        </div>
+        sessionUser.isAdmin ? <p className="eyebrow">Admin console enabled</p> : null
       ) : (
         <form className="stack" onSubmit={handleAuthSubmit}>
           <p className="muted">

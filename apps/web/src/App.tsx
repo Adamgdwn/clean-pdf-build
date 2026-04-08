@@ -684,11 +684,13 @@ export default function App() {
     try {
       const payload = await apiFetch<{ user: SessionUser }>("/session", currentSession);
       setSessionUser(payload.user);
+      return payload.user;
     } catch (error) {
       if (!fallbackUser) {
         throw error;
       }
     }
+    return fallbackUser;
   }
 
   async function refreshBilling(activeSession: Session) {
@@ -1423,9 +1425,14 @@ export default function App() {
     toastTimerRef.current = setTimeout(() => setToast(null), 3000);
   }
 
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
   function handleSignOut() {
     clearStoredSession();
-    localStorage.removeItem("easydraft_onboarding_seen");
     showToast("You've been signed out.");
     setPreviewUrl(null);
     setLocalPreviewUrl(null);
@@ -1673,13 +1680,10 @@ export default function App() {
   useEffect(() => {
     const storedSession = loadStoredSession();
     refreshSession(storedSession)
-      .then(() => {
+      .then((user) => {
         // Show toast only on an explicit sign-in redirect, not on every page load
-        if (shouldRestoreSessionFromRedirect) {
-          setSessionUser((user) => {
-            if (user) showToast(`Welcome back, ${user.name.split(" ")[0]}.`);
-            return user;
-          });
+        if (shouldRestoreSessionFromRedirect && user) {
+          showToast(`Welcome back, ${user.name.split(" ")[0]}.`);
         }
       })
       .catch(() => {
@@ -1885,7 +1889,6 @@ export default function App() {
             refreshSession(nextSession).catch((error) => setErrorMessage((error as Error).message));
           }}
           onRegistered={() => updatePortalView("owner")}
-          onSignOut={handleSignOut}
         />
 
         {sessionUser ? (
@@ -2294,7 +2297,6 @@ export default function App() {
             workspaceTeam={workspaceTeam}
             userName={sessionUser.name}
             onComplete={() => {
-              setShowOnboarding(false);
               apiFetch("/onboarding-complete", session, { method: "PATCH" })
                 .then(() => refreshProfile(session))
                 .catch(() => null);
@@ -2314,20 +2316,13 @@ export default function App() {
               <div className="empty-state">
                 <p className="empty-state-heading">Start with a document</p>
                 <p className="muted">Upload a PDF to prepare a workflow, assign signers, and send for signatures.</p>
-                <label className="primary-button upload-cta">
+                <button
+                  className="primary-button upload-cta"
+                  onClick={() => fileInputRef.current?.click()}
+                  type="button"
+                >
                   Upload PDF
-                  <input
-                    type="file"
-                    accept="application/pdf"
-                    style={{ display: "none" }}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (!file) return;
-                      handleUpload(file).catch((error) => setErrorMessage((error as Error).message));
-                      event.target.value = "";
-                    }}
-                  />
-                </label>
+                </button>
               </div>
             ) : documents.length === 0 ? (
               <div className="stack">

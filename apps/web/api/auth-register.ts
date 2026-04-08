@@ -28,12 +28,13 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return response.status(400).json({ message: "Full name, email, and password are required." });
     }
 
+    const env = readServerEnv();
     const authClient = createAuthClient();
     const { data, error } = await authClient.auth.signUp({
       email,
       password,
       options: {
-        emailRedirectTo: getCanonicalAppOrigin(),
+        emailRedirectTo: getCanonicalAppOrigin(env),
         data: {
           full_name: fullName,
           workspace_name: workspaceName || undefined,
@@ -46,7 +47,6 @@ export default async function handler(request: VercelRequest, response: VercelRe
     }
 
     if (data.user && data.session) {
-      const env = readServerEnv();
       const appOrigin = getCanonicalAppOrigin(env);
       deliverNotificationEmail(env, {
         to: email,
