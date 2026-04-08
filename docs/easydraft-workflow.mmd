@@ -1,0 +1,91 @@
+flowchart TD
+
+    %% ── ACCOUNT SETUP ──────────────────────────────────────────────────────
+    subgraph ACCOUNT["① Account setup"]
+        A1([Sign up]) --> A2[Onboarding prompt\nworkspace name · invite teammates]
+        A2 --> A3[Owner Portal — Billing]
+        A3 --> A4{Choose plan}
+        A4 -->|no card required| A5[Free trial — 30 days\n$0 invoice emailed by Stripe]
+        A4 --> A6[Monthly — $12 CAD per seat]
+        A4 --> A7[Annual — $120 CAD per seat]
+        A5 & A6 & A7 --> A8[Subscription active]
+    end
+
+    %% ── PREPARE DOCUMENT ────────────────────────────────────────────────────
+    subgraph PREPARE["② Prepare document"]
+        P1[Upload PDF] --> P2[Draft]
+        P2 --> P3[Add participants\ninternal users · external signers]
+        P3 --> P4[Place fields\nsignature · initial · approval · text · date]
+        P4 --> P5[Assign fields to participants]
+        P5 --> P6{Routing strategy}
+        P6 -->|lowest stage + order first| P7[Sequential]
+        P6 -->|all in stage at once| P8[Parallel]
+        P7 & P8 --> P9{Delivery mode}
+    end
+
+    %% ── DELIVERY MODES ──────────────────────────────────────────────────────
+    P9 -->|no platform emails\nowner distributes manually| D1[Self-managed]
+    P9 -->|authenticated users only\nno external emails| D2[Internal-only]
+    P9 -->|full email routing| D3[Platform-managed]
+
+    D3 --> G1{Active subscription?}
+    G1 -->|No| G2[402 — subscribe first]
+    G1 -->|Yes| G3{Enough signing tokens\nfor external participants?}
+    G3 -->|No| G4[402 — buy tokens\n$12 CAD for 12]
+    G3 -->|Yes| SND
+
+    D1 & D2 --> SND[Send\nsentAt recorded · version snapshot · audit event]
+
+    %% ── ROUTING ─────────────────────────────────────────────────────────────
+    SND --> R1[Determine eligible signers]
+    R1 -->|Sequential| R2[Lowest stage, lowest signing order only\none signer active at a time per stage]
+    R1 -->|Parallel| R3[All signers in lowest pending stage\nactive simultaneously]
+
+    %% ── SIGNING ─────────────────────────────────────────────────────────────
+    subgraph SIGN["③ Signing"]
+        R2 & R3 --> S1{Signer type}
+
+        S1 -->|EasyDraft account| S2[Internal signer\nauthenticated session]
+        S1 -->|no account needed| S3[External signer\ntoken link delivered via email]
+
+        S2 --> S4{Pre-placed field?}
+        S4 -->|Yes| S5[Complete assigned field\nsaved signature · draw · type]
+        S4 -->|No| S6[Free-placement\nposition and sign in one step\nany page, any size]
+        S6 --> S5
+
+        S3 --> S7[Guest signing session\nno account created\ntoken validated server-side]
+        S7 --> S8[Complete assigned field\ndraw or type directly]
+
+        S5 & S8 --> S9[Field complete\naudit event recorded\noriginator notified if enabled]
+    end
+
+    S9 --> CHK{All required assigned\naction fields complete?}
+    CHK -->|No| NXT[Advance to next eligible signer\nnotify newly eligible participants]
+    NXT --> S1
+    CHK -->|Yes| C1
+
+    %% ── COMPLETION AND EXPORT ────────────────────────────────────────────────
+    subgraph COMPLETE["④ Completion and export"]
+        C1[Completed\ncompletedAt set · document unlocked · audit event] --> C2[Render signed PDF\nembed all field values]
+        C2 --> C3[SHA-256 hash computed\nstored on document record]
+        C3 --> C4[Export available\nsigned PDF · completion certificate]
+        C4 --> C5([Download via signed URL\n10-minute expiry])
+    end
+
+    %% ── OPERATIONAL PAUSES ───────────────────────────────────────────────────
+    subgraph PAUSES["Operational pauses — available after Send"]
+        L1[Locked\nno further signing\nowner/editor action]
+        CR1[Changes requested\nworkflow paused\nsigner initiates · originator notified]
+        X1([Rejected\nworkflow terminated\nsigner declines])
+        X2([Canceled\nworkflow terminated\nowner/editor aborts])
+    end
+
+    SND -. owner/editor locks .-> L1
+    L1 -. owner/editor reopens .-> R1
+    S1 -. signer requests changes .-> CR1
+    CR1 -. originator revises and reopens .-> R1
+    S1 -. signer rejects .-> X1
+    SND -. owner/editor cancels .-> X2
+
+    %% ── AUDIT TRAIL ──────────────────────────────────────────────────────────
+    SND & S9 & C1 & L1 & CR1 & X1 & X2 -.-> AT[(Audit trail\nfull event history\nvisible to all participants)]
