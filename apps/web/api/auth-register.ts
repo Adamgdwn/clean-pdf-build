@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-import { getCanonicalAppOrigin } from "../../../packages/workflow-service/src/env.js";
+import { getCanonicalAppOrigin, readServerEnv } from "../../../packages/workflow-service/src/env.js";
+import { buildWelcomeEmail, deliverNotificationEmail } from "../../../packages/workflow-service/src/notifications.js";
 import { createAuthClient } from "../../../packages/workflow-service/src/supabase.js";
 
 import { enforceRateLimit, sendError } from "./_utils.js";
@@ -42,6 +43,16 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
     if (error) {
       return response.status(400).json({ message: error.message });
+    }
+
+    if (data.user && data.session) {
+      const env = readServerEnv();
+      const appOrigin = getCanonicalAppOrigin(env);
+      deliverNotificationEmail(env, {
+        to: email,
+        subject: "Welcome to EasyDraftDocs",
+        html: buildWelcomeEmail(fullName, appOrigin),
+      }).catch(() => null);
     }
 
     return response.status(200).json({ session: data.session, user: data.user });

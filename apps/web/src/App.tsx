@@ -309,10 +309,12 @@ type ChecklistStep = {
 function OnboardingPrompt({
   session,
   workspaceTeam,
+  userName,
   onComplete,
 }: {
   session: Session;
   workspaceTeam: WorkspaceTeam;
+  userName: string;
   onComplete: () => void;
 }) {
   const [workspaceName, setWorkspaceName] = useState(workspaceTeam.workspace.name);
@@ -357,11 +359,14 @@ function OnboardingPrompt({
     }
   }
 
+  const firstName = userName.split(" ")[0] || "there";
+
   return (
     <section className="card">
       <div className="section-heading compact">
-        <p className="eyebrow">Welcome to EasyDraftDocs</p>
+        <p className="eyebrow">You're in, {firstName}. Let's set up your workspace.</p>
       </div>
+      <p className="muted">Upload PDFs, assign signers, and send for signatures — your audit trail builds automatically.</p>
       {errorMessage ? <div className="alert">{errorMessage}</div> : null}
       <form className="stack" onSubmit={handleSubmit}>
         <label className="form-field">
@@ -390,7 +395,7 @@ function OnboardingPrompt({
             onClick={onComplete}
             type="button"
           >
-            Skip for now
+            I'll set this up later
           </button>
         </div>
       </form>
@@ -412,6 +417,8 @@ export default function App() {
   const [portalView, setPortalView] = useState<PortalView>("workspace");
   const [pendingInviteToken, setPendingInviteToken] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
@@ -1410,8 +1417,16 @@ export default function App() {
     }
   }
 
+  function showToast(message: string) {
+    setToast(message);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 3000);
+  }
+
   function handleSignOut() {
     clearStoredSession();
+    localStorage.removeItem("easydraft_onboarding_seen");
+    showToast("You've been signed out.");
     setPreviewUrl(null);
     setLocalPreviewUrl(null);
     setUploadName(null);
@@ -1664,6 +1679,12 @@ export default function App() {
 
     const storedSession = loadStoredSession();
     refreshSession(storedSession)
+      .then(() => {
+        setSessionUser((user) => {
+          if (user) showToast(`Welcome back, ${user.name.split(" ")[0]}.`);
+          return user;
+        });
+      })
       .catch(() => {
         clearStoredSession();
         return refreshSession(null);
@@ -1684,10 +1705,6 @@ export default function App() {
       refreshDigitalSignatureProfiles(session),
       ...(sessionUser?.isAdmin ? [refreshAdminOverview(session), refreshAdminUsers(session)] : []),
     ]).then(() => {
-      // Show onboarding prompt once for new users who haven't seen it
-      if (!localStorage.getItem("easydraft_onboarding_seen")) {
-        setShowOnboarding(true);
-      }
       // Accept a pending invite if one was captured from the URL
       if (pendingInviteToken) {
         apiFetch("/workspace-invite-accept", session, {
@@ -1708,6 +1725,15 @@ export default function App() {
   useEffect(() => {
     setSignerParticipantType(deliveryMode === "internal_use_only" ? "internal" : "external");
   }, [deliveryMode]);
+
+  // Show onboarding prompt for users who haven't completed it (server-side flag)
+  useEffect(() => {
+    if (accountProfile && !accountProfile.onboardingCompletedAt) {
+      setShowOnboarding(true);
+    } else {
+      setShowOnboarding(false);
+    }
+  }, [accountProfile?.onboardingCompletedAt]);
 
   useEffect(() => {
     if (!session || !selectedDocument?.id) {
@@ -1843,6 +1869,16 @@ export default function App() {
             <p>Private document workflows, reusable signatures, and clean handoffs.</p>
           </div>
         </div>
+
+        {sessionUser ? (
+          <div className="user-identity">
+            <span className="user-avatar">{sessionUser.name.charAt(0).toUpperCase()}</span>
+            <div className="user-identity-info">
+              <p className="user-name">{sessionUser.name}</p>
+              <button className="ghost-button small" onClick={handleSignOut} type="button">Sign out</button>
+            </div>
+          </div>
+        ) : null}
 
         <AuthPanel
           sessionUser={sessionUser}
@@ -2258,9 +2294,12 @@ export default function App() {
           <OnboardingPrompt
             session={session}
             workspaceTeam={workspaceTeam}
+            userName={sessionUser.name}
             onComplete={() => {
-              localStorage.setItem("easydraft_onboarding_seen", "1");
               setShowOnboarding(false);
+              apiFetch("/onboarding-complete", session, { method: "PATCH" })
+                .then(() => refreshProfile(session))
+                .catch(() => null);
               refreshTeam(session).catch(() => null);
             }}
           />
@@ -2273,7 +2312,26 @@ export default function App() {
             <span>{documents.length}</span>
           </div>
           <div className="stack">
-            {documents.length === 0 ? (
+            {documents.length === 0 && sessionUser && !showOnboarding ? (
+              <div className="empty-state">
+                <p className="empty-state-heading">Start with a document</p>
+                <p className="muted">Upload a PDF to prepare a workflow, assign signers, and send for signatures.</p>
+                <label className="primary-button upload-cta">
+                  Upload PDF
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    style={{ display: "none" }}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (!file) return;
+                      handleUpload(file).catch((error) => setErrorMessage((error as Error).message));
+                      event.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+            ) : documents.length === 0 ? (
               <div className="stack">
                 <p className="muted">Sign in and upload a PDF to start a workflow.</p>
               </div>
@@ -3752,6 +3810,7 @@ export default function App() {
         </ErrorBoundary>
         ) : null}
       </main>
+      {toast ? <div className="toast">{toast}</div> : null}
     </div>
   );
 }

@@ -203,3 +203,39 @@ export async function deliverNotificationEmail(
 
   return deliverViaResend(config, content);
 }
+
+export function buildWelcomeEmail(fullName: string, appOrigin: string): string {
+  const firstName = fullName.split(" ")[0] ?? fullName;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Welcome to EasyDraftDocs</title></head>
+<body style="margin:0;padding:0;background:#f4f4f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;padding:40px 0;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        <tr><td style="background:#1d7a5c;padding:28px 40px;">
+          <p style="margin:0;color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.3px;">EasyDraftDocs</p>
+        </td></tr>
+        <tr><td style="padding:40px;">
+          <p style="margin:0 0 16px;font-size:24px;font-weight:700;color:#18241d;">Welcome, ${firstName}.</p>
+          <p style="margin:0 0 24px;font-size:16px;color:#444;line-height:1.6;">
+            You're all set. Upload a PDF, assign signers, and send — EasyDraftDocs handles the routing, notifications, and audit trail automatically.
+          </p>
+          <table cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
+            <tr><td style="background:#1d7a5c;border-radius:8px;">
+              <a href="${appOrigin}" style="display:inline-block;padding:14px 28px;color:#ffffff;font-size:16px;font-weight:600;text-decoration:none;">Open EasyDraftDocs →</a>
+            </td></tr>
+          </table>
+          <p style="margin:0;font-size:14px;color:#888;line-height:1.6;">
+            Questions? Reply to this email or visit <a href="${appOrigin}/guide.html" style="color:#1d7a5c;">the user guide</a>.
+          </p>
+        </td></tr>
+        <tr><td style="padding:20px 40px;border-top:1px solid #f0f0f0;">
+          <p style="margin:0;font-size:12px;color:#aaa;">EasyDraftDocs · Private document workflows</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}

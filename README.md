@@ -53,6 +53,12 @@ A production-ready PDF workflow platform. Teams upload contracts and agreements,
 - Admin console (user management, account reset, deletion)
 - Self-service account deletion
 - User guide at `/guide.html`
+- Welcome email triggered on registration (via Resend/SMTP, non-fatal if unconfigured)
+- Server-side onboarding flag (`onboarding_completed_at` on `profiles`) — state follows the user across devices and browsers
+- Authenticated identity block in the sidebar — avatar initial, display name, sign-out
+- Toast feedback on sign-in and sign-out
+- Personalized onboarding prompt with first name and product value line
+- Prominent empty-state card with upload CTA for new users with no documents
 
 ### What is a stub / next phase
 - **Certificate-backed PDF signing** — `DigitalSignatureProfile` records and the UI exist; the provider wiring (PAdES/CAdES embedding) is a clearly marked TODO in `renderDocumentExportToStorage` in `service.ts`. Safe to leave until there is proven customer demand.
@@ -69,7 +75,7 @@ A production-ready PDF workflow platform. Teams upload contracts and agreements,
    ```bash
    npx supabase db push
    ```
-   Pending migrations add: `export_sha256` column, external signer token ledger, workspace invitations, Stripe CAD billing plan, and digital-signature identity fields.
+   Pending migrations add: `export_sha256` column, external signer token ledger, workspace invitations, Stripe CAD billing plan, digital-signature identity fields, and `onboarding_completed_at` on `profiles`.
 
 2. **Verify Stripe is wired in production**
    - `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` must be set in Vercel

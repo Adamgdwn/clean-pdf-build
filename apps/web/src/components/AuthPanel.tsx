@@ -72,17 +72,14 @@ export function AuthPanel({
             }),
           },
         );
-        if (payload.session) {
-          onSessionCreated(payload.session);
-        } else {
-          setNoticeMessage(
-            "Account created. Check your email to confirm your address before signing in.",
+        if (!payload.session) {
+          setErrorMessage(
+            "Account created but could not sign in automatically. Please sign in below.",
           );
           return;
         }
-        setNoticeMessage(
-          "Account created and signed in. You can start using EasyDraftDocs now.",
-        );
+        onSessionCreated(payload.session);
+        setNoticeMessage("Welcome to EasyDraftDocs — you're all set.");
       }
     } catch (error) {
       setErrorMessage((error as Error).message);
@@ -136,14 +133,7 @@ export function AuthPanel({
         </div>
       ) : sessionUser ? (
         <div className="stack">
-          <p className="muted">
-            Signed in as <strong>{sessionUser.name}</strong>
-          </p>
-          <p className="muted">{sessionUser.email}</p>
           {sessionUser.isAdmin ? <p className="eyebrow">Admin console enabled</p> : null}
-          <button className="secondary-button" onClick={handleSignOut}>
-            Sign out
-          </button>
         </div>
       ) : (
         <form className="stack" onSubmit={handleAuthSubmit}>

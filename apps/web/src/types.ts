@@ -119,6 +119,7 @@ export type AccountProfile = {
   marketingOptIn: boolean;
   productUpdatesOptIn: boolean;
   lastSeenAt: string | null;
+  onboardingCompletedAt: string | null;
 };
 
 export type AdminOverview = {

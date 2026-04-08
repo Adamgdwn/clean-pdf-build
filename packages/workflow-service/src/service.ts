@@ -172,6 +172,7 @@ type ProfileRow = {
   marketing_opt_in: boolean;
   product_updates_opt_in: boolean;
   last_seen_at: string | null;
+  onboarding_completed_at: string | null;
 };
 
 type EditorSnapshotRow = {
@@ -260,6 +261,7 @@ type ProfileResponse = {
     marketingOptIn: boolean;
     productUpdatesOptIn: boolean;
     lastSeenAt: string | null;
+    onboardingCompletedAt: string | null;
   };
 };
 
@@ -748,6 +750,7 @@ function mapProfile(row: ProfileRow): ProfileResponse["profile"] {
     marketingOptIn: row.marketing_opt_in,
     productUpdatesOptIn: row.product_updates_opt_in,
     lastSeenAt: row.last_seen_at,
+    onboardingCompletedAt: row.onboarding_completed_at,
   };
 }
 
@@ -1205,7 +1208,7 @@ async function requireDocumentBundle(documentId: string) {
     const { data: profileRows, error: profileError } = await adminClient
       .from("profiles")
       .select(
-        "id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at",
+        "id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at, onboarding_completed_at",
       )
       .in("id", accessUserIds);
 
@@ -2321,7 +2324,7 @@ export async function getProfileForAuthorizationHeader(authorizationHeader: stri
   const { data, error } = await adminClient
     .from("profiles")
     .select(
-      "id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at",
+      "id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at, onboarding_completed_at",
     )
     .eq("id", user.id)
     .maybeSingle();
@@ -2333,6 +2336,23 @@ export async function getProfileForAuthorizationHeader(authorizationHeader: stri
   return {
     profile: mapProfile(data as ProfileRow),
   };
+}
+
+export async function markOnboardingCompleteForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const adminClient = createServiceRoleClient();
+  const { error } = await adminClient
+    .from("profiles")
+    .update({ onboarding_completed_at: new Date().toISOString() })
+    .eq("id", user.id);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return { ok: true };
 }
 
 export async function updateProfileForAuthorizationHeader(
@@ -2357,7 +2377,7 @@ export async function updateProfileForAuthorizationHeader(
     .update(payload)
     .eq("id", user.id)
     .select(
-      "id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at",
+      "id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at, onboarding_completed_at",
     )
     .single();
 
@@ -2582,7 +2602,7 @@ export async function listAdminUsersForAuthorizationHeader(
   const [profilesResponse, membershipsResponse, documentsResponse] = await Promise.all([
     adminClient
       .from("profiles")
-      .select("id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at")
+      .select("id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at, onboarding_completed_at")
       .in("id", userIds),
     adminClient
       .from("workspace_memberships")
