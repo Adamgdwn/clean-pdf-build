@@ -105,6 +105,15 @@ const sendWorkspacePasswordResetSchema = z.object({
   redirectTo: z.string().trim().url().optional(),
 });
 
+const changeMemberRoleSchema = z.object({
+  userId: z.string().uuid(),
+  role: z.enum(["owner", "member", "admin", "billing_admin"]),
+});
+
+const removeMemberSchema = z.object({
+  userId: z.string().uuid(),
+});
+
 // ---------------------------------------------------------------------------
 // Public API: list team members + pending invitations
 // ---------------------------------------------------------------------------
@@ -505,6 +514,99 @@ export async function sendWorkspaceMemberPasswordResetForAuthorizationHeader(
     redirectTo,
     sent: true,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Public API: change a workspace member's role
+// ---------------------------------------------------------------------------
+
+export async function changeWorkspaceMemberRoleForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const { workspace, memberRole } = await requireWorkspaceWithRole(user, ["owner", "admin"]);
+  const parsed = changeMemberRoleSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+
+  if (parsed.userId === user.id) {
+    throw new AppError(400, "You cannot change your own role.");
+  }
+
+  // Only owners can assign or remove the owner role
+  if (parsed.role === "owner" && memberRole !== "owner") {
+    throw new AppError(403, "Only the workspace owner can assign the owner role.");
+  }
+
+  // Check the target is actually a member and get their current role
+  const { data: membership, error: fetchError } = await adminClient
+    .from("workspace_memberships")
+    .select("role")
+    .eq("workspace_id", workspace.id)
+    .eq("user_id", parsed.userId)
+    .maybeSingle();
+
+  if (fetchError) throw new AppError(500, fetchError.message);
+  if (!membership) throw new AppError(404, "That user is not a member of this workspace.");
+
+  // Admins cannot change the role of owners
+  if (membership.role === "owner" && memberRole !== "owner") {
+    throw new AppError(403, "Only the workspace owner can change another owner's role.");
+  }
+
+  const { error } = await adminClient
+    .from("workspace_memberships")
+    .update({ role: parsed.role })
+    .eq("workspace_id", workspace.id)
+    .eq("user_id", parsed.userId);
+
+  if (error) throw new AppError(500, error.message);
+
+  return { updated: true, userId: parsed.userId, role: parsed.role };
+}
+
+// ---------------------------------------------------------------------------
+// Public API: remove a workspace member
+// ---------------------------------------------------------------------------
+
+export async function removeWorkspaceMemberForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const { workspace, memberRole } = await requireWorkspaceWithRole(user, ["owner", "admin"]);
+  const parsed = removeMemberSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+
+  if (parsed.userId === user.id) {
+    throw new AppError(400, "You cannot remove yourself from the workspace.");
+  }
+
+  // Check the target is a member and get their role
+  const { data: membership, error: fetchError } = await adminClient
+    .from("workspace_memberships")
+    .select("role")
+    .eq("workspace_id", workspace.id)
+    .eq("user_id", parsed.userId)
+    .maybeSingle();
+
+  if (fetchError) throw new AppError(500, fetchError.message);
+  if (!membership) throw new AppError(404, "That user is not a member of this workspace.");
+
+  // Admins cannot remove owners
+  if (membership.role === "owner" && memberRole !== "owner") {
+    throw new AppError(403, "Only the workspace owner can remove another owner.");
+  }
+
+  const { error } = await adminClient
+    .from("workspace_memberships")
+    .delete()
+    .eq("workspace_id", workspace.id)
+    .eq("user_id", parsed.userId);
+
+  if (error) throw new AppError(500, error.message);
+
+  return { removed: true, userId: parsed.userId };
 }
 
 // ---------------------------------------------------------------------------

@@ -1426,6 +1426,12 @@ export default function App() {
     sidebarRef.current.scrollTo({ top: section.offsetTop - 24, behavior: "smooth" });
   }
 
+  function scrollMainTo(id: string) {
+    const section = document.getElementById(id);
+    if (!section) return;
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function showToast(message: string) {
     setToast(message);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -1635,6 +1641,11 @@ export default function App() {
 
     if (checkoutStatus === "success") {
       setNoticeMessage("Billing updated. Stripe redirected back successfully.");
+      // Refresh billing data when Stripe returns so the UI reflects the new subscription
+      const storedSession = loadStoredSession();
+      if (storedSession) {
+        refreshBilling(storedSession).catch(() => null);
+      }
     }
 
     if (checkoutStatus === "cancelled") {
@@ -1867,6 +1878,60 @@ export default function App() {
     };
   }, []);
 
+  // Unauthenticated, non-guest users: dedicated landing page (sign-in + product info only)
+  if (!sessionUser && !guestSigningSession) {
+    return (
+      <div className="landing-shell">
+        <header className="landing-header">
+          <div className="brand">
+            <span className="brand-mark">ED</span>
+            <div>
+              <h1>EasyDraft</h1>
+              <p>Private document workflows, reusable signatures, and clean handoffs.</p>
+            </div>
+          </div>
+        </header>
+        <div className="landing-body">
+          <div className="landing-value">
+            <h2>Your team&apos;s document workspace</h2>
+            <p className="landing-sub">
+              Upload contracts and agreements into a secure vault, route them to the right people,
+              and get signatures without chasing anyone down.
+            </p>
+            <ul className="landing-features">
+              <li>
+                <strong>Private PDF vault</strong>
+                <span>Secure uploads with signed preview URLs, completion certificates, and audit trails.</span>
+              </li>
+              <li>
+                <strong>Reusable signatures</strong>
+                <span>Save your signature and initials once — select them on any document.</span>
+              </li>
+              <li>
+                <strong>Managed routing</strong>
+                <span>Sequential or parallel signing, internal or external participants — EasyDraft handles the follow-up.</span>
+              </li>
+            </ul>
+          </div>
+          <div className="landing-auth">
+            <AuthPanel
+              sessionUser={null}
+              guestSigningSession={null}
+              hasPendingInvite={pendingInviteToken !== null}
+              onSessionCreated={(nextSession) => {
+                refreshSession(nextSession).catch((error) => setErrorMessage((error as Error).message));
+              }}
+              onRegistered={() => updatePortalView("owner")}
+            />
+            {errorMessage ? <div className="alert" style={{ marginTop: "0.75rem" }}>{errorMessage}</div> : null}
+            {noticeMessage ? <div className="alert success" style={{ marginTop: "0.75rem" }}>{noticeMessage}</div> : null}
+          </div>
+        </div>
+        {toast ? <div className="toast">{toast}</div> : null}
+      </div>
+    );
+  }
+
   return (
     <div className="shell">
       <aside ref={sidebarRef} className="sidebar">
@@ -1917,8 +1982,8 @@ export default function App() {
         {sessionUser ? (
           <section className="card">
             <div className="section-heading compact">
-              <p className="eyebrow">Portals</p>
-              <span>{portalView === "owner" ? "Owner portal" : "User workspace"}</span>
+              <p className="eyebrow">View</p>
+              <span>{portalView === "owner" ? "Owner dashboard" : "My workspace"}</span>
             </div>
             <div className="pill-row portal-switcher">
               <button
@@ -1926,7 +1991,7 @@ export default function App() {
                 onClick={() => updatePortalView("workspace")}
                 type="button"
               >
-                User workspace
+                My workspace
               </button>
               {canAccessOwnerPortal ? (
                 <button
@@ -1934,33 +1999,41 @@ export default function App() {
                   onClick={() => updatePortalView("owner")}
                   type="button"
                 >
-                  Owner portal
+                  Owner dashboard
                 </button>
               ) : null}
             </div>
-            <p className="muted">
-              {canAccessOwnerPortal
-                ? "Separate everyday document work from company oversight without using a different login."
-                : "Use the workspace here for everyday documents, signatures, and routing."}
-            </p>
           </section>
         ) : null}
 
         {sessionUser ? (
           <nav className="sidebar-nav">
+            <p className="eyebrow sidebar-nav-label">Tools</p>
             {portalView === "workspace" ? (
               <>
                 <button className="sidebar-nav-item" onClick={() => scrollSidebarTo("section-documents")} type="button">Documents</button>
                 <button className="sidebar-nav-item" onClick={() => scrollSidebarTo("section-signatures")} type="button">Signatures</button>
+                {canAccessOwnerPortal ? (
+                  <button className="sidebar-nav-item" onClick={() => updatePortalView("owner")} type="button">Team</button>
+                ) : null}
+                {canAccessOwnerPortal ? (
+                  <button className="sidebar-nav-item" onClick={() => updatePortalView("owner")} type="button">Billing</button>
+                ) : null}
                 <button className="sidebar-nav-item" onClick={() => scrollSidebarTo("section-account")} type="button">Account</button>
+                <a className="sidebar-nav-item" href="/guide.html" rel="noopener noreferrer" target="_blank">Help &amp; guide</a>
               </>
             ) : (
               <>
+                <button className="sidebar-nav-item" onClick={() => scrollMainTo("section-team")} type="button">Team</button>
+                <button className="sidebar-nav-item" onClick={() => scrollMainTo("section-billing")} type="button">Billing</button>
+                {sessionUser.isAdmin ? (
+                  <button className="sidebar-nav-item" onClick={() => scrollMainTo("section-admin")} type="button">Admin console</button>
+                ) : null}
                 <button className="sidebar-nav-item" onClick={() => scrollSidebarTo("section-account")} type="button">Account</button>
                 <button className="sidebar-nav-item" onClick={() => scrollSidebarTo("section-signatures")} type="button">Signatures</button>
+                <a className="sidebar-nav-item" href="/guide.html" rel="noopener noreferrer" target="_blank">Help &amp; guide</a>
               </>
             )}
-            <a className="sidebar-nav-item" href="/guide.html" rel="noopener noreferrer" target="_blank">Help &amp; guide</a>
           </nav>
         ) : null}
 
@@ -2438,40 +2511,22 @@ export default function App() {
       </aside>
 
       <main className="main">
-        <header className="hero">
+        <header className="workspace-header">
           <div>
-            <p className="eyebrow">Document workflows</p>
-            <h2>Upload, route, and sign PDFs — without chasing anyone down.</h2>
-            <p className="hero-copy">
-              Private storage, reusable profile signatures, managed routing, and audit-friendly
-              workflow state all stay in one place so teams can draft once and move with confidence.
+            <p className="eyebrow">
+              {portalView === "owner" ? "Owner dashboard" : "Document workspace"}
             </p>
-            <a className="hero-guide-link" href="/guide.html" target="_blank" rel="noopener noreferrer">
-              Read the user guide →
-            </a>
+            <h2>
+              {portalView === "owner"
+                ? "Company oversight and controls"
+                : sessionUser
+                  ? `${sessionUser.name.split(" ")[0]}'s workspace`
+                  : "Complete your assigned fields"}
+            </h2>
           </div>
-          <div className="hero-grid">
-            <div className="metric">
-              <span>Hosting</span>
-              <strong>EasyDraft</strong>
-              <p>One workspace for drafts, approvals, signatures, and exports.</p>
-            </div>
-            <div className="metric">
-              <span>Team access</span>
-              <strong>One secure sign-in for your whole crew</strong>
-              <p>Owners, admins, and teammates all come through the same EasyDraft login.</p>
-            </div>
-            <div className="metric">
-              <span>Storage</span>
-              <strong>Your document vault, minus the clutter</strong>
-              <p>Private uploads, signed previews, and clean handoffs that stay easy to find later.</p>
-            </div>
-            <div className="metric">
-              <span>Distribution</span>
-              <strong>Self, internal, or managed</strong>
-              <p>Send it yourself, keep it internal, or let EasyDraft handle the follow-up.</p>
-            </div>
-          </div>
+          <a className="hero-guide-link" href="/guide.html" target="_blank" rel="noopener noreferrer">
+            Help &amp; guide →
+          </a>
         </header>
 
         {errorMessage ? <div className="alert">{errorMessage}</div> : null}
@@ -2522,6 +2577,10 @@ export default function App() {
                   ? [refreshAdminOverview(session), refreshAdminUsers(session)]
                   : [];
                 Promise.all(requests).catch((error) => setErrorMessage((error as Error).message));
+              }}
+              onNavigateToDocument={(documentId) => {
+                setSelectedDocumentId(documentId);
+                updatePortalView("workspace");
               }}
             />
           </ErrorBoundary>

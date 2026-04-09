@@ -60,6 +60,7 @@ type Props = {
   onRefreshTeam: () => void;
   onRefreshBilling: () => void;
   onRefreshAdmin: () => void;
+  onNavigateToDocument: (documentId: string) => void;
 };
 
 export function OwnerPortal({
@@ -73,6 +74,7 @@ export function OwnerPortal({
   onRefreshTeam,
   onRefreshBilling,
   onRefreshAdmin,
+  onNavigateToDocument,
 }: Props) {
   const completedDocuments = documents.filter((document) => document.workflowState === "completed").length;
   const activeDocuments = documents.filter(
@@ -337,7 +339,13 @@ export function OwnerPortal({
                 <p className="muted">No workflows need attention right now.</p>
               ) : (
                 ownerWatchlist.map((document) => (
-                  <div key={document.id} className="row-card">
+                  <button
+                    key={document.id}
+                    className="row-card row-card-button"
+                    onClick={() => onNavigateToDocument(document.id)}
+                    type="button"
+                    title="Open in workspace"
+                  >
                     <div>
                       <strong>{document.name}</strong>
                       <p className="muted">{document.waitingOn.summary}</p>
@@ -346,8 +354,8 @@ export function OwnerPortal({
                         activity {formatTimestamp(document.sentAt ?? document.uploadedAt)}
                       </p>
                     </div>
-                    <span>{formatStatusLabel(document.deliveryMode)}</span>
-                  </div>
+                    <span>{formatStatusLabel(document.deliveryMode)} →</span>
+                  </button>
                 ))
               )}
             </div>
@@ -377,73 +385,45 @@ export function OwnerPortal({
             </div>
           </section>
 
-          {billingOverview ? (
-            <BillingPanel session={session} billingOverview={billingOverview} />
-          ) : (
-            <section className="card">
-              <div className="section-heading compact">
-                <p className="eyebrow">Billing</p>
-                <span>Loading</span>
-              </div>
-              <p className="muted">
-                Commercial details are still loading. Refresh owner data to pull current plan,
-                renewal, and token information into this dashboard.
-              </p>
-            </section>
-          )}
+          <div id="section-billing">
+            {billingOverview ? (
+              <BillingPanel session={session} billingOverview={billingOverview} onBillingRefresh={onRefreshBilling} />
+            ) : (
+              <section className="card">
+                <div className="section-heading compact">
+                  <p className="eyebrow">Billing</p>
+                  <span>Loading…</span>
+                </div>
+                <p className="muted">
+                  Billing details are loading. Use "Refresh owner data" above if this persists.
+                </p>
+              </section>
+            )}
+          </div>
 
-          {workspaceTeam ? (
-            <TeamPanel
-              session={session}
-              team={workspaceTeam}
-              billingOverview={billingOverview}
-              onTeamRefresh={onRefreshTeam}
-            />
-          ) : (
-            <section className="card">
-              <div className="section-heading compact">
-                <p className="eyebrow">Team</p>
-                <span>Loading</span>
-              </div>
-              <p className="muted">
-                Team membership and invitations are still loading. Refresh owner data to sync access controls.
-              </p>
-            </section>
-          )}
+          <div id="section-team">
+            {workspaceTeam ? (
+              <TeamPanel
+                session={session}
+                team={workspaceTeam}
+                billingOverview={billingOverview}
+                onTeamRefresh={onRefreshTeam}
+              />
+            ) : (
+              <section className="card">
+                <div className="section-heading compact">
+                  <p className="eyebrow">Team</p>
+                  <span>Loading…</span>
+                </div>
+                <p className="muted">
+                  Team membership is loading. Use "Refresh owner data" above if this persists.
+                </p>
+              </section>
+            )}
+          </div>
         </div>
 
         <div className="stack">
-          <section className="card">
-            <div className="section-heading compact">
-              <p className="eyebrow">People and access</p>
-              <span>{activeMemberCount} members</span>
-            </div>
-            <div className="stack">
-              <div className="row-card">
-                <div>
-                  <strong>Access coverage</strong>
-                  <p className="muted">
-                    {activeMemberCount} active member{activeMemberCount === 1 ? "" : "s"} across your company workspace.
-                  </p>
-                </div>
-                <span>{pendingInvitationCount} pending</span>
-              </div>
-              {memberPreview.length === 0 ? (
-                <p className="muted">No members are loaded yet.</p>
-              ) : (
-                memberPreview.map((member) => (
-                  <div key={member.userId} className="row-card">
-                    <div>
-                      <strong>{member.displayName}{member.isCurrentUser ? " (you)" : ""}</strong>
-                      <p className="muted">{member.email ?? "No email"}</p>
-                    </div>
-                    <span>{formatStatusLabel(member.role)}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-
           <section className="card">
             <div className="section-heading compact">
               <p className="eyebrow">System posture</p>
@@ -462,62 +442,29 @@ export function OwnerPortal({
               </div>
               <div className="row-card">
                 <div>
-                  <strong>Commercial readiness</strong>
+                  <strong>Billing mode</strong>
                   <p className="muted">
                     {billingOverview?.billingMode === "placeholder"
-                      ? "Billing is still in testing mode, so owners can validate plans and flows before live charging."
-                      : "Billing is live, so renewals, seats, and token purchases should be treated as production operations."}
+                      ? "Testing mode — no live charges. Add Stripe keys to activate live billing."
+                      : "Live billing — renewals, seats, and token purchases are production operations."}
                   </p>
                 </div>
                 <span>{subscriptionStatus}</span>
-              </div>
-              <div className="row-card">
-                <div>
-                  <strong>Storage story</strong>
-                  <p className="muted">
-                    EasyDraft acts like a clean company vault: private uploads, tidy handoffs,
-                    reusable signatures, and completed exports all stay linked to the workflow trail.
-                  </p>
-                </div>
-                <span>Vault ready</span>
               </div>
             </div>
           </section>
 
           {sessionUser.isAdmin && adminOverview ? (
-            <AdminConsole
-              session={session}
-              sessionUser={sessionUser}
-              adminOverview={adminOverview}
-              adminUsers={adminUsers}
-              onRefresh={onRefreshAdmin}
-            />
-          ) : (
-            <section className="card">
-              <div className="section-heading compact">
-                <p className="eyebrow">Owner controls</p>
-                <span>{workspaceTeam?.workspace.name ?? "Company"}</span>
-              </div>
-              <div className="stack">
-                <div className="row-card">
-                  <div>
-                    <strong>Company oversight</strong>
-                    <p className="muted">
-                      Review team access, plan posture, and workflow health here before jumping into document prep.
-                    </p>
-                  </div>
-                </div>
-                <div className="row-card">
-                  <div>
-                    <strong>Executive visibility</strong>
-                    <p className="muted">
-                      Keep owners and representatives aligned on what is active, what is overdue, and who still needs access.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </section>
-          )}
+            <div id="section-admin">
+              <AdminConsole
+                session={session}
+                sessionUser={sessionUser}
+                adminOverview={adminOverview}
+                adminUsers={adminUsers}
+                onRefresh={onRefreshAdmin}
+              />
+            </div>
+          ) : null}
         </div>
       </section>
     </section>

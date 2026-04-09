@@ -112,26 +112,37 @@ export function AuthPanel({
     }
   }
 
-  return (
-    <section className="card">
-      <p className="eyebrow">Authentication</p>
+  // Signed-in users: no auth UI needed in the sidebar
+  if (sessionUser) {
+    return null;
+  }
 
-      {errorMessage ? <div className="alert">{errorMessage}</div> : null}
-      {noticeMessage ? <div className="alert success">{noticeMessage}</div> : null}
-
-      {guestSigningSession ? (
+  // Guest signers: show a minimal identity card in the sidebar
+  if (guestSigningSession) {
+    return (
+      <section className="card">
+        <p className="eyebrow">Guest signing</p>
+        {errorMessage ? <div className="alert">{errorMessage}</div> : null}
+        {noticeMessage ? <div className="alert success">{noticeMessage}</div> : null}
         <div className="stack">
-          <p className="eyebrow">Guest signing</p>
           <p className="muted">
             Signing as <strong>{guestSigningSession.signerName}</strong>
           </p>
           <p className="muted">{guestSigningSession.signerEmail}</p>
           <p className="muted">Complete your assigned fields in the document panel to the right.</p>
         </div>
-      ) : sessionUser ? (
-        sessionUser.isAdmin ? <p className="eyebrow">Admin console enabled</p> : null
-      ) : (
-        <form className="stack" onSubmit={handleAuthSubmit}>
+      </section>
+    );
+  }
+
+  return (
+    <section className="card">
+      <p className="eyebrow">Sign in</p>
+
+      {errorMessage ? <div className="alert">{errorMessage}</div> : null}
+      {noticeMessage ? <div className="alert success">{noticeMessage}</div> : null}
+
+      <form className="stack" onSubmit={handleAuthSubmit}>
           <p className="muted">
             Owners, administrators, and employees all sign in here. There is no separate admin portal.
           </p>
@@ -223,8 +234,7 @@ export function AuthPanel({
               will attach automatically.
             </p>
           ) : null}
-        </form>
-      )}
+      </form>
     </section>
   );
 }

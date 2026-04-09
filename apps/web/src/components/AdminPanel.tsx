@@ -78,6 +78,7 @@ export function AdminConsole({ session, sessionUser, adminOverview, adminUsers, 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+  const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<string | null>(null);
 
   async function handleAdminSendPasswordReset(userId: string) {
     setIsLoading(true);
@@ -142,13 +143,10 @@ export function AdminConsole({ session, sessionUser, adminOverview, adminUsers, 
   }
 
   async function handleAdminDeleteUser(userId: string) {
-    if (!window.confirm("Permanently delete this user? This cannot be undone.")) {
-      return;
-    }
-
     setIsLoading(true);
     setErrorMessage(null);
     setNoticeMessage(null);
+    setConfirmDeleteUserId(null);
 
     try {
       const payload = await apiFetch<{ email: string; deletedUserId: string }>(
@@ -307,14 +305,39 @@ export function AdminConsole({ session, sessionUser, adminOverview, adminUsers, 
                     >
                       Send reset email
                     </button>
-                    <button
-                      className="ghost-button danger-button"
-                      disabled={isLoading || !adminUser.canDelete}
-                      onClick={() => handleAdminDeleteUser(adminUser.id)}
-                      type="button"
-                    >
-                      Delete user
-                    </button>
+                    {confirmDeleteUserId === adminUser.id ? (
+                      <div className="delete-confirm-inline">
+                        <p className="muted delete-confirm-warning">
+                          Permanently deletes this account and all associated data. Cannot be undone.
+                        </p>
+                        <div className="row-inline">
+                          <button
+                            className="ghost-button danger-button"
+                            disabled={isLoading}
+                            onClick={() => handleAdminDeleteUser(adminUser.id)}
+                            type="button"
+                          >
+                            Confirm delete
+                          </button>
+                          <button
+                            className="ghost-button"
+                            onClick={() => setConfirmDeleteUserId(null)}
+                            type="button"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        className="ghost-button danger-button"
+                        disabled={isLoading || !adminUser.canDelete}
+                        onClick={() => setConfirmDeleteUserId(adminUser.id)}
+                        type="button"
+                      >
+                        Delete user
+                      </button>
+                    )}
                   </div>
                 </div>
               ))

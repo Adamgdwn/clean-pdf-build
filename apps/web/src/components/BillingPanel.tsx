@@ -55,7 +55,7 @@ type Props = {
   onBillingRefresh?: () => void;
 };
 
-export function BillingPanel({ session, billingOverview }: Props) {
+export function BillingPanel({ session, billingOverview, onBillingRefresh }: Props) {
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [confirmingTokenPurchase, setConfirmingTokenPurchase] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -176,6 +176,13 @@ export function BillingPanel({ session, billingOverview }: Props) {
               </div>
             </div>
 
+            {subscription.status === "past_due" ? (
+              <div className="alert">
+                <strong>Payment past due.</strong> Your subscription is at risk. Update your payment
+                method to keep access active.
+              </div>
+            ) : null}
+
             {isTrialing && trialDaysLeft !== null ? (
               <div className="alert success">
                 Your free trial ends in <strong>{trialDaysLeft} day{trialDaysLeft !== 1 ? "s" : ""}</strong>
@@ -209,7 +216,13 @@ export function BillingPanel({ session, billingOverview }: Props) {
               disabled={isRedirecting}
               onClick={handleBillingPortal}
             >
-              {isRedirecting ? "Redirecting…" : isTrialing ? "Add payment method" : "Manage billing"}
+              {isRedirecting
+                ? "Redirecting…"
+                : subscription.status === "past_due"
+                  ? "Update payment method"
+                  : isTrialing
+                    ? "Add payment method"
+                    : "Manage billing — change seats or plan"}
             </button>
           </>
         ) : selectedPlan ? (

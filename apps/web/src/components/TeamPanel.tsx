@@ -26,6 +26,9 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [workspaceName, setWorkspaceName] = useState(team.workspace.name);
+  const [editingRoleUserId, setEditingRoleUserId] = useState<string | null>(null);
+  const [editingRoleValue, setEditingRoleValue] = useState<"owner" | "member" | "admin" | "billing_admin">("member");
+  const [confirmRemoveUserId, setConfirmRemoveUserId] = useState<string | null>(null);
 
   const subscription = billingOverview?.subscription ?? null;
   const isOwnerOrAdmin = team.members.some(
@@ -141,6 +144,46 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
     }
   }
 
+  async function handleChangeRole(userId: string) {
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+    setEditingRoleUserId(null);
+
+    try {
+      await apiFetch("/workspace-member-role", session, {
+        method: "PATCH",
+        body: JSON.stringify({ userId, role: editingRoleValue }),
+      });
+      setNoticeMessage("Role updated.");
+      onTeamRefresh();
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleRemoveMember(userId: string) {
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+    setConfirmRemoveUserId(null);
+
+    try {
+      await apiFetch("/workspace-member", session, {
+        method: "DELETE",
+        body: JSON.stringify({ userId }),
+      });
+      setNoticeMessage("Member removed from workspace.");
+      onTeamRefresh();
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   return (
     <section className="card">
       <div className="section-heading compact">
@@ -186,24 +229,111 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
 
         {/* Members */}
         {team.members.map((member) => (
-          <div key={member.userId} className="row-card">
-            <div>
-              <strong>{member.displayName}{member.isCurrentUser ? " (you)" : ""}</strong>
-              <p className="muted">{member.email ?? ""}</p>
+          <div key={member.userId} className="row-card" style={{ flexDirection: "column", alignItems: "stretch", gap: "0.5rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <strong>{member.displayName}{member.isCurrentUser ? " (you)" : ""}</strong>
+                <p className="muted">{member.email ?? ""}</p>
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexShrink: 0 }}>
+                <span className="muted">{ROLE_LABELS[member.role] ?? member.role}</span>
+                {isOwnerOrAdmin && !member.isCurrentUser ? (
+                  <button
+                    className="ghost-button small"
+                    disabled={isLoading}
+                    onClick={() => {
+                      setEditingRoleUserId(editingRoleUserId === member.userId ? null : member.userId);
+                      setEditingRoleValue(member.role as "owner" | "member" | "admin" | "billing_admin");
+                      setConfirmRemoveUserId(null);
+                    }}
+                    type="button"
+                  >
+                    Change role
+                  </button>
+                ) : null}
+                {isOwnerOrAdmin && member.email ? (
+                  <button
+                    className="ghost-button small"
+                    disabled={isLoading}
+                    onClick={() => handleSendReset(member.userId, member.email)}
+                    type="button"
+                  >
+                    Reset
+                  </button>
+                ) : null}
+                {isOwnerOrAdmin && !member.isCurrentUser ? (
+                  <button
+                    className="ghost-button small"
+                    disabled={isLoading}
+                    onClick={() => {
+                      setConfirmRemoveUserId(confirmRemoveUserId === member.userId ? null : member.userId);
+                      setEditingRoleUserId(null);
+                    }}
+                    type="button"
+                    style={{ color: "var(--danger)" }}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
             </div>
-            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-              <span className="muted">{ROLE_LABELS[member.role] ?? member.role}</span>
-              {isOwnerOrAdmin && member.email ? (
+
+            {/* Inline role editor */}
+            {editingRoleUserId === member.userId ? (
+              <div className="row-inline" style={{ paddingTop: "4px", borderTop: "1px solid var(--border)" }}>
+                <select
+                  value={editingRoleValue}
+                  onChange={(e) => setEditingRoleValue(e.target.value as "owner" | "member" | "admin" | "billing_admin")}
+                  style={{ flex: 1 }}
+                >
+                  {isCurrentUserOwner ? <option value="owner">Owner</option> : null}
+                  <option value="member">Member</option>
+                  <option value="admin">Admin</option>
+                  <option value="billing_admin">Billing admin</option>
+                </select>
                 <button
-                  className="ghost-button"
-                  disabled={isLoading}
-                  onClick={() => handleSendReset(member.userId, member.email)}
+                  className="secondary-button"
+                  disabled={isLoading || editingRoleValue === member.role}
+                  onClick={() => handleChangeRole(member.userId)}
                   type="button"
                 >
-                  Send reset
+                  Save
                 </button>
-              ) : null}
-            </div>
+                <button
+                  className="ghost-button"
+                  onClick={() => setEditingRoleUserId(null)}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : null}
+
+            {/* Inline remove confirmation */}
+            {confirmRemoveUserId === member.userId ? (
+              <div className="delete-confirm-inline">
+                <p className="delete-confirm-warning">
+                  Remove <strong>{member.displayName}</strong> from this workspace? They will lose access immediately.
+                </p>
+                <div className="row-inline">
+                  <button
+                    className="ghost-button danger-button"
+                    disabled={isLoading}
+                    onClick={() => handleRemoveMember(member.userId)}
+                    type="button"
+                  >
+                    Confirm remove
+                  </button>
+                  <button
+                    className="ghost-button"
+                    onClick={() => setConfirmRemoveUserId(null)}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         ))}
 
