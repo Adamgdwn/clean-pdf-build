@@ -9,3 +9,4 @@ coverage
 .supabase
 supabase/.branches
 supabase/.temp
+tmp

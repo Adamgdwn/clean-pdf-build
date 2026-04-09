@@ -258,6 +258,15 @@ function getDeliveryModeReadyCopy(document: WorkflowDocument, hasBeenSent: boole
     : "Mark the document ready once setup is complete, then share or download it yourself.";
 }
 
+function getPortalQueryPreference() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const requestedPortal = new URLSearchParams(window.location.search).get("portal");
+  return requestedPortal === "workspace" || requestedPortal === "org_admin" ? requestedPortal : null;
+}
+
 function getQuickRouteLabels(deliveryMode: WorkflowDocument["deliveryMode"]) {
   if (deliveryMode === "internal_use_only") {
     return {
@@ -497,6 +506,7 @@ export default function App() {
   const [freeSignW, setFreeSignW] = useState("200");
   const [freeSignH, setFreeSignH] = useState("60");
   const [freeSignPage, setFreeSignPage] = useState("1");
+  const portalQueryPreferenceRef = useRef<PortalView | null>(getPortalQueryPreference());
   const dragStateRef = useRef<{
     mode: "move" | "resize";
     target: "field" | "freesign";
@@ -1630,6 +1640,7 @@ export default function App() {
     const signedIn = params.get("signedIn");
 
     if (requestedPortal === "workspace" || requestedPortal === "org_admin") {
+      portalQueryPreferenceRef.current = requestedPortal;
       setPortalView(requestedPortal);
     }
 
@@ -1808,18 +1819,18 @@ export default function App() {
     };
   }, [localPreviewUrl]);
 
+  const workspaceMembershipRole =
+    billingOverview?.workspace.membershipRole ??
+    workspaceTeam?.members.find((member) => member.isCurrentUser)?.role ??
+    null;
+  const orgAdminAccessResolved = Boolean(sessionUser && (sessionUser.isAdmin || billingOverview || workspaceTeam));
   const canAccessOrgAdmin = Boolean(
     sessionUser &&
-      (sessionUser.isAdmin ||
-        (!workspaceTeam && !billingOverview) ||
-        ["owner", "admin", "billing_admin"].includes(
-          billingOverview?.workspace.membershipRole ??
-            workspaceTeam?.members.find((member) => member.isCurrentUser)?.role ??
-            "",
-        )),
+      (sessionUser.isAdmin || ["owner", "admin", "billing_admin"].includes(workspaceMembershipRole ?? "")),
   );
 
   function updatePortalView(nextView: PortalView) {
+    portalQueryPreferenceRef.current = nextView;
     setPortalView(nextView);
     const params = new URLSearchParams(window.location.search);
     params.set("portal", nextView);
@@ -1832,6 +1843,14 @@ export default function App() {
       setPortalView("workspace");
     }
   }, [portalView, canAccessOrgAdmin]);
+
+  useEffect(() => {
+    if (!sessionUser || portalQueryPreferenceRef.current || !orgAdminAccessResolved) {
+      return;
+    }
+
+    setPortalView(canAccessOrgAdmin ? "org_admin" : "workspace");
+  }, [sessionUser, canAccessOrgAdmin, orgAdminAccessResolved]);
 
   useEffect(() => {
     function handlePointerMove(event: PointerEvent) {
@@ -2518,11 +2537,16 @@ export default function App() {
             </p>
             <h2>
               {portalView === "org_admin"
-                ? "Organization administration"
+                ? "Organization control center"
                 : sessionUser
                   ? `${sessionUser.name.split(" ")[0]}'s workspace`
                   : "Complete your assigned fields"}
             </h2>
+            {portalView === "org_admin" ? (
+              <p className="muted">
+                Monitor business health, billing posture, team access, and workflows that need action today.
+              </p>
+            ) : null}
           </div>
           <a className="hero-guide-link" href="/guide.html" target="_blank" rel="noopener noreferrer">
             Help &amp; guide →
@@ -2570,14 +2594,15 @@ export default function App() {
               billingOverview={billingOverview}
               adminOverview={adminOverview}
               adminUsers={adminUsers}
-              onRefreshTeam={() => refreshTeam(session).catch((error) => setErrorMessage((error as Error).message))}
-              onRefreshBilling={() => refreshBilling(session).catch((error) => setErrorMessage((error as Error).message))}
+              onRefreshTeam={() => refreshTeam(session)}
+              onRefreshBilling={() => refreshBilling(session)}
               onRefreshAdmin={() => {
                 const requests = sessionUser.isAdmin
                   ? [refreshAdminOverview(session), refreshAdminUsers(session)]
                   : [];
-                Promise.all(requests).catch((error) => setErrorMessage((error as Error).message));
+                return Promise.all(requests).then(() => undefined);
               }}
+              onSwitchToWorkspace={() => updatePortalView("workspace")}
               onNavigateToDocument={(documentId) => {
                 setSelectedDocumentId(documentId);
                 updatePortalView("workspace");

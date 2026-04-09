@@ -206,6 +206,11 @@ select {
   padding: 22px;
 }
 
+.owner-actions {
+  margin-top: 18px;
+  margin-bottom: 0;
+}
+
 .owner-summary-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1104,6 +1109,11 @@ select {
   font-size: 1.4rem;
 }
 
+.workspace-header .muted {
+  margin: 10px 0 0;
+  max-width: 58ch;
+}
+
 .workspace-header .hero-guide-link {
   flex-shrink: 0;
   margin-top: 8px;
@@ -1135,6 +1145,44 @@ button.row-card-button:hover {
 button.row-card-button div,
 button.row-card-button p {
   pointer-events: none;
+}
+
+.owner-watchlist-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.status-chip-critical {
+  background: rgba(146, 59, 44, 0.12);
+  color: #923b2c;
+}
+
+.status-chip-high {
+  background: rgba(184, 110, 34, 0.14);
+  color: #8f5713;
+}
+
+.status-chip-medium {
+  background: rgba(29, 122, 92, 0.12);
+  color: var(--accent);
+}
+
+.status-chip-low {
+  background: rgba(24, 36, 29, 0.08);
+  color: var(--text-muted);
 }
 
 /* ── Inline delete confirmation in admin panel ────────────────────────────── */

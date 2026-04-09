@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 
 import { AdminConsole } from "./AdminPanel";
@@ -49,6 +50,26 @@ function subscriptionStatusLabel(status: string | null) {
   }
 }
 
+function scrollToSection(sectionId: string) {
+  document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function getAttentionSeverity(document: WorkflowDocument) {
+  if (document.isOverdue || document.waitingOn.isOverdue) {
+    return { label: "Overdue", rank: 0, tone: "critical" as const };
+  }
+
+  if (document.operationalStatus === "rejected" || document.operationalStatus === "canceled") {
+    return { label: "Blocked", rank: 1, tone: "high" as const };
+  }
+
+  if (document.operationalStatus === "changes_requested") {
+    return { label: "Review", rank: 2, tone: "medium" as const };
+  }
+
+  return { label: "Monitor", rank: 3, tone: "low" as const };
+}
+
 type Props = {
   session: Session;
   sessionUser: SessionUser;
@@ -57,9 +78,10 @@ type Props = {
   billingOverview: BillingOverview | null;
   adminOverview: AdminOverview | null;
   adminUsers: AdminManagedUser[];
-  onRefreshTeam: () => void;
-  onRefreshBilling: () => void;
-  onRefreshAdmin: () => void;
+  onRefreshTeam: () => Promise<void>;
+  onRefreshBilling: () => Promise<void>;
+  onRefreshAdmin: () => Promise<void>;
+  onSwitchToWorkspace: () => void;
   onNavigateToDocument: (documentId: string) => void;
 };
 
@@ -74,8 +96,11 @@ export function OwnerPortal({
   onRefreshTeam,
   onRefreshBilling,
   onRefreshAdmin,
+  onSwitchToWorkspace,
   onNavigateToDocument,
 }: Props) {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const completedDocuments = documents.filter((document) => document.workflowState === "completed").length;
   const activeDocuments = documents.filter(
     (document) => document.operationalStatus === "active" && document.workflowState !== "completed",
@@ -106,8 +131,6 @@ export function OwnerPortal({
     ["sent", "partially_signed", "pending"].includes(document.workflowState),
   ).length;
   const lockedDocuments = documents.filter((document) => Boolean(document.lockedAt)).length;
-  const selfManagedDocuments = documents.filter((document) => document.deliveryMode === "self_managed").length;
-  const internalDocuments = documents.filter((document) => document.deliveryMode === "internal_use_only").length;
   const managedDocuments = documents.filter((document) => document.deliveryMode === "platform_managed").length;
 
   const subscription = billingOverview?.subscription ?? null;
@@ -118,56 +141,131 @@ export function OwnerPortal({
   const subscriptionStatus = subscriptionStatusLabel(subscription?.status ?? null);
   const renewsOn = subscription?.currentPeriodEnd ? formatShortDate(subscription.currentPeriodEnd) : null;
   const trialEndsOn = subscription?.trialEndsAt ? formatShortDate(subscription.trialEndsAt) : null;
+  const queuePressure = adminOverview
+    ? adminOverview.metrics.pendingNotifications + adminOverview.metrics.queuedProcessingJobs
+    : 0;
 
   const ownerWatchlist = [...documents]
     .filter(
       (document) =>
         document.isOverdue ||
+        document.waitingOn.isOverdue ||
         document.operationalStatus === "changes_requested" ||
         document.operationalStatus === "rejected" ||
-        (document.operationalStatus === "active" && document.workflowState !== "completed"),
+        document.operationalStatus === "canceled",
     )
     .sort((left, right) => {
-      if (left.isOverdue !== right.isOverdue) {
-        return left.isOverdue ? -1 : 1;
+      const leftSeverity = getAttentionSeverity(left);
+      const rightSeverity = getAttentionSeverity(right);
+
+      if (leftSeverity.rank !== rightSeverity.rank) {
+        return leftSeverity.rank - rightSeverity.rank;
       }
 
       return (right.sentAt ?? right.uploadedAt).localeCompare(left.sentAt ?? left.uploadedAt);
     })
-    .slice(0, 5);
+    .slice(0, 6);
 
   const recentDocuments = [...documents]
     .sort((left, right) => (right.sentAt ?? right.uploadedAt).localeCompare(left.sentAt ?? left.uploadedAt))
     .slice(0, 6);
 
-  const memberPreview = workspaceTeam?.members.slice(0, 4) ?? [];
   const ownerCount = workspaceTeam?.members.filter((member) => member.role === "owner").length ?? 0;
   const adminCount = workspaceTeam?.members.filter((member) => member.role === "admin").length ?? 0;
   const billingAdminCount = workspaceTeam?.members.filter((member) => member.role === "billing_admin").length ?? 0;
+
+  async function handleRefreshAll() {
+    setIsRefreshing(true);
+    setRefreshError(null);
+
+    try {
+      await Promise.all([onRefreshBilling(), onRefreshTeam(), onRefreshAdmin()]);
+    } catch (error) {
+      setRefreshError((error as Error).message);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
 
   return (
     <section className="owner-portal">
       <div className="panel owner-hero-panel">
         <div className="panel-header">
           <div>
-            <p className="eyebrow">Organization admin</p>
-            <h3>Team, billing, and document oversight for your organization</h3>
+            <p className="eyebrow">Organization control center</p>
+            <h3>Run the business from one operating view</h3>
           </div>
-          <button
-            className="secondary-button"
-            onClick={() => {
-              onRefreshBilling();
-              onRefreshTeam();
-              onRefreshAdmin();
-            }}
-          >
-            Refresh
+          <button className="secondary-button" disabled={isRefreshing} onClick={handleRefreshAll} type="button">
+            {isRefreshing ? "Refreshing…" : "Refresh"}
           </button>
         </div>
         <p className="muted action-note">
-          Use this area like a control room: monitor your team, subscription posture, workflow
-          backlog, and who needs attention before switching back into the day-to-day workspace.
+          Start here to review company health, commercial posture, team access, and workflows that need attention before dropping into document work.
         </p>
+
+        {refreshError ? <div className="alert">{refreshError}</div> : null}
+
+        <div className="quick-actions owner-actions">
+          <p className="eyebrow">Owner actions</p>
+          <div className="quick-actions-grid">
+            <button className="quick-action-item" onClick={() => scrollToSection("section-attention")} type="button">
+              <strong className="quick-action-label">Review watchlist</strong>
+              <span className="muted">{ownerWatchlist.length} workflow{ownerWatchlist.length === 1 ? "" : "s"} need review</span>
+            </button>
+            <button className="quick-action-item" onClick={() => scrollToSection("section-billing")} type="button">
+              <strong className="quick-action-label">Manage billing</strong>
+              <span className="muted">{subscriptionStatus} · {tokenBalance} tokens available</span>
+            </button>
+            <button className="quick-action-item" onClick={() => scrollToSection("section-team")} type="button">
+              <strong className="quick-action-label">Manage team</strong>
+              <span className="muted">{activeMemberCount} members · {pendingInvitationCount} pending invites</span>
+            </button>
+            {sessionUser.isAdmin ? (
+              <button className="quick-action-item" onClick={() => scrollToSection("section-admin")} type="button">
+                <strong className="quick-action-label">Review admin console</strong>
+                <span className="muted">{queuePressure} queue item{queuePressure === 1 ? "" : "s"} to review</span>
+              </button>
+            ) : (
+              <button className="quick-action-item" onClick={onSwitchToWorkspace} type="button">
+                <strong className="quick-action-label">Open workspace</strong>
+                <span className="muted">Jump into document editing and routing</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="owner-metrics-grid">
+          <div className="metric">
+            <span>Active workflows</span>
+            <strong>{activeDocuments}</strong>
+            <p>Documents currently moving through routing, signatures, or approvals.</p>
+          </div>
+          <div className="metric">
+            <span>Needs attention</span>
+            <strong>{actionNeededDocuments}</strong>
+            <p>Overdue items, rejected workflows, or change requests waiting on action.</p>
+          </div>
+          <div className="metric">
+            <span>Overdue</span>
+            <strong>{overdueDocuments}</strong>
+            <p>Workflows that need a nudge, reprioritization, or intervention.</p>
+          </div>
+          <div className="metric">
+            <span>Seats in use</span>
+            <strong>{availableSeats > 0 ? `${occupiedSeats}/${availableSeats}` : occupiedSeats}</strong>
+            <p>Members plus pending invitations compared with subscribed capacity.</p>
+          </div>
+          <div className="metric">
+            <span>Token balance</span>
+            <strong>{tokenBalance}</strong>
+            <p>Prepaid managed-send capacity available for outside signers.</p>
+          </div>
+          <div className="metric">
+            <span>Subscription</span>
+            <strong>{subscriptionStatus}</strong>
+            <p>{trialEndsOn ? `Trial ends ${trialEndsOn}.` : renewsOn ? `Renews ${renewsOn}.` : "No renewal date scheduled yet."}</p>
+          </div>
+        </div>
 
         <div className="owner-summary-grid">
           <section className="toolbar-card owner-summary-card">
@@ -180,32 +278,19 @@ export function OwnerPortal({
                 <div>
                   <strong>Access posture</strong>
                   <p className="muted">
-                    {activeMemberCount} active member{activeMemberCount === 1 ? "" : "s"} and{" "}
-                    {pendingInvitationCount} pending invite{pendingInvitationCount === 1 ? "" : "s"}.
+                    {activeMemberCount} active member{activeMemberCount === 1 ? "" : "s"} and {pendingInvitationCount} pending invite{pendingInvitationCount === 1 ? "" : "s"}.
                   </p>
                 </div>
                 <span>{currentMembershipRole ? formatStatusLabel(currentMembershipRole) : "Admin view"}</span>
               </div>
               <div className="row-card">
                 <div>
-                  <strong>Role mix</strong>
+                  <strong>Role coverage</strong>
                   <p className="muted">
-                    {ownerCount} super user{ownerCount === 1 ? "" : "s"}, {adminCount} admin
-                    {adminCount === 1 ? "" : "s"}, {billingAdminCount} billing admin
-                    {billingAdminCount === 1 ? "" : "s"}.
+                    {ownerCount} super user{ownerCount === 1 ? "" : "s"}, {adminCount} admin{adminCount === 1 ? "" : "s"}, {billingAdminCount} billing admin{billingAdminCount === 1 ? "" : "s"}.
                   </p>
                 </div>
                 <span>{sessionUser.name}</span>
-              </div>
-              <div className="row-card">
-                <div>
-                  <strong>Vault posture</strong>
-                  <p className="muted">
-                    Keep drafts, signed previews, and final exports in one searchable company vault
-                    instead of scattered folders and inboxes.
-                  </p>
-                </div>
-                <span>Private storage</span>
               </div>
             </div>
           </section>
@@ -238,25 +323,12 @@ export function OwnerPortal({
                 </div>
                 <span>{tokenBalance} tokens</span>
               </div>
-              <div className="row-card">
-                <div>
-                  <strong>Renewal timing</strong>
-                  <p className="muted">
-                    {trialEndsOn
-                      ? `Trial ends ${trialEndsOn}.`
-                      : renewsOn
-                        ? `Next billing date ${renewsOn}.`
-                        : "No renewal date scheduled yet."}
-                  </p>
-                </div>
-                <span>{billingOverview?.plans.length ?? 0} plans</span>
-              </div>
             </div>
           </section>
 
           <section className="toolbar-card owner-summary-card">
             <div className="section-heading compact">
-              <p className="eyebrow">Workflow posture</p>
+              <p className="eyebrow">Workflow snapshot</p>
               <span>{documents.length} total</span>
             </div>
             <div className="stack">
@@ -271,92 +343,54 @@ export function OwnerPortal({
               </div>
               <div className="row-card">
                 <div>
-                  <strong>Routing mix</strong>
+                  <strong>Managed routing load</strong>
                   <p className="muted">
-                    {selfManagedDocuments} self-managed, {internalDocuments} internal-only, {managedDocuments} managed-send.
+                    {managedDocuments} workflow{managedDocuments === 1 ? "" : "s"} currently rely on EasyDraft-managed notifications and follow-up.
                   </p>
                 </div>
-                <span>{overdueDocuments} overdue</span>
-              </div>
-              <div className="row-card">
-                <div>
-                  <strong>Follow-up load</strong>
-                  <p className="muted">
-                    {actionNeededDocuments > 0
-                      ? `${actionNeededDocuments} workflow${actionNeededDocuments === 1 ? "" : "s"} need a nudge, review, or correction.`
-                      : "No urgent workflow follow-up is waiting on you right now."}
-                  </p>
-                </div>
-                <span>{ownerWatchlist.length} watchlist</span>
+                <span>{ownerWatchlist.length} flagged</span>
               </div>
             </div>
           </section>
-        </div>
-
-        <div className="owner-metrics-grid">
-          <div className="metric">
-            <span>Active workflows</span>
-            <strong>{activeDocuments}</strong>
-            <p>Documents currently moving through routing, signatures, or approvals.</p>
-          </div>
-          <div className="metric">
-            <span>Completed</span>
-            <strong>{completedDocuments}</strong>
-            <p>Finished documents with exports and audit trail available.</p>
-          </div>
-          <div className="metric">
-            <span>Action needed</span>
-            <strong>{actionNeededDocuments}</strong>
-            <p>Overdue items or workflows waiting on requested changes.</p>
-          </div>
-          <div className="metric">
-            <span>Seats in use</span>
-            <strong>{availableSeats > 0 ? `${occupiedSeats}/${availableSeats}` : occupiedSeats}</strong>
-            <p>Members plus pending invitations compared with subscribed capacity.</p>
-          </div>
-          <div className="metric">
-            <span>External tokens</span>
-            <strong>{tokenBalance}</strong>
-            <p>Prepaid managed-send capacity available for outside signers.</p>
-          </div>
-          <div className="metric">
-            <span>Overdue</span>
-            <strong>{overdueDocuments}</strong>
-            <p>Workflows that need a nudge, a reminder, or a reset in priority.</p>
-          </div>
         </div>
       </div>
 
       <section className="owner-portal-grid">
         <div className="stack">
-          <section className="card">
+          <section className="card" id="section-attention">
             <div className="section-heading compact">
-              <p className="eyebrow">Company watchlist</p>
+              <p className="eyebrow">Needs attention now</p>
               <span>{ownerWatchlist.length} items</span>
             </div>
             <div className="stack">
               {ownerWatchlist.length === 0 ? (
                 <p className="muted">No workflows need attention right now.</p>
               ) : (
-                ownerWatchlist.map((document) => (
-                  <button
-                    key={document.id}
-                    className="row-card row-card-button"
-                    onClick={() => onNavigateToDocument(document.id)}
-                    type="button"
-                    title="Open in workspace"
-                  >
-                    <div>
-                      <strong>{document.name}</strong>
-                      <p className="muted">{document.waitingOn.summary}</p>
-                      <p className="muted">
-                        {document.isOverdue ? "Overdue" : formatStatusLabel(document.operationalStatus)} · last
-                        activity {formatTimestamp(document.sentAt ?? document.uploadedAt)}
-                      </p>
-                    </div>
-                    <span>{formatStatusLabel(document.deliveryMode)} →</span>
-                  </button>
-                ))
+                ownerWatchlist.map((document) => {
+                  const severity = getAttentionSeverity(document);
+
+                  return (
+                    <button
+                      key={document.id}
+                      className="row-card row-card-button"
+                      onClick={() => onNavigateToDocument(document.id)}
+                      type="button"
+                      title="Open in workspace"
+                    >
+                      <div>
+                        <div className="owner-watchlist-heading">
+                          <strong>{document.name}</strong>
+                          <span className={`status-chip status-chip-${severity.tone}`}>{severity.label}</span>
+                        </div>
+                        <p className="muted">{document.waitingOn.summary}</p>
+                        <p className="muted">
+                          {formatStatusLabel(document.operationalStatus)} · last activity {formatTimestamp(document.sentAt ?? document.uploadedAt)}
+                        </p>
+                      </div>
+                      <span>{formatStatusLabel(document.deliveryMode)} →</span>
+                    </button>
+                  );
+                })
               )}
             </div>
           </section>
@@ -368,7 +402,7 @@ export function OwnerPortal({
             </div>
             <div className="stack">
               {recentDocuments.length === 0 ? (
-                <p className="muted">No documents exist yet. Upload a PDF to start building the company trail.</p>
+                <p className="muted">No documents exist yet. Upload a PDF when you are ready to start the company workflow trail.</p>
               ) : (
                 recentDocuments.map((document) => (
                   <div key={document.id} className="row-card">
@@ -395,7 +429,7 @@ export function OwnerPortal({
                   <span>Loading…</span>
                 </div>
                 <p className="muted">
-                  Billing details are loading. Use "Refresh" above if this persists.
+                  Billing details are loading. Use refresh above if this persists.
                 </p>
               </section>
             )}
@@ -416,7 +450,7 @@ export function OwnerPortal({
                   <span>Loading…</span>
                 </div>
                 <p className="muted">
-                  Team membership is loading. Use "Refresh" above if this persists.
+                  Team membership is loading. Use refresh above if this persists.
                 </p>
               </section>
             )}
@@ -434,8 +468,7 @@ export function OwnerPortal({
                 <div>
                   <strong>Workspace identity</strong>
                   <p className="muted">
-                    {workspaceTeam?.workspace.name ?? billingOverview?.workspace.name ?? "Workspace"}{" "}
-                    is your shared operating space for drafts, approvals, signatures, and exports.
+                    {workspaceTeam?.workspace.name ?? billingOverview?.workspace.name ?? "Workspace"} is your shared operating space for drafts, approvals, signatures, and exports.
                   </p>
                 </div>
                 <span>{billingOverview?.workspace.workspaceType ?? "team"}</span>
@@ -445,12 +478,23 @@ export function OwnerPortal({
                   <strong>Billing mode</strong>
                   <p className="muted">
                     {billingOverview?.billingMode === "placeholder"
-                      ? "Testing mode — no live charges. Add Stripe keys to activate live billing."
-                      : "Live billing — renewals, seats, and token purchases are production operations."}
+                      ? "Testing mode. Add Stripe keys to activate live billing."
+                      : "Live billing. Renewals, seats, and token purchases are production operations."}
                   </p>
                 </div>
                 <span>{subscriptionStatus}</span>
               </div>
+              {adminOverview ? (
+                <div className="row-card">
+                  <div>
+                    <strong>Platform queue</strong>
+                    <p className="muted">
+                      {adminOverview.metrics.pendingNotifications} pending notification{adminOverview.metrics.pendingNotifications === 1 ? "" : "s"} and {adminOverview.metrics.queuedProcessingJobs} queued processing job{adminOverview.metrics.queuedProcessingJobs === 1 ? "" : "s"}.
+                    </p>
+                  </div>
+                  <span>{queuePressure} total</span>
+                </div>
+              ) : null}
             </div>
           </section>
 
