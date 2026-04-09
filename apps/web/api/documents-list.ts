@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import { listDocumentsForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
-import { readAuthorizationHeader, sendError } from "./_utils.js";
+import { readAuthorizationHeader, readWorkspaceIdHeader, sendError } from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== "POST") {
@@ -12,7 +12,12 @@ export default async function handler(request: VercelRequest, response: VercelRe
   try {
     return response
       .status(200)
-      .json(await listDocumentsForAuthorizationHeader(readAuthorizationHeader(request)));
+      .json(
+        await listDocumentsForAuthorizationHeader(
+          readAuthorizationHeader(request),
+          readWorkspaceIdHeader(request),
+        ),
+      );
   } catch (error) {
     return sendError(response, error);
   }

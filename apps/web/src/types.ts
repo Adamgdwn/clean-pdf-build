@@ -181,6 +181,19 @@ export type WorkspaceTeam = {
   pendingInvitations: WorkspaceTeamInvitation[];
 };
 
+export type WorkspaceOption = {
+  id: string;
+  name: string;
+  slug: string;
+  workspaceType: "personal" | "team";
+  role: "owner" | "admin" | "member" | "billing_admin" | null;
+};
+
+export type WorkspaceDirectory = {
+  currentWorkspace: WorkspaceOption;
+  workspaces: WorkspaceOption[];
+};
+
 export type AdminManagedUser = {
   id: string;
   email: string;

@@ -16,6 +16,7 @@ Current admin and operator capabilities include:
 
 - viewing admin metrics
 - switching between user workspace and owner portal
+- switching between active workspaces when the signed-in user belongs to more than one
 - reviewing account status
 - sending tester invite emails
 - checking privilege visibility
@@ -57,16 +58,25 @@ The current admin console provides:
 
 Use the refresh action in the admin console after operational changes if the data looks stale.
 
+The owner/admin experience now also includes:
+
+- company KPI summary above the fold
+- needs-attention watchlist
+- visible subscription state and token posture
+- direct toggle back to the document workspace
+
 ## Recommended admin smoke test
 
 1. Sign in as the admin user.
 2. Confirm the admin console appears.
 3. Confirm the owner portal appears and the company dashboard loads.
-3. Send one tester invite email.
-4. Confirm the metrics render without errors.
-5. Confirm at least one non-admin owner and one signer account exist.
-6. Trigger one password reset for a test account.
-7. Confirm test-user deletion works only where expected.
+4. If the account belongs to more than one workspace, confirm the workspace switcher appears.
+5. Switch workspaces and confirm billing, team, and documents all scope correctly.
+6. Send one tester invite email.
+7. Confirm the metrics render without errors.
+8. Confirm at least one non-admin owner and one signer account exist.
+9. Trigger one password reset for a test account.
+10. Confirm test-user deletion works only where expected.
 
 ## Tester invitation flow
 
@@ -74,9 +84,10 @@ Current recommended tester onboarding flow:
 
 1. Use the admin console `Invite testers` form.
 2. Supabase Auth sends the invite email.
-3. The tester follows the invite, creates their account, and lands back in EasyDraft.
-4. The tester fills in profile details inside the app.
-5. Any pending document collaborator or signer access for that same email attaches automatically after sign-in.
+3. The tester follows the invite, creates their account if needed, and lands back in EasyDraft.
+4. The tester is attached to the invited workspace and should see a clear joined-workspace confirmation.
+5. The tester fills in profile details inside the app.
+6. Any pending document collaborator or signer access for that same email attaches automatically after sign-in.
 
 Important distinction:
 
@@ -145,8 +156,10 @@ Also confirm:
 
 For production confidence, admins or operators should test:
 
+- public landing page and `/pricing`
 - upload and preview
 - owner portal and user workspace switching
+- active workspace switching
 - saved signature creation
 - digital-signature profile creation
 - internal-use-only flow
@@ -164,6 +177,7 @@ For production confidence, admins or operators should test:
 - lock and reopen
 - audit trail
 - version history
+- dedicated external signer surface and completion confirmation
 - signing reason and optional signing location captured at signing time
 
 ## Notifications and email delivery
@@ -304,9 +318,10 @@ That positioning helps keep tester expectations aligned with the current stage o
 To make the product more market-ready, operators should prioritize:
 
 - finalizing Stripe account setup
-- deciding the free 30-day tester offer terms
-- preparing simple pricing copy
-- preparing tester onboarding email copy
+- publishing privacy policy and terms
+- preparing security/privacy summary copy
+- refining pricing copy and trust proof
+- preparing tester onboarding and invite email copy
 - validating the core workflow paths with real users
 - only enabling paid billing after the tester path feels dependable
 

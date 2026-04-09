@@ -112,11 +112,17 @@ The existing domain model already supports the main shape of this matrix:
 What would still need explicit product and data-model decisions for full coverage:
 
 - staged routing as a first-class concept
-- internal versus external signer classification
-- approval-only actions separate from signatures
-- decline, cancel, and expire statuses
+- expire status surfaced more explicitly in the UI
 - lock permissions by policy instead of broad signer access
+- change-impact classification after partial signing
 
 ## Future-state roadmap
 
 For the full current workflow reference (states, routing, delivery modes, field types, permissions), see [future-workflow-roadmap.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/future-workflow-roadmap.md).
+
+## Next steps for workflow coverage
+
+- formalize staged routing as a first-class workflow concept rather than an emergent pattern
+- add change-impact classification for post-sign edits
+- decide how expiration should appear operationally for owners and participants
+- evaluate certificate-backed signing only when customer demand justifies it

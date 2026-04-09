@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import { changeWorkspaceMemberRoleForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
-import { enforceRateLimit, readAuthorizationHeader, sendError } from "./_utils.js";
+import { enforceRateLimit, readAuthorizationHeader, readWorkspaceIdHeader, sendError } from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== "PATCH") {
@@ -20,6 +20,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       await changeWorkspaceMemberRoleForAuthorizationHeader(
         readAuthorizationHeader(request),
         request.body,
+        readWorkspaceIdHeader(request),
       ),
     );
   } catch (error) {

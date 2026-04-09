@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-import { getWorkspaceTeamForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
+import { listAccessibleWorkspacesForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
 import { readAuthorizationHeader, readWorkspaceIdHeader, sendError } from "./_utils.js";
 
@@ -11,7 +11,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
   try {
     return response.status(200).json(
-      await getWorkspaceTeamForAuthorizationHeader(
+      await listAccessibleWorkspacesForAuthorizationHeader(
         readAuthorizationHeader(request),
         readWorkspaceIdHeader(request),
       ),

@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import { createBillingPortalSessionForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
-import { getRequestOrigin, readAuthorizationHeader, sendError } from "./_utils.js";
+import { getRequestOrigin, readAuthorizationHeader, readWorkspaceIdHeader, sendError } from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== "POST") {
@@ -14,6 +14,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       await createBillingPortalSessionForAuthorizationHeader(
         readAuthorizationHeader(request),
         getRequestOrigin(request),
+        readWorkspaceIdHeader(request),
       ),
     );
   } catch (error) {

@@ -5,14 +5,19 @@ import {
   listDocumentsForAuthorizationHeader,
 } from "../../../packages/workflow-service/src/index.js";
 
-import { enforceRateLimit, readAuthorizationHeader, sendError } from "./_utils.js";
+import { enforceRateLimit, readAuthorizationHeader, readWorkspaceIdHeader, sendError } from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   try {
     if (request.method === "GET") {
       return response
         .status(200)
-        .json(await listDocumentsForAuthorizationHeader(readAuthorizationHeader(request)));
+        .json(
+          await listDocumentsForAuthorizationHeader(
+            readAuthorizationHeader(request),
+            readWorkspaceIdHeader(request),
+          ),
+        );
     }
 
     if (request.method === "POST") {
@@ -25,7 +30,11 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return response
         .status(200)
         .json(
-          await createDocumentForAuthorizationHeader(readAuthorizationHeader(request), request.body),
+          await createDocumentForAuthorizationHeader(
+            readAuthorizationHeader(request),
+            request.body,
+            readWorkspaceIdHeader(request),
+          ),
         );
     }
 

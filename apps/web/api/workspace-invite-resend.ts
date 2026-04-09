@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import { resendWorkspaceInvitationForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
-import { readAuthorizationHeader, sendError } from "./_utils.js";
+import { readAuthorizationHeader, readWorkspaceIdHeader, sendError } from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== "POST") {
@@ -21,6 +21,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       await resendWorkspaceInvitationForAuthorizationHeader(
         readAuthorizationHeader(request),
         invitationId,
+        readWorkspaceIdHeader(request),
       ),
     );
   } catch (error) {

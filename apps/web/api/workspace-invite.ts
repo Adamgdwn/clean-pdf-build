@@ -5,7 +5,7 @@ import {
   revokeWorkspaceInvitationForAuthorizationHeader,
 } from "../../../packages/workflow-service/src/index.js";
 
-import { enforceRateLimit, readAuthorizationHeader, sendError } from "./_utils.js";
+import { enforceRateLimit, readAuthorizationHeader, readWorkspaceIdHeader, sendError } from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   const auth = readAuthorizationHeader(request);
@@ -19,7 +19,11 @@ export default async function handler(request: VercelRequest, response: VercelRe
       });
 
       return response.status(200).json(
-        await createWorkspaceInvitationForAuthorizationHeader(auth, request.body),
+        await createWorkspaceInvitationForAuthorizationHeader(
+          auth,
+          request.body,
+          readWorkspaceIdHeader(request),
+        ),
       );
     }
 
@@ -31,7 +35,11 @@ export default async function handler(request: VercelRequest, response: VercelRe
       }
 
       return response.status(200).json(
-        await revokeWorkspaceInvitationForAuthorizationHeader(auth, invitationId),
+        await revokeWorkspaceInvitationForAuthorizationHeader(
+          auth,
+          invitationId,
+          readWorkspaceIdHeader(request),
+        ),
       );
     }
 

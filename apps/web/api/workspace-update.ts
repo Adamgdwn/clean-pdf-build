@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import { updateWorkspaceNameForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
-import { readAuthorizationHeader, sendError } from "./_utils.js";
+import { readAuthorizationHeader, readWorkspaceIdHeader, sendError } from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== "PATCH") {
@@ -14,6 +14,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       await updateWorkspaceNameForAuthorizationHeader(
         readAuthorizationHeader(request),
         request.body,
+        readWorkspaceIdHeader(request),
       ),
     );
   } catch (error) {

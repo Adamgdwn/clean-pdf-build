@@ -7,9 +7,12 @@
 Responsibilities:
 
 - authentication UX
+- public marketing and pricing surfaces
 - upload initiation
 - PDF preview and editing interactions
 - signer setup, review, and send flows
+- owner/admin control-center orchestration
+- active workspace selection and persistence
 - audit and version history views
 
 This layer should stay thin. It orchestrates, but does not own workflow truth or heavy document processing.
@@ -56,7 +59,7 @@ The client app (`apps/web/src/`) is being incrementally extracted from a monolit
 ```
 src/
   types.ts                  — shared client-side type definitions
-  App.tsx                   — top-level orchestrator (~2,920 lines; ongoing reduction)
+  App.tsx                   — top-level orchestrator (workspace shell, public routes, signer flow, owner/workspace state)
   components/
     AuthPanel.tsx           — sign-in/sign-up form, signed-in view, guest signing banner
     AdminPanel.tsx          — AdminConsole (full panel) + AdminSidebarSummary (card)
@@ -68,7 +71,8 @@ Extraction order (in progress):
 1. ✅ AuthPanel — auth form + guest signing banner, owns its own loading/error state
 2. ✅ AdminPanel — AdminConsole owns invite/delete/reset handlers + scoped error state
 3. ✅ BillingPanel — checkout/portal handlers + scoped redirect/error state
-4. Next: DocumentSidebar, WorkflowChecklistPanel, FieldEditorPanel
+4. ✅ OwnerPortal — owner-first KPI, watchlist, billing/team/admin composition
+5. Next: DocumentSidebar, WorkflowChecklistPanel, FieldEditorPanel, public landing/pricing extraction
 
 ## Workflow features added
 
@@ -85,6 +89,8 @@ State that remains in App.tsx intentionally:
 - `session` / `sessionUser` — needed by nearly every handler
 - `guestSigningSession` — consumed by field canvas and field-complete handler
 - `selectedDocument` / `documents` — drives entire workspace panel
+- `activeWorkspaceId` / `availableWorkspaces` — scopes authenticated data across billing, team, and document flows
+- `publicPage` — controls unauthenticated home vs pricing route behavior
 
 ## Recommended boring stack
 
@@ -120,9 +126,9 @@ State that remains in App.tsx intentionally:
 - `document.renamed`
 - `document.exported`
 
-## Next implementation step after this bootstrap
+## Next implementation steps
 
-1. Replace in-memory workflow storage with Postgres
-2. Replace mock processing responses with queue-backed jobs
-3. Persist version snapshots after each editing transform
-4. Add real PDF canvas editing using PDF.js plus server-side transform jobs
+1. Extract the public landing and pricing surfaces out of `App.tsx`.
+2. Extract the document workspace sidebar and checklist/editor panels into focused components.
+3. Replace in-memory/shared-instance assumptions such as rate limiting with durable infrastructure.
+4. Deploy OCR and notification processing on a scheduled/container runtime.

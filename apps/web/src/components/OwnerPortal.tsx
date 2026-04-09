@@ -205,6 +205,53 @@ export function OwnerPortal({
 
         {refreshError ? <div className="alert">{refreshError}</div> : null}
 
+        {documents.length === 0 || activeMemberCount <= 1 ? (
+          <section className="toolbar-card owner-summary-card">
+            <div className="section-heading compact">
+              <p className="eyebrow">Launch checklist</p>
+              <span>{workspaceTeam?.workspace.name ?? billingOverview?.workspace.name ?? "Workspace"}</span>
+            </div>
+            <div className="stack">
+              <div className="row-card">
+                <div>
+                  <strong>{subscription ? "Review trial and billing" : "Start a free trial"}</strong>
+                  <p className="muted">Confirm seats, token balance, and plan posture before inviting your team.</p>
+                </div>
+                <button className="ghost-button" onClick={() => scrollToSection("section-billing")} type="button">
+                  Billing
+                </button>
+              </div>
+              <div className="row-card">
+                <div>
+                  <strong>Invite a teammate</strong>
+                  <p className="muted">Bring one collaborator into the workspace so the product feels real in a team setting.</p>
+                </div>
+                <button className="ghost-button" onClick={() => scrollToSection("section-team")} type="button">
+                  Team
+                </button>
+              </div>
+              <div className="row-card">
+                <div>
+                  <strong>Upload your first workflow</strong>
+                  <p className="muted">Switch to the workspace, upload a PDF, and send a live test workflow end to end.</p>
+                </div>
+                <button className="ghost-button" onClick={onSwitchToWorkspace} type="button">
+                  Workspace
+                </button>
+              </div>
+              <div className="row-card">
+                <div>
+                  <strong>Review the guide</strong>
+                  <p className="muted">Keep the first-run path tight: billing, team setup, upload, send, sign, export.</p>
+                </div>
+                <a className="ghost-button" href="/guide.html" rel="noopener noreferrer" target="_blank">
+                  Guide
+                </a>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
         <div className="quick-actions owner-actions">
           <p className="eyebrow">Owner actions</p>
           <div className="quick-actions-grid">
@@ -213,24 +260,35 @@ export function OwnerPortal({
               <span className="muted">{ownerWatchlist.length} workflow{ownerWatchlist.length === 1 ? "" : "s"} need review</span>
             </button>
             <button className="quick-action-item" onClick={() => scrollToSection("section-billing")} type="button">
-              <strong className="quick-action-label">Manage billing</strong>
+              <strong className="quick-action-label">{subscription ? "Manage billing" : "Start free trial"}</strong>
               <span className="muted">{subscriptionStatus} · {tokenBalance} tokens available</span>
             </button>
             <button className="quick-action-item" onClick={() => scrollToSection("section-team")} type="button">
-              <strong className="quick-action-label">Manage team</strong>
+              <strong className="quick-action-label">{activeMemberCount <= 1 ? "Invite teammate" : "Manage team"}</strong>
               <span className="muted">{activeMemberCount} members · {pendingInvitationCount} pending invites</span>
             </button>
-            {sessionUser.isAdmin ? (
+            {documents.length === 0 ? (
+              <button className="quick-action-item" onClick={onSwitchToWorkspace} type="button">
+                <strong className="quick-action-label">Upload first workflow</strong>
+                <span className="muted">Open the workspace and start with a PDF</span>
+              </button>
+            ) : sessionUser.isAdmin ? (
               <button className="quick-action-item" onClick={() => scrollToSection("section-admin")} type="button">
                 <strong className="quick-action-label">Review admin console</strong>
                 <span className="muted">{queuePressure} queue item{queuePressure === 1 ? "" : "s"} to review</span>
               </button>
             ) : (
+              <button className="quick-action-item" onClick={() => window.open("/guide.html", "_blank", "noopener,noreferrer")} type="button">
+                <strong className="quick-action-label">Review quick guide</strong>
+                <span className="muted">Open the product guide in a separate tab</span>
+              </button>
+            )}
+            {documents.length > 0 ? (
               <button className="quick-action-item" onClick={onSwitchToWorkspace} type="button">
                 <strong className="quick-action-label">Open workspace</strong>
                 <span className="muted">Jump into document editing and routing</span>
               </button>
-            )}
+            ) : null}
           </div>
         </div>
 

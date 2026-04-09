@@ -1,7 +1,7 @@
 # Adam's Actions
 
-Everything below must be done before the first external user touches the product.
-No future work, no maybes — just the outstanding list.
+Everything below must be done before active selling begins.
+This is the short owner checklist, not the full product roadmap.
 
 ---
 
@@ -42,11 +42,28 @@ All of the following are confirmed in Production:
 ### End-to-end smoke test (~30 min)
 Run this once before showing the product to anyone:
 - [ ] Sign up as a new user → confirm landing in Owner Portal
+- [ ] Visit `/pricing` unauthenticated → confirm pricing copy and CTA route correctly
 - [ ] Start a free trial → confirm $0 invoice email arrives from Stripe
 - [ ] Create a saved signature, upload a PDF, add a signer, place a field, send
 - [ ] Open signing link in private window → complete the field
 - [ ] Download signed PDF → verify SHA-256 hash matches `sha256sum` output
 - [ ] Invite a teammate → accept invite → confirm workspace membership
+- [ ] If the user belongs to more than one workspace, switch workspaces and confirm the documents, billing, and team data change together
 - [ ] Purchase tokens → confirm balance updates
 - [ ] Cancel trial from billing portal
 - [ ] Delete test account → confirm deletion completes
+
+---
+
+## Next build phase
+
+These are the next product loops to close after launch configuration is done:
+
+- [ ] Publish privacy policy
+- [ ] Publish terms of service
+- [ ] Add security/privacy summary for prospects
+- [ ] Surface token history in billing
+- [ ] Add stronger trial-end conversion messaging
+- [ ] Move rate limiting to a shared/distributed implementation
+- [ ] Deploy OCR/notification processor on a durable schedule
+- [ ] Evaluate certificate-backed PDF signing only after customer demand is proven

@@ -137,7 +137,7 @@ export function AuthPanel({
 
   return (
     <section className="card">
-      <p className="eyebrow">Sign in</p>
+      <p className="eyebrow">{authMode === "sign_up" ? "Start free trial" : "Sign in"}</p>
 
       {errorMessage ? <div className="alert">{errorMessage}</div> : null}
       {noticeMessage ? <div className="alert success">{noticeMessage}</div> : null}
@@ -173,7 +173,9 @@ export function AuthPanel({
           {authMode === "sign_up" ? (
             <>
               <p className="muted">
-                Signing up creates a new organization. You become the Super User (organization admin) and can invite your team from there.
+                {hasPendingInvite
+                  ? "Create your account to join the invited workspace. Your organization access will attach automatically after sign-up."
+                  : "Start a 30-day free trial with no card up front. Create your workspace, invite your team, and send your first workflow from the same account."}
               </p>
               <label className="form-field">
                 <span>Full name</span>
@@ -184,16 +186,23 @@ export function AuthPanel({
                   onChange={(event) => setFullName(event.target.value)}
                 />
               </label>
-              <label className="form-field">
-                <span>Organization name</span>
-                <input
-                  required
-                  autoComplete="organization"
-                  placeholder="e.g. Acme Corp"
-                  value={workspaceName}
-                  onChange={(event) => setWorkspaceName(event.target.value)}
-                />
-              </label>
+              {!hasPendingInvite ? (
+                <>
+                  <label className="form-field">
+                    <span>Organization name</span>
+                    <input
+                      required
+                      autoComplete="organization"
+                      placeholder="e.g. Acme Corp"
+                      value={workspaceName}
+                      onChange={(event) => setWorkspaceName(event.target.value)}
+                    />
+                  </label>
+                  <p className="muted">
+                    Team subscriptions cover internal members. External managed workflows use prepaid tokens, so outside signers do not become paid seats.
+                  </p>
+                </>
+              ) : null}
             </>
           ) : null}
 
@@ -218,7 +227,7 @@ export function AuthPanel({
             />
           </label>
           <button className="primary-button" disabled={isLoading} type="submit">
-            {authMode === "sign_in" ? "Continue" : "Create account"}
+            {authMode === "sign_in" ? "Continue" : "Start free trial"}
           </button>
 
           {authMode === "sign_in" ? (

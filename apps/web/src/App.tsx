@@ -5,7 +5,14 @@ import type { Session } from "@supabase/supabase-js";
 import { getDocumentSendReadiness } from "@clean-pdf/domain";
 
 import { apiFetch } from "./lib/api";
-import { clearStoredSession, loadStoredSession, persistSession } from "./lib/session-storage";
+import {
+  clearStoredSession,
+  clearStoredWorkspaceId,
+  loadStoredSession,
+  loadStoredWorkspaceId,
+  persistSession,
+  persistWorkspaceId,
+} from "./lib/session-storage";
 import { AuthPanel } from "./components/AuthPanel";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { OwnerPortal } from "./components/OwnerPortal";
@@ -19,10 +26,14 @@ import type {
   SavedSignature,
   SessionUser,
   WorkflowDocument,
+  WorkspaceDirectory,
+  WorkspaceOption,
   WorkspaceTeam,
 } from "./types";
 
 type PortalView = "workspace" | "org_admin";
+
+type PublicPage = "home" | "pricing";
 
 const shouldRestoreSessionFromRedirect =
   typeof window !== "undefined" &&
@@ -35,6 +46,16 @@ const signatureBucket = import.meta.env.VITE_SUPABASE_SIGNATURE_BUCKET ?? "signa
 
 function formatState(state: string) {
   return state.replaceAll("_", " ");
+}
+
+function formatWorkspaceRoleLabel(role: string | null) {
+  if (!role) {
+    return null;
+  }
+
+  if (role === "owner") return "Owner";
+  if (role === "billing_admin") return "Billing admin";
+  return formatState(role);
 }
 
 const AUDIT_EVENT_LABELS: Record<string, string> = {
@@ -267,6 +288,10 @@ function getPortalQueryPreference() {
   return requestedPortal === "workspace" || requestedPortal === "org_admin" ? requestedPortal : null;
 }
 
+function getPublicPage(pathname: string): PublicPage {
+  return pathname === "/pricing" ? "pricing" : "home";
+}
+
 function getQuickRouteLabels(deliveryMode: WorkflowDocument["deliveryMode"]) {
   if (deliveryMode === "internal_use_only") {
     return {
@@ -423,10 +448,19 @@ export default function App() {
   const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
   const [adminUsers, setAdminUsers] = useState<AdminManagedUser[]>([]);
   const [workspaceTeam, setWorkspaceTeam] = useState<WorkspaceTeam | null>(null);
+  const [availableWorkspaces, setAvailableWorkspaces] = useState<WorkspaceOption[]>([]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(
+    () => (typeof window === "undefined" ? null : loadStoredWorkspaceId()),
+  );
   const [portalView, setPortalView] = useState<PortalView>("workspace");
   const [pendingInviteToken, setPendingInviteToken] = useState<string | null>(null);
+  const [joinedWorkspaceBanner, setJoinedWorkspaceBanner] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [isWorkspaceSwitching, setIsWorkspaceSwitching] = useState(false);
+  const [publicPage, setPublicPage] = useState<PublicPage>(() =>
+    typeof window === "undefined" ? "home" : getPublicPage(window.location.pathname),
+  );
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
@@ -673,6 +707,7 @@ export default function App() {
 
     if (!currentSession) {
       clearStoredSession();
+      clearStoredWorkspaceId();
       setSessionUser(null);
       setDocuments([]);
       setBillingOverview(null);
@@ -682,6 +717,8 @@ export default function App() {
       setAdminOverview(null);
       setAdminUsers([]);
       setWorkspaceTeam(null);
+      setAvailableWorkspaces([]);
+      setActiveWorkspaceId(null);
       setSelectedDocumentId(null);
       return;
     }
@@ -702,6 +739,14 @@ export default function App() {
       }
     }
     return fallbackUser;
+  }
+
+  async function refreshWorkspaceDirectory(activeSession: Session) {
+    const payload = await apiFetch<WorkspaceDirectory>("/workspaces", activeSession);
+    setAvailableWorkspaces(payload.workspaces);
+    setActiveWorkspaceId(payload.currentWorkspace.id);
+    persistWorkspaceId(payload.currentWorkspace.id);
+    return payload.currentWorkspace;
   }
 
   async function refreshBilling(activeSession: Session) {
@@ -756,7 +801,11 @@ export default function App() {
       body: JSON.stringify({}),
     });
     setDocuments(payload.documents);
-    setSelectedDocumentId((currentId) => currentId ?? payload.documents[0]?.id ?? null);
+    setSelectedDocumentId((currentId) =>
+      currentId && payload.documents.some((document) => document.id === currentId)
+        ? currentId
+        : payload.documents[0]?.id ?? null,
+    );
   }
 
   async function refreshDocument(documentId: string, activeSession: Session) {
@@ -778,6 +827,35 @@ export default function App() {
       activeSession,
     );
     setPreviewUrl(payload.signedUrl);
+  }
+
+  async function handleWorkspaceChange(nextWorkspaceId: string) {
+    if (!session || nextWorkspaceId === activeWorkspaceId) {
+      return;
+    }
+
+    persistWorkspaceId(nextWorkspaceId);
+    setActiveWorkspaceId(nextWorkspaceId);
+    setIsWorkspaceSwitching(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+    setSelectedDocumentId(null);
+    setPreviewUrl(null);
+    setLocalPreviewUrl(null);
+
+    try {
+      await refreshWorkspaceDirectory(session);
+      await Promise.allSettled([
+        refreshBilling(session),
+        refreshTeam(session),
+        refreshDocuments(session),
+      ]);
+      showToast("Workspace updated.");
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsWorkspaceSwitching(false);
+    }
   }
 
   async function runDocumentAction(path: string, body: Record<string, unknown>) {
@@ -1454,12 +1532,34 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    function handlePopState() {
+      setPublicPage(getPublicPage(window.location.pathname));
+    }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  function navigatePublicPage(nextPage: PublicPage) {
+    const nextPath = nextPage === "pricing" ? "/pricing" : "/";
+    window.history.pushState({}, "", nextPath);
+    setPublicPage(nextPage);
+  }
+
   function handleSignOut() {
     clearStoredSession();
+    clearStoredWorkspaceId();
     showToast("You've been signed out.");
     setPreviewUrl(null);
     setLocalPreviewUrl(null);
     setUploadName(null);
+    setWorkspaceTeam(null);
+    setBillingOverview(null);
+    setAvailableWorkspaces([]);
+    setActiveWorkspaceId(null);
+    setSelectedDocumentId(null);
+    setJoinedWorkspaceBanner(null);
     setSession(null);
     setSessionUser(null);
   }
@@ -1727,30 +1827,63 @@ export default function App() {
       return;
     }
 
-    Promise.allSettled([
-      refreshBilling(session),
-      refreshTeam(session),
-      refreshSavedSignatures(session),
-      refreshProfile(session),
-      refreshDigitalSignatureProfiles(session),
-      ...(sessionUser?.isAdmin ? [refreshAdminOverview(session), refreshAdminUsers(session)] : []),
-    ]).then(() => {
-      // Accept a pending invite if one was captured from the URL
-      if (pendingInviteToken) {
-        apiFetch("/workspace-invite-accept", session, {
-          method: "POST",
-          body: JSON.stringify({ token: pendingInviteToken }),
-        })
-          .then(() => {
+    const activeSession = session;
+    let cancelled = false;
+
+    async function loadWorkspaceState() {
+      try {
+        if (pendingInviteToken) {
+          const payload = await apiFetch<{
+            joined: boolean;
+            alreadyMember: boolean;
+            workspace: { id: string; name: string; slug: string } | null;
+            role: string | null;
+          }>("/workspace-invite-accept", activeSession, {
+            method: "POST",
+            body: JSON.stringify({ token: pendingInviteToken }),
+          });
+
+          if (!cancelled) {
+            const workspaceName = payload.workspace?.name ?? "the workspace";
+            if (payload.workspace?.id) {
+              persistWorkspaceId(payload.workspace.id);
+              setActiveWorkspaceId(payload.workspace.id);
+            }
             setPendingInviteToken(null);
-            setNoticeMessage("You've joined the workspace.");
-            refreshTeam(session).catch(() => null);
-            refreshBilling(session).catch(() => null);
-          })
-          .catch((err: Error) => setErrorMessage(err.message));
+            setJoinedWorkspaceBanner(workspaceName);
+            setNoticeMessage(
+              payload.alreadyMember
+                ? `You're already part of ${workspaceName}.`
+                : `You've joined ${workspaceName}.`,
+            );
+            updatePortalView("workspace");
+          }
+        }
+
+        await refreshWorkspaceDirectory(activeSession);
+
+        await Promise.allSettled([
+          refreshBilling(activeSession),
+          refreshTeam(activeSession),
+          refreshDocuments(activeSession),
+          refreshSavedSignatures(activeSession),
+          refreshProfile(activeSession),
+          refreshDigitalSignatureProfiles(activeSession),
+          ...(sessionUser?.isAdmin ? [refreshAdminOverview(activeSession), refreshAdminUsers(activeSession)] : []),
+        ]);
+      } catch (error) {
+        if (!cancelled) {
+          setErrorMessage((error as Error).message);
+        }
       }
-    });
-  }, [session, sessionUser, sessionUser?.isAdmin]);
+    }
+
+    loadWorkspaceState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session, sessionUser, sessionUser?.isAdmin, pendingInviteToken]);
 
   useEffect(() => {
     setSignerParticipantType(deliveryMode === "internal_use_only" ? "internal" : "external");
@@ -1822,7 +1955,24 @@ export default function App() {
   const workspaceMembershipRole =
     billingOverview?.workspace.membershipRole ??
     workspaceTeam?.members.find((member) => member.isCurrentUser)?.role ??
+    availableWorkspaces.find((workspace) => workspace.id === activeWorkspaceId)?.role ??
     null;
+  const activeWorkspace =
+    availableWorkspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
+  const currentWorkspaceName =
+    activeWorkspace?.name ??
+    workspaceTeam?.workspace.name ??
+    billingOverview?.workspace.name ??
+    accountProfile?.companyName ??
+    "Workspace";
+  const currentWorkspaceRoleLabel = formatWorkspaceRoleLabel(workspaceMembershipRole);
+  const isWorkspaceHydrating = Boolean(
+    sessionUser &&
+      session &&
+      !guestSigningSession &&
+      (isWorkspaceSwitching ||
+        (!workspaceTeam && !billingOverview && !accountProfile && availableWorkspaces.length === 0)),
+  );
   const orgAdminAccessResolved = Boolean(sessionUser && (sessionUser.isAdmin || billingOverview || workspaceTeam));
   const canAccessOrgAdmin = Boolean(
     sessionUser &&
@@ -1902,37 +2052,107 @@ export default function App() {
     return (
       <div className="landing-shell">
         <header className="landing-header">
-          <div className="brand">
-            <span className="brand-mark">ED</span>
-            <div>
-              <h1>EasyDraft</h1>
-              <p>Private document workflows, reusable signatures, and clean handoffs.</p>
+          <div className="landing-header-row">
+            <div className="brand">
+              <span className="brand-mark">ED</span>
+              <div>
+                <h1>EasyDraft</h1>
+                <p>Private document workflows, reusable signatures, and clean handoffs.</p>
+              </div>
             </div>
+            <nav className="landing-nav">
+              {publicPage === "home" ? (
+                <>
+                  <a href="#landing-tour">Product tour</a>
+                  <button className="landing-nav-link" onClick={() => navigatePublicPage("pricing")} type="button">Pricing</button>
+                  <a href="#landing-auth">Sign in</a>
+                  <a className="landing-nav-cta" href="#landing-auth">Start free trial</a>
+                </>
+              ) : (
+                <>
+                  <button className="landing-nav-link" onClick={() => navigatePublicPage("home")} type="button">Home</button>
+                  <a href="#pricing-faq">FAQ</a>
+                  <a href="#landing-auth">Sign in</a>
+                  <a className="landing-nav-cta" href="#landing-auth">Start free trial</a>
+                </>
+              )}
+            </nav>
           </div>
         </header>
-        <div className="landing-body">
+        <div className={`landing-body ${publicPage === "pricing" ? "pricing-page-shell" : ""}`}>
           <div className="landing-value">
-            <h2>Your team&apos;s document workspace</h2>
-            <p className="landing-sub">
-              Upload contracts and agreements into a secure vault, route them to the right people,
-              and get signatures without chasing anyone down.
-            </p>
-            <ul className="landing-features">
-              <li>
-                <strong>Private PDF vault</strong>
-                <span>Secure uploads with signed preview URLs, completion certificates, and audit trails.</span>
-              </li>
-              <li>
-                <strong>Reusable signatures</strong>
-                <span>Save your signature and initials once — select them on any document.</span>
-              </li>
-              <li>
-                <strong>Managed routing</strong>
-                <span>Sequential or parallel signing, internal or external participants — EasyDraft handles the follow-up.</span>
-              </li>
-            </ul>
+            {publicPage === "home" ? (
+              <>
+                <p className="eyebrow">Built for operations, finance, HR, legal, and real-estate teams</p>
+                <h2>Private document workflows for teams that need routing, signing, and an audit trail</h2>
+                <p className="landing-sub">
+                  EasyDraftDocs gives your team one place to upload PDFs, route approvals, collect signatures,
+                  and keep a clean completion trail without forcing external signers to learn your internal tools.
+                </p>
+                <div className="landing-cta-row">
+                  <a className="primary-button" href="#landing-auth">Start free trial</a>
+                  <button className="ghost-button" onClick={() => navigatePublicPage("pricing")} type="button">View pricing</button>
+                  <a className="ghost-button" href="#landing-tour">Explore product tour</a>
+                </div>
+                <div className="landing-proof-grid">
+                  <div className="landing-proof-card">
+                    <strong>What it&apos;s for</strong>
+                    <span>Private document workflows, routing, signing, and audit-ready exports.</span>
+                  </div>
+                  <div className="landing-proof-card">
+                    <strong>Who it&apos;s for</strong>
+                    <span>Teams that manage agreements, approvals, and repeatable document handoffs.</span>
+                  </div>
+                  <div className="landing-proof-card">
+                    <strong>What happens next</strong>
+                    <span>Start a free trial, review pricing, or take a quick product tour before signing in.</span>
+                  </div>
+                </div>
+                <ul className="landing-features">
+                  <li>
+                    <strong>Private PDF vault</strong>
+                    <span>Secure uploads with signed preview URLs, completion certificates, and audit trails.</span>
+                  </li>
+                  <li>
+                    <strong>Reusable signatures</strong>
+                    <span>Save your signature and initials once — select them on any document.</span>
+                  </li>
+                  <li>
+                    <strong>Managed routing</strong>
+                    <span>Sequential or parallel signing, internal or external participants — EasyDraft handles the follow-up.</span>
+                  </li>
+                </ul>
+              </>
+            ) : (
+              <>
+                <p className="eyebrow">Pricing</p>
+                <h2>Clear team pricing for internal seats and external workflow volume</h2>
+                <p className="landing-sub">
+                  EasyDraft is priced for teams, not one-off consumer signing. Subscriptions cover your internal operators,
+                  while external workflow routing uses tokens only when EasyDraft does the outside handoff for you.
+                </p>
+                <div className="landing-cta-row">
+                  <a className="primary-button" href="#landing-auth">Start free trial</a>
+                  <button className="ghost-button" onClick={() => navigatePublicPage("home")} type="button">Back to overview</button>
+                </div>
+                <div className="landing-proof-grid">
+                  <div className="landing-proof-card">
+                    <strong>No surprise billing</strong>
+                    <span>Trial, seats, plan status, and token balance stay visible to owners inside the control center.</span>
+                  </div>
+                  <div className="landing-proof-card">
+                    <strong>External signers stay free</strong>
+                    <span>Outside signers don&apos;t need accounts and do not become paid seats.</span>
+                  </div>
+                  <div className="landing-proof-card">
+                    <strong>Buy only when it matters</strong>
+                    <span>Internal-only and self-managed distribution flows do not consume external routing tokens.</span>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
-          <div className="landing-auth">
+          <div className="landing-auth" id="landing-auth">
             <AuthPanel
               sessionUser={null}
               guestSigningSession={null}
@@ -1944,8 +2164,341 @@ export default function App() {
             />
             {errorMessage ? <div className="alert" style={{ marginTop: "0.75rem" }}>{errorMessage}</div> : null}
             {noticeMessage ? <div className="alert success" style={{ marginTop: "0.75rem" }}>{noticeMessage}</div> : null}
+            <section className="card landing-side-note">
+              <div className="section-heading compact">
+                <p className="eyebrow">{publicPage === "pricing" ? "Owner visibility" : "Pricing clarity"}</p>
+                <span>{publicPage === "pricing" ? "Always visible" : "No surprise billing"}</span>
+              </div>
+              <p className="muted">
+                Team subscriptions cover your internal members. External managed workflows use prepaid tokens,
+                so outside signers don&apos;t become paid seats.
+              </p>
+              <p className="muted">
+                Start with a 30-day free trial and no card up front, then scale seats and tokens only when your team is ready.
+              </p>
+            </section>
           </div>
         </div>
+        <section className="landing-section" id="landing-pricing">
+          <div className="landing-section-header">
+            <p className="eyebrow">Pricing</p>
+            <h3>Simple team billing with a clear external-signer model</h3>
+            <p className="muted">
+              Internal members are part of your subscription. External signers are free to invite, and only managed external workflow sends consume tokens.
+            </p>
+          </div>
+          <div className="landing-pricing-grid">
+            <article className="toolbar-card landing-price-card">
+              <p className="eyebrow">Free trial</p>
+              <strong>30 days, no card up front</strong>
+              <p className="muted">Create your workspace, invite teammates, and run real workflows before choosing a paid team plan.</p>
+            </article>
+            <article className="toolbar-card landing-price-card">
+              <p className="eyebrow">Team subscription</p>
+              <strong>Seats for internal users</strong>
+              <p className="muted">Owners, admins, editors, and internal members are covered by your plan. Billing stays visible to owners inside the control center.</p>
+            </article>
+            <article className="toolbar-card landing-price-card">
+              <p className="eyebrow">External tokens</p>
+              <strong>Pay only when EasyDraft routes outside your team</strong>
+              <p className="muted">1 token = 1 managed external workflow send. Self-managed and internal-only flows don&apos;t use tokens.</p>
+            </article>
+          </div>
+        </section>
+        {publicPage === "pricing" ? (
+          <>
+            <section className="landing-section">
+              <div className="landing-section-header">
+                <p className="eyebrow">Included</p>
+                <h3>Built for the full operational loop</h3>
+              </div>
+              <div className="landing-tour-grid">
+                <article className="toolbar-card landing-tour-card">
+                  <strong>Organization control center</strong>
+                  <p className="muted">Owners see company health, team posture, billing state, token balance, and watchlist risk in one place.</p>
+                </article>
+                <article className="toolbar-card landing-tour-card">
+                  <strong>Workspace and workflow engine</strong>
+                  <p className="muted">Upload PDFs, assign participants, set routing, resend, remind, export, and keep the audit trail attached.</p>
+                </article>
+                <article className="toolbar-card landing-tour-card">
+                  <strong>External signing experience</strong>
+                  <p className="muted">External signers get a focused signer page with clear sender context, highlighted actions, and completion confirmation.</p>
+                </article>
+              </div>
+            </section>
+            <section className="landing-section" id="pricing-faq">
+              <div className="landing-section-header">
+                <p className="eyebrow">FAQ</p>
+                <h3>Questions buyers ask first</h3>
+              </div>
+              <div className="landing-faq-grid">
+                <article className="toolbar-card">
+                  <strong>Do external signers need logins?</strong>
+                  <p className="muted">No. They can complete their assigned fields from a dedicated secure link.</p>
+                </article>
+                <article className="toolbar-card">
+                  <strong>When do tokens get used?</strong>
+                  <p className="muted">Only when EasyDraft manages an external routing send. Internal-only and self-managed flows do not use them.</p>
+                </article>
+                <article className="toolbar-card">
+                  <strong>Can we start without a credit card?</strong>
+                  <p className="muted">Yes. The trial starts without a card so teams can validate their process before committing.</p>
+                </article>
+              </div>
+            </section>
+          </>
+        ) : null}
+        <section className="landing-section" id="landing-tour">
+          <div className="landing-section-header">
+            <p className="eyebrow">Product tour</p>
+            <h3>How a team uses EasyDraft in practice</h3>
+          </div>
+          <div className="landing-tour-grid">
+            <article className="toolbar-card landing-tour-card">
+              <span className="landing-tour-step">1</span>
+              <strong>Upload and prepare</strong>
+              <p className="muted">Upload a PDF, add participants, place fields, choose routing, and confirm the workflow checklist.</p>
+            </article>
+            <article className="toolbar-card landing-tour-card">
+              <span className="landing-tour-step">2</span>
+              <strong>Route and sign</strong>
+              <p className="muted">EasyDraft tracks who is next, handles internal or external participation, and keeps the waiting-on state visible.</p>
+            </article>
+            <article className="toolbar-card landing-tour-card">
+              <span className="landing-tour-step">3</span>
+              <strong>Review and export</strong>
+              <p className="muted">Owners monitor billing, team access, workflow risk, audit history, and final exports from one control center.</p>
+            </article>
+          </div>
+        </section>
+        {toast ? <div className="toast">{toast}</div> : null}
+      </div>
+    );
+  }
+
+  if (!sessionUser && guestSigningSession && selectedDocument) {
+    const guestWorkspaceName =
+      workspaceTeam?.workspace.name ??
+      billingOverview?.workspace.name ??
+      accountProfile?.companyName ??
+      "Workspace";
+    const documentOwner =
+      selectedDocument.accessParticipants.find((entry) => entry.role === "owner")?.displayName ??
+      "The sender";
+    const guestAssignedFields = selectedDocument.fields.filter(
+      (field) =>
+        field.assigneeSignerId === selectedDocument.currentUserSignerId &&
+        !field.completedAt,
+    );
+    const guestCompletedFields = selectedDocument.fields.filter(
+      (field) =>
+        field.assigneeSignerId === selectedDocument.currentUserSignerId &&
+        Boolean(field.completedAt),
+    );
+    const guestHasFinished = guestAssignedFields.length === 0 && guestCompletedFields.length > 0;
+
+    return (
+      <div className="signer-shell">
+        <header className="signer-header">
+          <div className="brand">
+            <span className="brand-mark">ED</span>
+            <div>
+              <h1>EasyDraft</h1>
+              <p>Secure signing for invited participants.</p>
+            </div>
+          </div>
+          <a className="hero-guide-link" href="/guide.html" rel="noopener noreferrer" target="_blank">
+            Need help?
+          </a>
+        </header>
+
+        <main className="signer-main">
+          <section className="signer-summary panel">
+            <div className="section-heading compact">
+              <p className="eyebrow">Requested signature</p>
+              <span>{formatState(selectedDocument.workflowState)}</span>
+            </div>
+            <h2>{selectedDocument.name}</h2>
+            <p className="muted">
+              {documentOwner} asked <strong>{guestSigningSession.signerName}</strong> to review and complete this document through EasyDraftDocs.
+            </p>
+            <div className="signer-meta-grid">
+              <div className="meta-item">
+                <span>Organization</span>
+                <strong>{guestWorkspaceName}</strong>
+              </div>
+              <div className="meta-item">
+                <span>Waiting on</span>
+                <strong>{selectedDocument.waitingOn.signerName ?? formatState(selectedDocument.waitingOn.kind)}</strong>
+              </div>
+              <div className="meta-item">
+                <span>Due date</span>
+                <strong>{formatTimestamp(selectedDocument.dueAt)}</strong>
+              </div>
+              <div className="meta-item">
+                <span>Audit trail</span>
+                <strong>Tracked automatically</strong>
+              </div>
+            </div>
+          </section>
+
+          {errorMessage ? <div className="alert">{errorMessage}</div> : null}
+          {noticeMessage ? <div className="alert success">{noticeMessage}</div> : null}
+
+          <div className="signer-grid">
+            <section className="panel">
+              <div className="section-heading compact">
+                <p className="eyebrow">Document preview</p>
+                <span>{previewUrl || localPreviewUrl ? "Ready" : "Loading…"}</span>
+              </div>
+              <div className="preview-frame signer-preview-frame">
+                {previewUrl || localPreviewUrl ? (
+                  <object data={previewUrl ?? localPreviewUrl ?? undefined} type="application/pdf">
+                    <p>Preview unavailable for this browser.</p>
+                  </object>
+                ) : (
+                  <div className="preview-empty">
+                    <strong>Loading your document preview.</strong>
+                    <p>EasyDraft is preparing the file so you can review and sign it securely.</p>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="panel signer-actions-panel">
+              <div className="section-heading compact">
+                <p className="eyebrow">Your actions</p>
+                <span>{guestAssignedFields.length} remaining</span>
+              </div>
+              <p className="muted">
+                Review the document, then complete the highlighted fields assigned to you. No account is required for this signing link.
+              </p>
+
+              {guestAssignedFields.length > 0 ? (
+                <>
+                  <div className="row-card">
+                    <label className="form-field" style={{ flex: 1, margin: 0 }}>
+                      <span>Reason for signing</span>
+                      <select
+                        value={activeSigningReason}
+                        onChange={(event) => setActiveSigningReason(event.target.value)}
+                      >
+                        <option value="author">Author</option>
+                        <option value="approve">Approve</option>
+                        <option value="verify">Verify</option>
+                        <option value="review">Review</option>
+                        <option value="acknowledge">Acknowledge</option>
+                        <option value="witness">Witness</option>
+                        <option value="certify">Certify</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label className="form-field">
+                    <span>Signing location <span className="muted">(optional)</span></span>
+                    <input
+                      placeholder="Edmonton, Alberta"
+                      value={activeSigningLocation}
+                      onChange={(event) => setActiveSigningLocation(event.target.value)}
+                    />
+                  </label>
+                  <div className="stack">
+                    {guestAssignedFields.map((field) => (
+                      <div key={field.id} className="row-card signer-task-card">
+                        <div>
+                          <strong>{field.label}</strong>
+                          <p className="muted">Page {field.page} · {field.kind}</p>
+                        </div>
+                        <button
+                          className="primary-button"
+                          disabled={isLoading}
+                          onClick={() =>
+                            runGuestFieldComplete(
+                              field.id,
+                              activeSigningReason,
+                              activeSigningLocation || null,
+                            )
+                          }
+                          type="button"
+                        >
+                          {isLoading ? "Saving…" : "Complete field"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : guestHasFinished ? (
+                <div className="signer-complete-card">
+                  <p className="eyebrow">Completed</p>
+                  <h3>You&apos;ve completed your part</h3>
+                  <p className="muted">
+                    {guestWorkspaceName} now has your signed response, and the workflow audit trail has been updated automatically.
+                  </p>
+                  <div className="signer-complete-actions">
+                    {(previewUrl || localPreviewUrl) ? (
+                      <a
+                        className="ghost-button"
+                        href={previewUrl ?? localPreviewUrl ?? undefined}
+                        rel="noopener noreferrer"
+                        target="_blank"
+                      >
+                        Review current document
+                      </a>
+                    ) : null}
+                    {(previewUrl || localPreviewUrl) && selectedDocument.workflowState === "completed" ? (
+                      <a
+                        className="primary-button"
+                        href={previewUrl ?? localPreviewUrl ?? undefined}
+                        rel="noopener noreferrer"
+                        target="_blank"
+                      >
+                        Download final signed copy
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <div className="row-card">
+                  <div>
+                    <strong>No active fields yet</strong>
+                    <p className="muted">
+                      This document is waiting on another participant or stage before your action becomes available.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {guestCompletedFields.length > 0 ? (
+                <div className="stack">
+                  <div className="section-heading compact">
+                    <p className="eyebrow">Completed</p>
+                    <span>{guestCompletedFields.length}</span>
+                  </div>
+                  {guestCompletedFields.map((field) => (
+                    <div key={field.id} className="row-card">
+                      <div>
+                        <strong>{field.label}</strong>
+                        <p className="muted">Completed {formatTimestamp(field.completedAt)}</p>
+                      </div>
+                      <span>Done</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {(previewUrl || localPreviewUrl) && selectedDocument.workflowState === "completed" && !guestHasFinished ? (
+                <a
+                  className="ghost-button"
+                  href={previewUrl ?? localPreviewUrl ?? undefined}
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  Open signed document
+                </a>
+              ) : null}
+            </section>
+          </div>
+        </main>
         {toast ? <div className="toast">{toast}</div> : null}
       </div>
     );
@@ -1967,9 +2520,47 @@ export default function App() {
             <span className="user-avatar">{sessionUser.name.charAt(0).toUpperCase()}</span>
             <div className="user-identity-info">
               <p className="user-name">{sessionUser.name}</p>
+              <p className="muted user-email">{sessionUser.email}</p>
+              <p className="muted user-workspace">
+                {currentWorkspaceName}
+                {currentWorkspaceRoleLabel ? ` · ${currentWorkspaceRoleLabel}` : ""}
+              </p>
               <button className="ghost-button small" onClick={handleSignOut} type="button">Sign out</button>
             </div>
           </div>
+        ) : null}
+
+        {sessionUser && availableWorkspaces.length > 0 ? (
+          <section className="card workspace-switcher-card">
+            <div className="section-heading compact">
+              <p className="eyebrow">Active workspace</p>
+              <span>{activeWorkspace?.workspaceType === "team" ? "Team" : "Personal"}</span>
+            </div>
+            <label className="form-field">
+              <span>Working in</span>
+              <select
+                disabled={isWorkspaceSwitching}
+                value={activeWorkspaceId ?? ""}
+                onChange={(event) => {
+                  handleWorkspaceChange(event.target.value).catch(
+                    (error) => setErrorMessage((error as Error).message),
+                  );
+                }}
+              >
+                {availableWorkspaces.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.name}
+                    {workspace.role ? ` (${formatWorkspaceRoleLabel(workspace.role)})` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="muted">
+              {activeWorkspace?.workspaceType === "team"
+                ? "Team workflows, billing, and member management are now scoped to this organization."
+                : "Personal workspace for solo drafts, previews, and private documents."}
+            </p>
+          </section>
         ) : null}
 
         {sessionUser && canAccessOrgAdmin && billingOverview?.subscription &&
@@ -2423,7 +3014,7 @@ export default function App() {
         ) : null}
 
         {/* Onboarding prompt — shown once to new users */}
-        {portalView === "workspace" && sessionUser && session && showOnboarding && workspaceTeam ? (
+        {portalView === "workspace" && sessionUser && session && showOnboarding && workspaceTeam && workspaceMembershipRole === "owner" ? (
           <OnboardingPrompt
             session={session}
             workspaceTeam={workspaceTeam}
@@ -2444,7 +3035,14 @@ export default function App() {
             <span>{documents.length}</span>
           </div>
           <div className="stack">
-            {documents.length === 0 && sessionUser && !showOnboarding ? (
+            {isWorkspaceHydrating ? (
+              <div className="stack skeleton-stack">
+                <div className="skeleton-line skeleton-line-title" />
+                <div className="skeleton-card" />
+                <div className="skeleton-card" />
+                <div className="skeleton-card" />
+              </div>
+            ) : documents.length === 0 && sessionUser && !showOnboarding ? (
               <div className="empty-state">
                 <p className="empty-state-heading">Start with a document</p>
                 <p className="muted">Upload a PDF to prepare a workflow, assign signers, and send for signatures.</p>
@@ -2539,14 +3137,19 @@ export default function App() {
               {portalView === "org_admin"
                 ? "Organization control center"
                 : sessionUser
-                  ? `${sessionUser.name.split(" ")[0]}'s workspace`
+                  ? currentWorkspaceName
                   : "Complete your assigned fields"}
             </h2>
             {portalView === "org_admin" ? (
               <p className="muted">
                 Monitor business health, billing posture, team access, and workflows that need action today.
               </p>
-            ) : null}
+            ) : (
+              <p className="muted">
+                Working in <strong>{currentWorkspaceName}</strong>
+                {currentWorkspaceRoleLabel ? ` as ${currentWorkspaceRoleLabel}.` : "."}
+              </p>
+            )}
           </div>
           <a className="hero-guide-link" href="/guide.html" target="_blank" rel="noopener noreferrer">
             Help &amp; guide →
@@ -2555,8 +3158,17 @@ export default function App() {
 
         {errorMessage ? <div className="alert">{errorMessage}</div> : null}
         {noticeMessage ? <div className="alert success">{noticeMessage}</div> : null}
+        {isWorkspaceSwitching ? <div className="alert success">Switching workspace and refreshing team, billing, and documents…</div> : null}
+        {joinedWorkspaceBanner ? (
+          <div className="team-summary-bar joined-banner">
+            <span className="muted">You&apos;re now part of {joinedWorkspaceBanner}.</span>
+            <button className="ghost-button small" onClick={() => setJoinedWorkspaceBanner(null)} type="button">
+              Dismiss
+            </button>
+          </div>
+        ) : null}
 
-        {portalView === "workspace" && sessionUser ? (
+        {portalView === "workspace" && sessionUser && !isWorkspaceHydrating ? (
           <div className="quick-actions">
             <p className="eyebrow">Quick actions</p>
             <div className="quick-actions-grid">
@@ -2584,30 +3196,98 @@ export default function App() {
           </div>
         ) : null}
 
+        {portalView === "workspace" && sessionUser && workspaceTeam && documents.length === 0 && !isWorkspaceHydrating ? (
+          <section className="card activation-card">
+            <div className="section-heading compact">
+              <p className="eyebrow">Do this next</p>
+              <span>{workspaceTeam.members.length === 1 ? "First workflow" : "Team rollout"}</span>
+            </div>
+            {workspaceTeam.members.length === 1 ? (
+              <div className="stack">
+                <p className="muted">
+                  You&apos;re the owner of <strong>{currentWorkspaceName}</strong>. Start with one complete solo workflow so you can see the full send, sign, and export path.
+                </p>
+                <div className="checklist-grid">
+                  <div className="checklist-step checklist-step-active">
+                    <div className="checklist-step-index">1</div>
+                    <div className="checklist-step-copy">
+                      <strong>Upload a PDF</strong>
+                      <p className="muted">Create your first workflow document in the secure vault.</p>
+                    </div>
+                  </div>
+                  <div className="checklist-step checklist-step-pending">
+                    <div className="checklist-step-index">2</div>
+                    <div className="checklist-step-copy">
+                      <strong>Add yourself as signer</strong>
+                      <p className="muted">Test the complete internal flow before inviting others.</p>
+                    </div>
+                  </div>
+                  <div className="checklist-step checklist-step-pending">
+                    <div className="checklist-step-index">3</div>
+                    <div className="checklist-step-copy">
+                      <strong>Send, sign, and download</strong>
+                      <p className="muted">Confirm the audit trail and exported document feel sales-ready.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="stack">
+                <p className="muted">
+                  Your workspace is ready for team use. Invite collaborators, upload your first document, and review the guide so everyone starts from the same operating model.
+                </p>
+                <div className="action-row action-wrap">
+                  <button className="secondary-button" onClick={() => updatePortalView("org_admin")} type="button">
+                    Open organization admin
+                  </button>
+                  <a className="ghost-button" href="/guide.html" rel="noopener noreferrer" target="_blank">
+                    Review quick guide
+                  </a>
+                </div>
+              </div>
+            )}
+          </section>
+        ) : null}
+
         {portalView === "org_admin" && sessionUser && session ? (
           <ErrorBoundary label="Organization admin">
-            <OwnerPortal
-              session={session}
-              sessionUser={sessionUser}
-              documents={documents}
-              workspaceTeam={workspaceTeam}
-              billingOverview={billingOverview}
-              adminOverview={adminOverview}
-              adminUsers={adminUsers}
-              onRefreshTeam={() => refreshTeam(session)}
-              onRefreshBilling={() => refreshBilling(session)}
-              onRefreshAdmin={() => {
-                const requests = sessionUser.isAdmin
-                  ? [refreshAdminOverview(session), refreshAdminUsers(session)]
-                  : [];
-                return Promise.all(requests).then(() => undefined);
-              }}
-              onSwitchToWorkspace={() => updatePortalView("workspace")}
-              onNavigateToDocument={(documentId) => {
-                setSelectedDocumentId(documentId);
-                updatePortalView("workspace");
-              }}
-            />
+            {isWorkspaceHydrating ? (
+              <section className="owner-portal">
+                <div className="panel owner-hero-panel skeleton-stack">
+                  <div className="skeleton-line skeleton-line-title" />
+                  <div className="skeleton-line" />
+                  <div className="owner-kpi-grid">
+                    <div className="skeleton-card" />
+                    <div className="skeleton-card" />
+                    <div className="skeleton-card" />
+                    <div className="skeleton-card" />
+                  </div>
+                </div>
+              </section>
+            ) : (
+              <OwnerPortal
+                session={session}
+                sessionUser={sessionUser}
+                documents={documents}
+                workspaceTeam={workspaceTeam}
+                billingOverview={billingOverview}
+                adminOverview={adminOverview}
+                adminUsers={adminUsers}
+                onRefreshTeam={() => refreshTeam(session)}
+                onRefreshBilling={() => refreshBilling(session)}
+                onRefreshAdmin={() => {
+                  const requests = sessionUser.isAdmin
+                    ? [refreshAdminOverview(session), refreshAdminUsers(session)]
+                    : [];
+                  return Promise.all(requests).then(() => undefined);
+                }}
+                onSwitchToWorkspace={() => updatePortalView("workspace")}
+                onNavigateToDocument={(documentId) => {
+                  setSelectedDocumentId(documentId);
+                  updatePortalView("workspace");
+                }}
+              />
+            )}
           </ErrorBoundary>
         ) : null}
 
@@ -2623,6 +3303,21 @@ export default function App() {
             </button>
           </div>
         ) : null}
+        {isWorkspaceHydrating ? (
+          <section className="grid">
+            <div className="panel skeleton-stack">
+              <div className="skeleton-line skeleton-line-title" />
+              <div className="skeleton-line" />
+              <div className="preview-frame signer-preview-frame skeleton-card" />
+            </div>
+            <div className="panel skeleton-stack">
+              <div className="skeleton-line skeleton-line-title" />
+              <div className="skeleton-card" />
+              <div className="skeleton-card" />
+              <div className="skeleton-card" />
+            </div>
+          </section>
+        ) : (
         <section className="grid">
           <div className="panel">
             <div className="panel-header">
@@ -3962,6 +4657,7 @@ export default function App() {
             )}
           </div>
         </section>
+        )}
         </ErrorBoundary>
         ) : null}
       </main>

@@ -207,6 +207,20 @@ type DigitalSignatureProfileRow = {
   updated_at: string;
 };
 
+type WorkspaceRow = {
+  id: string;
+  name: string;
+  slug: string;
+  workspace_type: string;
+  owner_user_id: string;
+  billing_email: string | null;
+};
+
+type WorkspaceMembershipWithWorkspaceRow = {
+  role: string;
+  workspaces: WorkspaceRow | WorkspaceRow[] | null;
+};
+
 type ProcessingJobType = "ocr" | "field_detection";
 type ProcessingJobStatus = "queued" | "running" | "completed" | "failed";
 type ProcessingJobRow = {
@@ -571,7 +585,76 @@ async function findAdminAuthUserByEmail(
 }
 
 export async function ensureDefaultWorkspaceForUser(user: AuthenticatedUser) {
+  return resolveWorkspaceForUser(user);
+}
+
+async function listWorkspaceMembershipsForUser(userId: string) {
   const adminClient = createServiceRoleClient();
+  const { data: memberships, error: membershipsError } = await adminClient
+    .from("workspace_memberships")
+    .select("role, workspaces(id, name, slug, workspace_type, owner_user_id, billing_email)")
+    .eq("user_id", userId);
+
+  if (membershipsError) {
+    throw new AppError(500, membershipsError.message);
+  }
+
+  return (memberships ?? []) as unknown as WorkspaceMembershipWithWorkspaceRow[];
+}
+
+function flattenWorkspaceMemberships(memberships: WorkspaceMembershipWithWorkspaceRow[]) {
+  return memberships.flatMap((membership) =>
+    (Array.isArray(membership.workspaces)
+      ? membership.workspaces
+      : membership.workspaces
+        ? [membership.workspaces]
+        : []
+    ).map((workspace) => ({
+      workspace,
+      role: membership.role,
+    })),
+  );
+}
+
+export async function listAccessibleWorkspacesForUser(user: AuthenticatedUser) {
+  const memberships = await listWorkspaceMembershipsForUser(user.id);
+  return flattenWorkspaceMemberships(memberships)
+    .filter(({ workspace }) => Boolean(workspace))
+    .sort((left, right) => {
+      if (left.workspace.workspace_type !== right.workspace.workspace_type) {
+        return left.workspace.workspace_type === "team" ? -1 : 1;
+      }
+
+      return left.workspace.name.localeCompare(right.workspace.name);
+    });
+}
+
+export async function resolveWorkspaceForUser(
+  user: AuthenticatedUser,
+  preferredWorkspaceId?: string | null,
+) {
+  const adminClient = createServiceRoleClient();
+  const memberships = await listWorkspaceMembershipsForUser(user.id);
+  const accessibleMemberships = flattenWorkspaceMemberships(memberships);
+
+  if (preferredWorkspaceId) {
+    const preferredMembership = accessibleMemberships.find(
+      ({ workspace }) => workspace.id === preferredWorkspaceId,
+    );
+
+    if (preferredMembership) {
+      return preferredMembership.workspace;
+    }
+  }
+
+  const joinedTeamWorkspaces = accessibleMemberships
+    .map(({ workspace }) => workspace)
+    .filter((workspace) => workspace.workspace_type === "team");
+
+  if (joinedTeamWorkspaces.length === 1) {
+    return joinedTeamWorkspaces[0];
+  }
+
   const { data: existingWorkspace, error: existingWorkspaceError } = await adminClient
     .from("workspaces")
     .select("id, name, slug, workspace_type, owner_user_id, billing_email")
@@ -2970,13 +3053,18 @@ export async function createSavedSignatureForAuthorizationHeader(
   };
 }
 
-export async function listDocumentsForAuthorizationHeader(authorizationHeader: string | undefined) {
+export async function listDocumentsForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  preferredWorkspaceId?: string | null,
+) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
+  const workspace = await resolveWorkspaceForUser(user, preferredWorkspaceId);
   const adminClient = createServiceRoleClient();
   const { data, error } = await adminClient
     .from("document_access")
-    .select("document_id")
-    .eq("user_id", user.id);
+    .select("document_id, documents!inner(workspace_id)")
+    .eq("user_id", user.id)
+    .eq("documents.workspace_id", workspace.id);
 
   if (error) {
     throw new AppError(500, error.message);
@@ -3015,10 +3103,11 @@ export async function getDocumentForAuthorizationHeader(
 export async function createDocumentForAuthorizationHeader(
   authorizationHeader: string | undefined,
   input: unknown,
+  preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const parsed = createDocumentInputSchema.parse(input);
-  const workspace = await ensureDefaultWorkspaceForUser(user);
+  const workspace = await resolveWorkspaceForUser(user, preferredWorkspaceId);
 
   if (!parsed.storagePath.startsWith(`${user.id}/`)) {
     throw new AppError(400, "Storage paths must begin with the signed-in user's folder.");

@@ -5,7 +5,9 @@ import { AppError } from "./errors.js";
 import { deliverNotificationEmail } from "./notifications.js";
 import {
   ensureDefaultWorkspaceForUser,
+  listAccessibleWorkspacesForUser,
   resolveAuthenticatedUser,
+  resolveWorkspaceForUser,
   type AuthenticatedUser,
 } from "./service.js";
 import { createAuthClient, createServiceRoleClient } from "./supabase.js";
@@ -65,8 +67,9 @@ function normalizeEmail(email: string) {
 async function requireWorkspaceWithRole(
   user: AuthenticatedUser,
   allowedRoles: string[],
+  preferredWorkspaceId?: string | null,
 ): Promise<{ workspace: WorkspaceRow; memberRole: string }> {
-  const workspace = (await ensureDefaultWorkspaceForUser(user)) as WorkspaceRow;
+  const workspace = (await resolveWorkspaceForUser(user, preferredWorkspaceId)) as WorkspaceRow;
   const adminClient = createServiceRoleClient();
 
   const { data: membership, error } = await adminClient
@@ -120,9 +123,10 @@ const removeMemberSchema = z.object({
 
 export async function getWorkspaceTeamForAuthorizationHeader(
   authorizationHeader: string | undefined,
+  preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const workspace = (await ensureDefaultWorkspaceForUser(user)) as WorkspaceRow;
+  const workspace = (await resolveWorkspaceForUser(user, preferredWorkspaceId)) as WorkspaceRow;
   const adminClient = createServiceRoleClient();
 
   const [membersResult, invitationsResult] = await Promise.all([
@@ -178,9 +182,14 @@ export async function getWorkspaceTeamForAuthorizationHeader(
 export async function createWorkspaceInvitationForAuthorizationHeader(
   authorizationHeader: string | undefined,
   input: unknown,
+  preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, memberRole } = await requireWorkspaceWithRole(user, ["owner", "admin"]);
+  const { workspace, memberRole } = await requireWorkspaceWithRole(
+    user,
+    ["owner", "admin"],
+    preferredWorkspaceId,
+  );
   const parsed = createInvitationSchema.parse(input);
   const email = normalizeEmail(parsed.email);
   const adminClient = createServiceRoleClient();
@@ -248,6 +257,7 @@ export async function createWorkspaceInvitationForAuthorizationHeader(
     toEmail: email,
     inviterName: user.name ?? user.email,
     workspaceName: workspace.name,
+    role: parsed.role,
     token,
     appOrigin: env.EASYDRAFT_APP_ORIGIN,
   });
@@ -299,9 +309,10 @@ export async function createWorkspaceInvitationForAuthorizationHeader(
 export async function resendWorkspaceInvitationForAuthorizationHeader(
   authorizationHeader: string | undefined,
   invitationId: string,
+  preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace } = await requireWorkspaceWithRole(user, ["owner", "admin"]);
+  const { workspace } = await requireWorkspaceWithRole(user, ["owner", "admin"], preferredWorkspaceId);
   const adminClient = createServiceRoleClient();
   const env = readServerEnv();
 
@@ -332,6 +343,7 @@ export async function resendWorkspaceInvitationForAuthorizationHeader(
     toEmail: invitation.email,
     inviterName: user.name ?? user.email,
     workspaceName: workspace.name,
+    role: invitation.role,
     token: invitation.token,
     appOrigin: env.EASYDRAFT_APP_ORIGIN,
   });
@@ -346,9 +358,10 @@ export async function resendWorkspaceInvitationForAuthorizationHeader(
 export async function revokeWorkspaceInvitationForAuthorizationHeader(
   authorizationHeader: string | undefined,
   invitationId: string,
+  preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace } = await requireWorkspaceWithRole(user, ["owner", "admin"]);
+  const { workspace } = await requireWorkspaceWithRole(user, ["owner", "admin"], preferredWorkspaceId);
   const adminClient = createServiceRoleClient();
 
   const { error } = await adminClient
@@ -393,7 +406,20 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
       .maybeSingle();
 
     if (existingMembership) {
-      return { joined: true, alreadyMember: true };
+      const { data: workspace } = await adminClient
+        .from("workspaces")
+        .select("id, name, slug")
+        .eq("id", invitation.workspace_id)
+        .maybeSingle();
+
+      return {
+        joined: true,
+        alreadyMember: true,
+        workspace: workspace
+          ? { id: workspace.id, name: workspace.name, slug: workspace.slug }
+          : null,
+        role: invitation.role,
+      };
     }
   }
 
@@ -425,17 +451,20 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
     .update({ accepted_at: new Date().toISOString() })
     .eq("id", invitation.id);
 
-  // Fetch the workspace name for the success message
+  // Fetch the workspace for the success message
   const { data: workspace } = await adminClient
     .from("workspaces")
-    .select("name")
+    .select("id, name, slug")
     .eq("id", invitation.workspace_id)
     .maybeSingle();
 
   return {
     joined: true,
     alreadyMember: false,
-    workspaceName: workspace?.name ?? "your team",
+    workspace: workspace
+      ? { id: workspace.id, name: workspace.name, slug: workspace.slug }
+      : null,
+    role: invitation.role,
   };
 }
 
@@ -446,9 +475,10 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
 export async function updateWorkspaceNameForAuthorizationHeader(
   authorizationHeader: string | undefined,
   input: unknown,
+  preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace } = await requireWorkspaceWithRole(user, ["owner"]);
+  const { workspace } = await requireWorkspaceWithRole(user, ["owner"], preferredWorkspaceId);
   const parsed = updateWorkspaceNameSchema.parse(input);
   const adminClient = createServiceRoleClient();
 
@@ -469,9 +499,14 @@ export async function updateWorkspaceNameForAuthorizationHeader(
 export async function sendWorkspaceMemberPasswordResetForAuthorizationHeader(
   authorizationHeader: string | undefined,
   input: unknown,
+  preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, memberRole } = await requireWorkspaceWithRole(user, ["owner", "admin"]);
+  const { workspace, memberRole } = await requireWorkspaceWithRole(
+    user,
+    ["owner", "admin"],
+    preferredWorkspaceId,
+  );
   const parsed = sendWorkspacePasswordResetSchema.parse(input);
   const adminClient = createServiceRoleClient();
 
@@ -523,9 +558,14 @@ export async function sendWorkspaceMemberPasswordResetForAuthorizationHeader(
 export async function changeWorkspaceMemberRoleForAuthorizationHeader(
   authorizationHeader: string | undefined,
   input: unknown,
+  preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, memberRole } = await requireWorkspaceWithRole(user, ["owner", "admin"]);
+  const { workspace, memberRole } = await requireWorkspaceWithRole(
+    user,
+    ["owner", "admin"],
+    preferredWorkspaceId,
+  );
   const parsed = changeMemberRoleSchema.parse(input);
   const adminClient = createServiceRoleClient();
 
@@ -572,9 +612,14 @@ export async function changeWorkspaceMemberRoleForAuthorizationHeader(
 export async function removeWorkspaceMemberForAuthorizationHeader(
   authorizationHeader: string | undefined,
   input: unknown,
+  preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, memberRole } = await requireWorkspaceWithRole(user, ["owner", "admin"]);
+  const { workspace, memberRole } = await requireWorkspaceWithRole(
+    user,
+    ["owner", "admin"],
+    preferredWorkspaceId,
+  );
   const parsed = removeMemberSchema.parse(input);
   const adminClient = createServiceRoleClient();
 
@@ -609,6 +654,34 @@ export async function removeWorkspaceMemberForAuthorizationHeader(
   return { removed: true, userId: parsed.userId };
 }
 
+export async function listAccessibleWorkspacesForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  preferredWorkspaceId?: string | null,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const [workspaces, currentWorkspace] = await Promise.all([
+    listAccessibleWorkspacesForUser(user),
+    resolveWorkspaceForUser(user, preferredWorkspaceId),
+  ]);
+
+  return {
+    currentWorkspace: {
+      id: currentWorkspace.id,
+      name: currentWorkspace.name,
+      slug: currentWorkspace.slug,
+      workspaceType: currentWorkspace.workspace_type,
+      role: workspaces.find((entry) => entry.workspace.id === currentWorkspace.id)?.role ?? null,
+    },
+    workspaces: workspaces.map((entry) => ({
+      id: entry.workspace.id,
+      name: entry.workspace.name,
+      slug: entry.workspace.slug,
+      workspaceType: entry.workspace.workspace_type,
+      role: entry.role,
+    })),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Email helper
 // ---------------------------------------------------------------------------
@@ -619,11 +692,20 @@ async function sendInviteEmail(
     toEmail: string;
     inviterName: string;
     workspaceName: string;
+    role?: string;
     token: string;
     appOrigin: string;
   },
 ) {
   const acceptUrl = `${opts.appOrigin}?invite=${encodeURIComponent(opts.token)}`;
+  const roleLabel =
+    opts.role === "owner"
+      ? "Owner"
+      : opts.role === "admin"
+        ? "Admin"
+        : opts.role === "billing_admin"
+          ? "Billing admin"
+          : "Member";
 
   const html = `
 <!DOCTYPE html>
@@ -632,13 +714,22 @@ async function sendInviteEmail(
 <body style="font-family: sans-serif; color: #111; max-width: 520px; margin: 40px auto; padding: 0 20px;">
   <h2 style="font-size: 20px; margin-bottom: 8px;">You've been invited to ${escapeHtml(opts.workspaceName)}</h2>
   <p style="color: #555; margin-bottom: 24px;">
-    ${escapeHtml(opts.inviterName)} invited you to collaborate on EasyDraftDocs.
+    ${escapeHtml(opts.inviterName)} invited you to join <strong>${escapeHtml(opts.workspaceName)}</strong> on EasyDraftDocs.
+  </p>
+  <p style="color: #555; margin-bottom: 16px; line-height: 1.6;">
+    EasyDraftDocs is a private document workflow workspace for teams. You'll be able to review documents, participate in signing workflows, and work inside your organization's shared audit trail.
+  </p>
+  <p style="color: #555; margin-bottom: 24px; line-height: 1.6;">
+    Initial access level: <strong>${roleLabel}</strong>.
   </p>
   <a href="${acceptUrl}"
      style="display: inline-block; background: #111; color: #fff; padding: 12px 24px;
             border-radius: 6px; text-decoration: none; font-weight: 600;">
     Accept invitation
   </a>
+  <p style="color: #666; margin-top: 24px; line-height: 1.6;">
+    If you already have an EasyDraftDocs account, accepting will add this workspace to your access. If you're new, you'll sign up first and then continue into the workspace.
+  </p>
   <p style="color: #999; font-size: 13px; margin-top: 32px;">
     This invitation expires in 7 days. If you didn't expect this email, you can ignore it.
   </p>

@@ -17,6 +17,16 @@ export function readAuthorizationHeader(request: VercelRequest) {
   return authorization;
 }
 
+export function readWorkspaceIdHeader(request: VercelRequest) {
+  const workspaceId = request.headers["x-easydraft-workspace"];
+
+  if (Array.isArray(workspaceId)) {
+    return workspaceId[0] ?? null;
+  }
+
+  return typeof workspaceId === "string" && workspaceId.trim().length > 0 ? workspaceId.trim() : null;
+}
+
 export function getRequestOrigin(_: VercelRequest) {
   return getCanonicalAppOrigin();
 }

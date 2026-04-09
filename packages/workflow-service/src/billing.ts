@@ -4,8 +4,8 @@ import { z } from "zod";
 import { getCanonicalAppOrigin, readServerEnv, shouldRequireStripe } from "./env.js";
 import { AppError } from "./errors.js";
 import {
-  ensureDefaultWorkspaceForUser,
   resolveAuthenticatedUser,
+  resolveWorkspaceForUser,
   type AuthenticatedUser,
 } from "./service.js";
 import { createServiceRoleClient } from "./supabase.js";
@@ -143,8 +143,11 @@ function requireBillingPermission(membership: WorkspaceMembershipRow | null) {
 // Workspace helpers
 // ---------------------------------------------------------------------------
 
-async function getBillingWorkspaceForUser(user: AuthenticatedUser) {
-  const workspace = (await ensureDefaultWorkspaceForUser(user)) as WorkspaceRow;
+async function getBillingWorkspaceForUser(
+  user: AuthenticatedUser,
+  preferredWorkspaceId?: string | null,
+) {
+  const workspace = (await resolveWorkspaceForUser(user, preferredWorkspaceId)) as WorkspaceRow;
   const adminClient = createServiceRoleClient();
   const { data: membership, error: membershipError } = await adminClient
     .from("workspace_memberships")
@@ -425,10 +428,11 @@ async function markStripeEventProcessed(
 
 export async function getBillingOverviewForAuthorizationHeader(
   authorizationHeader: string | undefined,
+  preferredWorkspaceId?: string | null,
 ) {
   const stripeReady = isStripeConfigured();
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, membership } = await getBillingWorkspaceForUser(user);
+  const { workspace, membership } = await getBillingWorkspaceForUser(user, preferredWorkspaceId);
 
   const [plans, subscription, internalMemberCount] = await Promise.all([
     listActivePlans(),
@@ -485,10 +489,11 @@ export async function createCheckoutSessionForAuthorizationHeader(
   authorizationHeader: string | undefined,
   input: unknown,
   origin: string,
+  preferredWorkspaceId?: string | null,
 ) {
   const appOrigin = getCanonicalAppOrigin();
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, membership } = await getBillingWorkspaceForUser(user);
+  const { workspace, membership } = await getBillingWorkspaceForUser(user, preferredWorkspaceId);
   requireBillingPermission(membership);
 
   const existingSubscription = await getLatestSubscriptionForWorkspace(workspace.id);
@@ -581,10 +586,11 @@ const TOKEN_BUNDLE_SIZE = 12;      // 12 tokens per bundle
 export async function createTokenCheckoutSessionForAuthorizationHeader(
   authorizationHeader: string | undefined,
   origin: string,
+  preferredWorkspaceId?: string | null,
 ) {
   const appOrigin = getCanonicalAppOrigin();
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, membership } = await getBillingWorkspaceForUser(user);
+  const { workspace, membership } = await getBillingWorkspaceForUser(user, preferredWorkspaceId);
   requireBillingPermission(membership);
 
   // Only subscribed workspaces can purchase tokens
@@ -647,10 +653,11 @@ export async function createTokenCheckoutSessionForAuthorizationHeader(
 export async function createBillingPortalSessionForAuthorizationHeader(
   authorizationHeader: string | undefined,
   origin: string,
+  preferredWorkspaceId?: string | null,
 ) {
   const appOrigin = getCanonicalAppOrigin();
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, membership } = await getBillingWorkspaceForUser(user);
+  const { workspace, membership } = await getBillingWorkspaceForUser(user, preferredWorkspaceId);
   requireBillingPermission(membership);
 
   if (!assertStripeConfigurationReady()) {

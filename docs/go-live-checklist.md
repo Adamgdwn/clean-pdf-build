@@ -112,7 +112,10 @@ Store the future values in your secret manager or Vercel using these names for c
 1. Confirm `admin@agoperations.ca` is included in `EASYDRAFT_ADMIN_EMAILS`.
 2. Create at least one non-admin owner account and two signer accounts for smoke tests.
 3. Verify:
-   - owner portal opens for the owner account
+   - owner-capable user lands in organization admin by default
+   - workspace switcher appears when a user belongs to more than one workspace
+   - switching workspace updates documents, billing, and team scope together
+   - public `/pricing` route loads and explains seats vs tokens clearly
    - signature library can save at least one typed signature
    - digital-signature profile can be created without browser fetch errors
    - upload
@@ -129,6 +132,7 @@ Store the future values in your secret manager or Vercel using these names for c
    - per-signer notification status visible in participant list
    - per-signer Resend button sends reminder only to that signer
    - Completion certificate opens as printable HTML on completed documents
+   - external signer opens a dedicated signer page rather than the internal workspace shell
    - signing flow prompts for `Reason for signing` and optional `Signing location`
 
 ## Final release gate
@@ -140,4 +144,21 @@ Only claim production readiness after all of these are true:
 - Stripe live checkout works
 - notification delivery works with your chosen provider
 - managed signing flow passes with real users
+- workspace switching stays correctly scoped for multi-workspace users
+- pricing and trial language are understandable to a first-time visitor
 - you have chosen and integrated the real signature vendor path
+
+## Next steps after go-live
+
+Once the above is complete, the next operational/product tasks should be:
+
+1. Publish legal/trust pages:
+   - privacy policy
+   - terms of service
+   - concise security/privacy summary
+2. Add monitoring and alerting:
+   - Sentry or equivalent
+   - Vercel log drains
+   - alerting for failed notification rows
+3. Move rate limiting from in-memory to shared/distributed infrastructure.
+4. Deploy the processor as a durable scheduled or containerized worker.

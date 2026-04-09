@@ -1,5 +1,7 @@
 import type { Session } from "@supabase/supabase-js";
 
+import { loadStoredWorkspaceId } from "./session-storage";
+
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
 export async function apiFetch<T>(
@@ -10,11 +12,14 @@ export async function apiFetch<T>(
   let response: Response;
 
   try {
+    const activeWorkspaceId =
+      typeof window !== "undefined" ? loadStoredWorkspaceId() : null;
     response = await fetch(`${apiBaseUrl}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
         ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        ...(activeWorkspaceId ? { "X-EasyDraft-Workspace": activeWorkspaceId } : {}),
         ...(init?.headers ?? {}),
       },
     });

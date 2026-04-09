@@ -2,7 +2,13 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import { sendWorkspaceMemberPasswordResetForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
-import { enforceRateLimit, getRequestOrigin, readAuthorizationHeader, sendError } from "./_utils.js";
+import {
+  enforceRateLimit,
+  getRequestOrigin,
+  readAuthorizationHeader,
+  readWorkspaceIdHeader,
+  sendError,
+} from "./_utils.js";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== "POST") {
@@ -20,7 +26,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       await sendWorkspaceMemberPasswordResetForAuthorizationHeader(readAuthorizationHeader(request), {
         ...request.body,
         redirectTo: getRequestOrigin(request),
-      }),
+      }, readWorkspaceIdHeader(request)),
     );
   } catch (error) {
     return sendError(response, error);

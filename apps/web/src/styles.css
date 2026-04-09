@@ -758,6 +758,21 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .landing-body,
+  .landing-proof-grid,
+  .landing-pricing-grid,
+  .landing-faq-grid,
+  .landing-tour-grid,
+  .signer-grid,
+  .signer-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-header-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
   .owner-metrics-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -780,6 +795,24 @@ select {
   .owner-summary-grid,
   .owner-metrics-grid {
     grid-template-columns: 1fr;
+  }
+
+  .landing-header,
+  .landing-body,
+  .signer-shell {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .landing-section {
+    width: auto;
+    margin-left: 20px;
+    margin-right: 20px;
+  }
+
+  .signer-header {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 
@@ -840,6 +873,20 @@ select {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.user-email,
+.user-workspace {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.workspace-switcher-card {
+  margin-bottom: 16px;
+}
+
+.workspace-switcher-card .form-field {
+  margin-top: 0.5rem;
 }
 
 .ghost-button.small {
@@ -1016,6 +1063,43 @@ select {
   padding: 28px 48px 0;
 }
 
+.landing-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.landing-nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.landing-nav a {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+
+.landing-nav-link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  padding: 0;
+  cursor: pointer;
+}
+
+.landing-nav-cta {
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff !important;
+}
+
 .landing-body {
   flex: 1;
   display: grid;
@@ -1029,8 +1113,39 @@ select {
   box-sizing: border-box;
 }
 
+.pricing-page-shell {
+  align-items: start;
+}
+
 .landing-value {
   padding-top: 12px;
+}
+
+.landing-cta-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.landing-proof-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.landing-proof-card,
+.landing-price-card,
+.landing-tour-card {
+  display: grid;
+  gap: 6px;
+}
+
+.landing-proof-card span {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 .landing-value h2 {
@@ -1086,6 +1201,55 @@ select {
   margin-bottom: 0;
 }
 
+.landing-side-note {
+  margin-top: 12px;
+}
+
+.landing-section {
+  width: min(1100px, calc(100% - 96px));
+  margin: 0 auto 56px;
+  display: grid;
+  gap: 20px;
+}
+
+.landing-section-header {
+  display: grid;
+  gap: 8px;
+}
+
+.landing-section-header h3 {
+  margin: 0;
+  font-family: "Fraunces", "Georgia", serif;
+  font-weight: 600;
+  font-size: clamp(1.35rem, 2.2vw, 1.9rem);
+  line-height: 1.2;
+}
+
+.landing-pricing-grid,
+.landing-tour-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.landing-faq-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.landing-tour-step {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
 /* ── Workspace header (replaces marketing hero for signed-in users) ────────── */
 
 .workspace-header {
@@ -1117,6 +1281,134 @@ select {
 .workspace-header .hero-guide-link {
   flex-shrink: 0;
   margin-top: 8px;
+}
+
+.joined-banner {
+  margin-bottom: 20px;
+}
+
+.activation-card {
+  margin-bottom: 20px;
+}
+
+.signer-shell {
+  min-height: 100vh;
+  padding: 28px 32px 48px;
+  background: linear-gradient(180deg, rgba(29, 122, 92, 0.06), transparent 22%);
+}
+
+.signer-header {
+  max-width: 1180px;
+  margin: 0 auto 24px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.signer-main {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: grid;
+  gap: 20px;
+}
+
+.signer-summary h2 {
+  margin: 0 0 12px;
+  font-family: "Fraunces", "Georgia", serif;
+  font-weight: 600;
+  font-size: clamp(1.5rem, 2.5vw, 2.2rem);
+  line-height: 1.15;
+}
+
+.signer-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 20px;
+}
+
+.signer-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.signer-preview-frame {
+  margin-top: 14px;
+  min-height: 620px;
+}
+
+.signer-actions-panel {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.signer-task-card {
+  align-items: center;
+}
+
+.signer-complete-card {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid rgba(29, 122, 92, 0.18);
+  border-radius: 16px;
+  background: rgba(29, 122, 92, 0.08);
+}
+
+.signer-complete-card h3 {
+  margin: 0;
+  font-family: "Fraunces", "Georgia", serif;
+}
+
+.signer-complete-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.skeleton-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.skeleton-line,
+.skeleton-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.skeleton-line::after,
+.skeleton-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: skeleton-shimmer 1.5s infinite;
+}
+
+.skeleton-line {
+  height: 12px;
+}
+
+.skeleton-line-title {
+  height: 18px;
+  width: 55%;
+}
+
+.skeleton-card {
+  min-height: 78px;
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 /* ── Sidebar nav label ────────────────────────────────────────────────────── */
