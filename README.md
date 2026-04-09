@@ -69,11 +69,11 @@ A production-ready PDF workflow platform. Teams upload contracts and agreements,
 - **Certificate-backed PDF signing** — `DigitalSignatureProfile` records and the UI exist; the provider wiring (PAdES/CAdES embedding) is a clearly marked TODO in `renderDocumentExportToStorage` in `service.ts`. Safe to leave until there is proven customer demand.
 - **Change-impact classification** — edits after partial signing are audited but not yet classified as `non_material`, `review_required`, or `resign_required`.
 - **Rate limiting depth** — basic in-memory throttling is now in place for sensitive API paths, but a shared/distributed limiter would still be better before heavier public traffic.
-- **Owner portal gaps** — see the owner portal audit section below for the full list.
+- **Organization admin gaps** — see the audit section below for the full list.
 
 ---
 
-## Owner portal audit — path forward (April 2026)
+## Organization admin audit — path forward (April 2026)
 
 An 18-finding audit of the owner-facing surfaces was completed in April 2026. The findings below are the actionable items sorted by priority and effort. Complete the critical items before the first paying team sees the product.
 
@@ -158,38 +158,37 @@ An 18-finding audit of the owner-facing surfaces was completed in April 2026. Th
 
 ## Next steps
 
-### Before any external users
+### Before any external users (~93% complete as of April 2026)
 
-1. **Apply all Supabase migrations to production**
-   ```bash
-   npx supabase db push
-   ```
-   Pending migrations add: `export_sha256` column, external signer token ledger, workspace invitations, Stripe CAD billing plan, digital-signature identity fields, and `onboarding_completed_at` on `profiles`.
+Infrastructure is done: all 4 migrations applied to production, all Vercel env vars set, Stripe live mode wired with all 6 webhook events, auth config and storage buckets verified. What remains is manual configuration and a final smoke test.
 
-2. **Verify Stripe is wired in production**
-   - `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` must be set in Vercel
-   - Confirm the `easydraft_team` and `easydraft_team_annual` billing plan rows exist in the `billing_plans` table
-   - Test a full checkout → webhook → subscription sync in Stripe test mode first
-   - See `STRIPE_INTEGRATION_NOTES.md` for the full setup checklist
+1. **Stripe dashboard — manual steps (3 items)**
+   - Billing → enable "Send an invoice for free trials"
+   - Billing → enable "Send emails about upcoming renewals"
+   - Branding → upload logo, set brand colour and business name
 
-3. **Run a structured end-to-end smoke test** (one person, ~30 min)
-   Use one owner account and one normal user account.
-   - Sign up → receive free trial
-   - Confirm both `User workspace` and `Owner portal` are visible for the owner account
-   - Create one saved signature in the signature library
-   - Create one digital-signature profile with signer identity details
-   - Upload a PDF → add a signer → add a signature field → send
-   - During signing, choose a `Reason for signing` and optional `Signing location`
-   - Open the signer token link in a private window → complete the field
-   - Download the signed PDF → open the completion certificate → verify SHA-256 hash matches `sha256sum` output
-   - Invite a teammate → accept the invite → confirm workspace membership
-   - Cancel the trial from the billing portal
-   - Delete the test account
+2. **Stripe checkout test**
+   - Run a full checkout with card `4242 4242 4242 4242`
+   - Confirm subscription appears in the app and the $0 invoice email arrives
 
-4. **Confirm email delivery end-to-end**
+3. **Domains**
+   - Attach `easydraftdocs.app` in Vercel with a valid TLS certificate
+   - Set `easydraftdocs.com` to redirect to `.app`
+
+4. **Email delivery — one real send**
    - Send a platform-managed workflow to an external address
-   - Confirm the email arrives from `noreply@easydraftdocs.app`
-   - Check the signing link opens correctly and the guest session loads
+   - Confirm the email arrives from `noreply@easydraftdocs.app` and the signing link opens
+
+5. **End-to-end smoke test** (~30 min)
+   - Sign up as a new user → confirm landing in Organization admin view
+   - Start free trial → confirm $0 invoice email from Stripe
+   - Create a saved signature, upload a PDF, add a signer, place a field, send
+   - Open signing link in private window → complete the field
+   - Download signed PDF → verify SHA-256 hash matches `sha256sum` output
+   - Invite a teammate → accept invite → confirm workspace membership
+   - Purchase tokens → confirm balance updates
+   - Cancel trial from billing portal
+   - Delete test account → confirm deletion completes
 
 ### Short-term product improvements (pilot feedback phase)
 

@@ -150,8 +150,8 @@ export function OwnerPortal({
       <div className="panel owner-hero-panel">
         <div className="panel-header">
           <div>
-            <p className="eyebrow">Owner portal</p>
-            <h3>Company dashboard for oversight, access, billing, and operational follow-through</h3>
+            <p className="eyebrow">Organization admin</p>
+            <h3>Team, billing, and document oversight for your organization</h3>
           </div>
           <button
             className="secondary-button"
@@ -161,7 +161,7 @@ export function OwnerPortal({
               onRefreshAdmin();
             }}
           >
-            Refresh owner data
+            Refresh
           </button>
         </div>
         <p className="muted action-note">
@@ -184,13 +184,13 @@ export function OwnerPortal({
                     {pendingInvitationCount} pending invite{pendingInvitationCount === 1 ? "" : "s"}.
                   </p>
                 </div>
-                <span>{currentMembershipRole ? formatStatusLabel(currentMembershipRole) : "Owner view"}</span>
+                <span>{currentMembershipRole ? formatStatusLabel(currentMembershipRole) : "Admin view"}</span>
               </div>
               <div className="row-card">
                 <div>
                   <strong>Role mix</strong>
                   <p className="muted">
-                    {ownerCount} owner{ownerCount === 1 ? "" : "s"}, {adminCount} admin
+                    {ownerCount} super user{ownerCount === 1 ? "" : "s"}, {adminCount} admin
                     {adminCount === 1 ? "" : "s"}, {billingAdminCount} billing admin
                     {billingAdminCount === 1 ? "" : "s"}.
                   </p>
@@ -395,7 +395,7 @@ export function OwnerPortal({
                   <span>Loading…</span>
                 </div>
                 <p className="muted">
-                  Billing details are loading. Use "Refresh owner data" above if this persists.
+                  Billing details are loading. Use "Refresh" above if this persists.
                 </p>
               </section>
             )}
@@ -416,7 +416,7 @@ export function OwnerPortal({
                   <span>Loading…</span>
                 </div>
                 <p className="muted">
-                  Team membership is loading. Use "Refresh owner data" above if this persists.
+                  Team membership is loading. Use "Refresh" above if this persists.
                 </p>
               </section>
             )}

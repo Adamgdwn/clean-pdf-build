@@ -172,6 +172,9 @@ export function AuthPanel({
 
           {authMode === "sign_up" ? (
             <>
+              <p className="muted">
+                Signing up creates a new organization. You become the Super User (organization admin) and can invite your team from there.
+              </p>
               <label className="form-field">
                 <span>Full name</span>
                 <input
@@ -182,8 +185,9 @@ export function AuthPanel({
                 />
               </label>
               <label className="form-field">
-                <span>Team or company name <span className="muted">(optional)</span></span>
+                <span>Organization name</span>
                 <input
+                  required
                   autoComplete="organization"
                   placeholder="e.g. Acme Corp"
                   value={workspaceName}

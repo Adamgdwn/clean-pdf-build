@@ -22,7 +22,7 @@ import type {
   WorkspaceTeam,
 } from "./types";
 
-type PortalView = "workspace" | "owner";
+type PortalView = "workspace" | "org_admin";
 
 const shouldRestoreSessionFromRedirect =
   typeof window !== "undefined" &&
@@ -1629,7 +1629,7 @@ export default function App() {
     const authError = params.get("authError");
     const signedIn = params.get("signedIn");
 
-    if (requestedPortal === "workspace" || requestedPortal === "owner") {
+    if (requestedPortal === "workspace" || requestedPortal === "org_admin") {
       setPortalView(requestedPortal);
     }
 
@@ -1808,7 +1808,7 @@ export default function App() {
     };
   }, [localPreviewUrl]);
 
-  const canAccessOwnerPortal = Boolean(
+  const canAccessOrgAdmin = Boolean(
     sessionUser &&
       (sessionUser.isAdmin ||
         (!workspaceTeam && !billingOverview) ||
@@ -1828,10 +1828,10 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (portalView === "owner" && !canAccessOwnerPortal) {
+    if (portalView === "org_admin" && !canAccessOrgAdmin) {
       setPortalView("workspace");
     }
-  }, [portalView, canAccessOwnerPortal]);
+  }, [portalView, canAccessOrgAdmin]);
 
   useEffect(() => {
     function handlePointerMove(event: PointerEvent) {
@@ -1921,7 +1921,7 @@ export default function App() {
               onSessionCreated={(nextSession) => {
                 refreshSession(nextSession).catch((error) => setErrorMessage((error as Error).message));
               }}
-              onRegistered={() => updatePortalView("owner")}
+              onRegistered={() => updatePortalView("org_admin")}
             />
             {errorMessage ? <div className="alert" style={{ marginTop: "0.75rem" }}>{errorMessage}</div> : null}
             {noticeMessage ? <div className="alert success" style={{ marginTop: "0.75rem" }}>{noticeMessage}</div> : null}
@@ -1953,7 +1953,7 @@ export default function App() {
           </div>
         ) : null}
 
-        {sessionUser && canAccessOwnerPortal && billingOverview?.subscription &&
+        {sessionUser && canAccessOrgAdmin && billingOverview?.subscription &&
           ["active", "trialing"].includes(billingOverview.subscription.status) ? (
           <div className="billing-gauge">
             <span className="billing-gauge-status">
@@ -1963,7 +1963,7 @@ export default function App() {
             </span>
             <span aria-hidden="true" className="billing-gauge-dot">·</span>
             <span>{billingOverview.externalTokens.available} token{billingOverview.externalTokens.available !== 1 ? "s" : ""}</span>
-            <button className="ghost-button small billing-gauge-link" onClick={() => updatePortalView("owner")} type="button">
+            <button className="ghost-button small billing-gauge-link" onClick={() => updatePortalView("org_admin")} type="button">
               Billing →
             </button>
           </div>
@@ -1976,14 +1976,14 @@ export default function App() {
           onSessionCreated={(nextSession) => {
             refreshSession(nextSession).catch((error) => setErrorMessage((error as Error).message));
           }}
-          onRegistered={() => updatePortalView("owner")}
+          onRegistered={() => updatePortalView("org_admin")}
         />
 
         {sessionUser ? (
           <section className="card">
             <div className="section-heading compact">
               <p className="eyebrow">View</p>
-              <span>{portalView === "owner" ? "Owner dashboard" : "My workspace"}</span>
+              <span>{portalView === "org_admin" ? "Organization admin" : "My workspace"}</span>
             </div>
             <div className="pill-row portal-switcher">
               <button
@@ -1993,13 +1993,13 @@ export default function App() {
               >
                 My workspace
               </button>
-              {canAccessOwnerPortal ? (
+              {canAccessOrgAdmin ? (
                 <button
-                  className={`pill-button ${portalView === "owner" ? "active" : ""}`}
-                  onClick={() => updatePortalView("owner")}
+                  className={`pill-button ${portalView === "org_admin" ? "active" : ""}`}
+                  onClick={() => updatePortalView("org_admin")}
                   type="button"
                 >
-                  Owner dashboard
+                  Organization admin
                 </button>
               ) : null}
             </div>
@@ -2013,11 +2013,11 @@ export default function App() {
               <>
                 <button className="sidebar-nav-item" onClick={() => scrollSidebarTo("section-documents")} type="button">Documents</button>
                 <button className="sidebar-nav-item" onClick={() => scrollSidebarTo("section-signatures")} type="button">Signatures</button>
-                {canAccessOwnerPortal ? (
-                  <button className="sidebar-nav-item" onClick={() => updatePortalView("owner")} type="button">Team</button>
+                {canAccessOrgAdmin ? (
+                  <button className="sidebar-nav-item" onClick={() => updatePortalView("org_admin")} type="button">Team</button>
                 ) : null}
-                {canAccessOwnerPortal ? (
-                  <button className="sidebar-nav-item" onClick={() => updatePortalView("owner")} type="button">Billing</button>
+                {canAccessOrgAdmin ? (
+                  <button className="sidebar-nav-item" onClick={() => updatePortalView("org_admin")} type="button">Billing</button>
                 ) : null}
                 <button className="sidebar-nav-item" onClick={() => scrollSidebarTo("section-account")} type="button">Account</button>
                 <a className="sidebar-nav-item" href="/guide.html" rel="noopener noreferrer" target="_blank">Help &amp; guide</a>
@@ -2514,11 +2514,11 @@ export default function App() {
         <header className="workspace-header">
           <div>
             <p className="eyebrow">
-              {portalView === "owner" ? "Owner dashboard" : "Document workspace"}
+              {portalView === "org_admin" ? "Organization admin" : "Document workspace"}
             </p>
             <h2>
-              {portalView === "owner"
-                ? "Company oversight and controls"
+              {portalView === "org_admin"
+                ? "Organization administration"
                 : sessionUser
                   ? `${sessionUser.name.split(" ")[0]}'s workspace`
                   : "Complete your assigned fields"}
@@ -2550,8 +2550,8 @@ export default function App() {
                 <strong className="quick-action-label">Create signature</strong>
                 <span className="muted">Save for reuse across documents</span>
               </button>
-              {canAccessOwnerPortal ? (
-                <button className="quick-action-item" onClick={() => updatePortalView("owner")} type="button">
+              {canAccessOrgAdmin ? (
+                <button className="quick-action-item" onClick={() => updatePortalView("org_admin")} type="button">
                   <strong className="quick-action-label">Team &amp; billing</strong>
                   <span className="muted">Invite teammates, manage plan</span>
                 </button>
@@ -2560,8 +2560,8 @@ export default function App() {
           </div>
         ) : null}
 
-        {portalView === "owner" && sessionUser && session ? (
-          <ErrorBoundary label="Owner portal">
+        {portalView === "org_admin" && sessionUser && session ? (
+          <ErrorBoundary label="Organization admin">
             <OwnerPortal
               session={session}
               sessionUser={sessionUser}
@@ -2588,12 +2588,12 @@ export default function App() {
 
         {portalView === "workspace" ? (
         <ErrorBoundary label="document workspace">
-        {canAccessOwnerPortal && workspaceTeam ? (
+        {canAccessOrgAdmin && workspaceTeam ? (
           <div className="team-summary-bar">
             <span className="muted">
               {workspaceTeam.workspace.name} · {workspaceTeam.members.length} member{workspaceTeam.members.length !== 1 ? "s" : ""}
             </span>
-            <button className="ghost-button small" onClick={() => updatePortalView("owner")} type="button">
+            <button className="ghost-button small" onClick={() => updatePortalView("org_admin")} type="button">
               Manage team →
             </button>
           </div>

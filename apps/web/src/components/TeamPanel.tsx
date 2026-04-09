@@ -5,7 +5,7 @@ import { apiFetch } from "../lib/api";
 import type { BillingOverview, WorkspaceTeam, WorkspaceTeamInvitation } from "../types";
 
 const ROLE_LABELS: Record<string, string> = {
-  owner: "Owner",
+  owner: "Super User",
   admin: "Admin",
   member: "Member",
   billing_admin: "Billing admin",
@@ -286,7 +286,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
                   onChange={(e) => setEditingRoleValue(e.target.value as "owner" | "member" | "admin" | "billing_admin")}
                   style={{ flex: 1 }}
                 >
-                  {isCurrentUserOwner ? <option value="owner">Owner</option> : null}
+                  {isCurrentUserOwner ? <option value="owner">Super User</option> : null}
                   <option value="member">Member</option>
                   <option value="admin">Admin</option>
                   <option value="billing_admin">Billing admin</option>
@@ -382,7 +382,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
             </p>
             {isCurrentUserOwner ? (
               <p className="muted">
-                Owners can also invite another owner or representative from here.
+                As Super User, you can also grant Super User access to another representative for this organization.
               </p>
             ) : null}
             <form className="stack" onSubmit={handleInvite}>
@@ -403,7 +403,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
                     value={inviteRole}
                     onChange={(e) => setInviteRole(e.target.value as "owner" | "member" | "admin" | "billing_admin")}
                   >
-                    {isCurrentUserOwner ? <option value="owner">Owner / company rep</option> : null}
+                    {isCurrentUserOwner ? <option value="owner">Super User</option> : null}
                     <option value="member">Member</option>
                     <option value="admin">Admin</option>
                     <option value="billing_admin">Billing admin</option>
