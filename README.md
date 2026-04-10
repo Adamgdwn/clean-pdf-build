@@ -15,8 +15,10 @@ A production-ready PDF workflow platform. Teams upload contracts and agreements,
 - Free-placement resizable signature for signers (no pre-placed field required)
 - External signers via one-time token link — no account needed
 - Full audit trail, version history, lock/reopen, and completion certificate with SHA-256 hash
-- Team invitations with workspace membership and role management
-- Stripe billing: 30-day free trial (no card), $12 CAD/seat/month or $120 CAD/seat/year, prepaid external signer tokens
+- Individual and corporate account signup paths
+- Corporate accounts with shared billing, member administration, and pooled external signer tokens
+- Team invitations with organization and workspace membership management
+- Stripe billing: 30-day free trial (no card), $12 CAD/seat/month or $120 CAD/seat/year, prepaid shared external signer tokens
 - Self-service account deletion: cancels Stripe, deletes all storage, cascades DB
 
 ---
@@ -48,7 +50,9 @@ A production-ready PDF workflow platform. Teams upload contracts and agreements,
 - Dedicated external signer surface with completion confirmation
 - Free-placement signature canvas for signers
 - Full audit trail, version history, lock/reopen, and completion certificate with SHA-256 export hash
-- Team invitations with workspace membership and role management
+- Individual accounts for solo users and corporate accounts for teams
+- Corporate admin view with shared billing and pooled token balance
+- Team invitations with organization and workspace membership management
 - Workspace-aware navigation with persistent active-workspace selection
 - Owner-first organization control center with KPI summary, watchlist, billing, team, and admin layers
 - Public landing page with dedicated pricing route and product-tour content
@@ -72,6 +76,8 @@ The latest application pass closed the most important product-surface gaps for s
 
 - owner-capable users land in `org_admin` by default
 - organization admin and workspace views are visually separated and easy to toggle
+- signup now distinguishes between individual accounts and corporate parent accounts
+- corporate accounts own shared member access, billing posture, and token purchasing
 - owner KPIs and “needs attention” items now lead the experience
 - landing page now answers product purpose, audience, and next actions above the fold
 - `/pricing` is now a first-class public route with clearer subscription/token explanation
@@ -208,7 +214,9 @@ See `.env.example`. Required for a working deployment:
 
 **Completion is field-level, not envelope-level.** A document stays signable until every required assigned action field is complete — or someone explicitly locks it. Locking records who locked it and when.
 
-**Tokens are consumed per external workflow send.** Internal team participants on platform-managed workflows don't consume tokens. 1 token = 1 workflow sent to at least one external participant. Token balance is all-time credits minus all-time usage.
+**Tokens are consumed per external workflow send.** Internal participants on platform-managed workflows don't consume tokens. 1 token = 1 workflow sent to at least one external participant. For corporate accounts, token balance is shared across the organization and tracked as all-time credits minus all-time usage.
+
+**Corporate accounts are parent accounts.** A user can operate alone with an individual account or belong to a corporate account that owns billing, member administration, and the shared token bucket. Workspaces remain the operational container for documents.
 
 **Account deletion is irreversible.** It cancels Stripe, removes all storage files, and cascade-deletes the entire DB record tree. Users must type their email address to confirm.
 

@@ -1968,8 +1968,11 @@ export default function App() {
   const activeWorkspace =
     availableWorkspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
   const currentWorkspaceName =
+    activeWorkspace?.organization?.name ??
     activeWorkspace?.name ??
+    workspaceTeam?.organization.name ??
     workspaceTeam?.workspace.name ??
+    billingOverview?.organization.name ??
     billingOverview?.workspace.name ??
     accountProfile?.companyName ??
     "Workspace";
@@ -2552,7 +2555,11 @@ export default function App() {
           <section className="card workspace-switcher-card">
             <div className="section-heading compact">
               <p className="eyebrow">Active workspace</p>
-              <span>{activeWorkspace?.workspaceType === "team" ? "Team" : "Personal"}</span>
+              <span>
+                {activeWorkspace?.organization?.accountType === "corporate"
+                  ? "Corporate account"
+                  : "Individual account"}
+              </span>
             </div>
             <label className="form-field">
               <span>Working in</span>
@@ -2567,16 +2574,16 @@ export default function App() {
               >
                 {availableWorkspaces.map((workspace) => (
                   <option key={workspace.id} value={workspace.id}>
-                    {workspace.name}
+                    {workspace.organization?.name ?? workspace.name}
                     {workspace.role ? ` (${formatWorkspaceRoleLabel(workspace.role)})` : ""}
                   </option>
                 ))}
               </select>
             </label>
             <p className="muted">
-              {activeWorkspace?.workspaceType === "team"
-                ? "Team workflows, billing, and member management are now scoped to this organization."
-                : "Personal workspace for solo drafts, previews, and private documents."}
+              {activeWorkspace?.organization?.accountType === "corporate"
+                ? "Billing, shared tokens, and member management are scoped to this corporate account."
+                : "Individual accounts keep billing and document work private to the owner unless they later join a corporate account."}
             </p>
           </section>
         ) : null}

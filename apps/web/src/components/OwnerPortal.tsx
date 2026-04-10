@@ -524,12 +524,12 @@ export function OwnerPortal({
             <div className="stack">
               <div className="row-card">
                 <div>
-                  <strong>Workspace identity</strong>
+                  <strong>Account identity</strong>
                   <p className="muted">
-                    {workspaceTeam?.workspace.name ?? billingOverview?.workspace.name ?? "Workspace"} is your shared operating space for drafts, approvals, signatures, and exports.
+                    {workspaceTeam?.organization.name ?? billingOverview?.organization.name ?? workspaceTeam?.workspace.name ?? billingOverview?.workspace.name ?? "Workspace"} is the shared account container for drafts, approvals, signatures, exports, and billing.
                   </p>
                 </div>
-                <span>{billingOverview?.workspace.workspaceType ?? "team"}</span>
+                <span>{billingOverview?.organization.accountType ?? "corporate"}</span>
               </div>
               <div className="row-card">
                 <div>

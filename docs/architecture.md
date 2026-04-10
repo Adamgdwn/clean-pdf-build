@@ -22,6 +22,8 @@ This layer should stay thin. It orchestrates, but does not own workflow truth or
 Responsibilities:
 
 - authentication/session validation
+- account resolution across individual and corporate parent accounts
+- organization membership and billing scope
 - document metadata and workflow state
 - role-based access control
 - field assignment
@@ -49,8 +51,23 @@ Responsibilities:
 Responsibilities:
 
 - object storage for source PDFs, working artifacts, thumbnails, and exports
-- relational storage for workflow state, access control, and audit records
+- relational storage for account hierarchy, workflow state, access control, and audit records
 - queue storage for processing jobs
+
+## Account hierarchy
+
+EasyDraft now uses a parent-account model:
+
+- `User` — login identity in Supabase Auth plus product profile
+- `Organization` — parent account boundary (`individual` or `corporate`)
+- `Workspace` — operational container for documents and day-to-day workflow activity
+- `Document` — workflow record owned by a workspace
+
+Product behavior:
+
+- individual accounts get a private account and workspace
+- corporate accounts own billing, member management, and the shared external-token pool
+- workspaces remain the unit that documents, team screens, and workflow data attach to
 
 ## Client component structure
 
@@ -89,7 +106,7 @@ State that remains in App.tsx intentionally:
 - `session` / `sessionUser` — needed by nearly every handler
 - `guestSigningSession` — consumed by field canvas and field-complete handler
 - `selectedDocument` / `documents` — drives entire workspace panel
-- `activeWorkspaceId` / `availableWorkspaces` — scopes authenticated data across billing, team, and document flows
+- `activeWorkspaceId` / `availableWorkspaces` — scopes authenticated data across organization billing, team, and document flows
 - `publicPage` — controls unauthenticated home vs pricing route behavior
 
 ## Recommended boring stack

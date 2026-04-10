@@ -5,6 +5,9 @@ import { AppError } from "./errors.js";
 import { deliverNotificationEmail } from "./notifications.js";
 import {
   ensureDefaultWorkspaceForUser,
+  ensureOrganizationForWorkspace,
+  getOrganizationById,
+  getOrganizationMembershipRole,
   listAccessibleWorkspacesForUser,
   resolveAuthenticatedUser,
   resolveWorkspaceForUser,
@@ -53,7 +56,18 @@ type WorkspaceRow = {
   name: string;
   slug: string;
   workspace_type: string;
+  organization_id: string;
   owner_user_id: string;
+  billing_email: string | null;
+};
+
+type OrganizationRow = {
+  id: string;
+  name: string;
+  slug: string;
+  account_type: "individual" | "corporate";
+  owner_user_id: string;
+  billing_email: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -88,6 +102,11 @@ async function requireWorkspaceWithRole(
   }
 
   return { workspace, memberRole: role };
+}
+
+async function getOrganizationForWorkspace(workspace: WorkspaceRow) {
+  const organization = await ensureOrganizationForWorkspace(workspace);
+  return organization as OrganizationRow;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,6 +146,8 @@ export async function getWorkspaceTeamForAuthorizationHeader(
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const workspace = (await resolveWorkspaceForUser(user, preferredWorkspaceId)) as WorkspaceRow;
+  const organization = await getOrganizationForWorkspace(workspace);
+  const organizationMembershipRole = await getOrganizationMembershipRole(organization.id, user.id);
   const adminClient = createServiceRoleClient();
 
   const [membersResult, invitationsResult] = await Promise.all([
@@ -152,10 +173,18 @@ export async function getWorkspaceTeamForAuthorizationHeader(
   const invitations = (invitationsResult.data ?? []) as WorkspaceInvitationRow[];
 
   return {
+    organization: {
+      id: organization.id,
+      name: organization.name,
+      slug: organization.slug,
+      accountType: organization.account_type,
+      membershipRole: organizationMembershipRole,
+    },
     workspace: {
       id: workspace.id,
       name: workspace.name,
       slug: workspace.slug,
+      organizationId: organization.id,
     },
     members: members.map((m) => ({
       userId: m.user_id,
@@ -454,9 +483,24 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
   // Fetch the workspace for the success message
   const { data: workspace } = await adminClient
     .from("workspaces")
-    .select("id, name, slug")
+    .select("id, name, slug, workspace_type, organization_id, owner_user_id")
     .eq("id", invitation.workspace_id)
     .maybeSingle();
+
+  if (workspace?.organization_id) {
+    const { error: orgMembershipError } = await adminClient.from("organization_memberships").upsert(
+      {
+        organization_id: workspace.organization_id,
+        user_id: user.id,
+        role: invitation.role,
+      },
+      { onConflict: "organization_id,user_id" },
+    );
+
+    if (orgMembershipError) {
+      throw new AppError(500, orgMembershipError.message);
+    }
+  }
 
   return {
     joined: true,
@@ -481,6 +525,7 @@ export async function updateWorkspaceNameForAuthorizationHeader(
   const { workspace } = await requireWorkspaceWithRole(user, ["owner"], preferredWorkspaceId);
   const parsed = updateWorkspaceNameSchema.parse(input);
   const adminClient = createServiceRoleClient();
+  const organization = await getOrganizationForWorkspace(workspace);
 
   const { error } = await adminClient
     .from("workspaces")
@@ -488,6 +533,17 @@ export async function updateWorkspaceNameForAuthorizationHeader(
     .eq("id", workspace.id);
 
   if (error) throw new AppError(500, error.message);
+
+  if (organization.account_type === "corporate") {
+    const { error: organizationError } = await adminClient
+      .from("organizations")
+      .update({ name: parsed.name })
+      .eq("id", organization.id);
+
+    if (organizationError) {
+      throw new AppError(500, organizationError.message);
+    }
+  }
 
   return { updated: true, name: parsed.name };
 }
@@ -602,6 +658,18 @@ export async function changeWorkspaceMemberRoleForAuthorizationHeader(
 
   if (error) throw new AppError(500, error.message);
 
+  if (workspace.organization_id) {
+    const { error: organizationError } = await adminClient
+      .from("organization_memberships")
+      .update({ role: parsed.role })
+      .eq("organization_id", workspace.organization_id)
+      .eq("user_id", parsed.userId);
+
+    if (organizationError) {
+      throw new AppError(500, organizationError.message);
+    }
+  }
+
   return { updated: true, userId: parsed.userId, role: parsed.role };
 }
 
@@ -651,6 +719,38 @@ export async function removeWorkspaceMemberForAuthorizationHeader(
 
   if (error) throw new AppError(500, error.message);
 
+  if (workspace.organization_id) {
+    const { count, error: remainingMembershipsError } = await adminClient
+      .from("workspace_memberships")
+      .select("workspace_id", { head: true, count: "exact" })
+      .eq("user_id", parsed.userId)
+      .in(
+        "workspace_id",
+        (
+          await adminClient
+            .from("workspaces")
+            .select("id")
+            .eq("organization_id", workspace.organization_id)
+        ).data?.map((entry) => entry.id) ?? [],
+      );
+
+    if (remainingMembershipsError) {
+      throw new AppError(500, remainingMembershipsError.message);
+    }
+
+    if ((count ?? 0) === 0) {
+      const { error: organizationError } = await adminClient
+        .from("organization_memberships")
+        .delete()
+        .eq("organization_id", workspace.organization_id)
+        .eq("user_id", parsed.userId);
+
+      if (organizationError) {
+        throw new AppError(500, organizationError.message);
+      }
+    }
+  }
+
   return { removed: true, userId: parsed.userId };
 }
 
@@ -663,6 +763,24 @@ export async function listAccessibleWorkspacesForAuthorizationHeader(
     listAccessibleWorkspacesForUser(user),
     resolveWorkspaceForUser(user, preferredWorkspaceId),
   ]);
+  const organizationIds = Array.from(
+    new Set(
+      [currentWorkspace.organization_id, ...workspaces.map((entry) => entry.workspace.organization_id)].filter(Boolean),
+    ),
+  );
+  const organizations = await Promise.all(
+    organizationIds.map(async (organizationId) => [organizationId, await getOrganizationById(organizationId)] as const),
+  );
+  const organizationById = new Map(organizations.filter(([, organization]) => organization).map(([id, organization]) => [id, organization as OrganizationRow]));
+  const organizationRoleById = new Map(
+    await Promise.all(
+      organizationIds.map(async (organizationId) => [
+        organizationId,
+        await getOrganizationMembershipRole(organizationId, user.id),
+      ] as const),
+    ),
+  );
+  const currentOrganization = organizationById.get(currentWorkspace.organization_id);
 
   return {
     currentWorkspace: {
@@ -671,6 +789,15 @@ export async function listAccessibleWorkspacesForAuthorizationHeader(
       slug: currentWorkspace.slug,
       workspaceType: currentWorkspace.workspace_type,
       role: workspaces.find((entry) => entry.workspace.id === currentWorkspace.id)?.role ?? null,
+      organization: currentOrganization
+        ? {
+            id: currentOrganization.id,
+            name: currentOrganization.name,
+            slug: currentOrganization.slug,
+            accountType: currentOrganization.account_type,
+            role: organizationRoleById.get(currentOrganization.id) ?? null,
+          }
+        : null,
     },
     workspaces: workspaces.map((entry) => ({
       id: entry.workspace.id,
@@ -678,6 +805,15 @@ export async function listAccessibleWorkspacesForAuthorizationHeader(
       slug: entry.workspace.slug,
       workspaceType: entry.workspace.workspace_type,
       role: entry.role,
+      organization: organizationById.get(entry.workspace.organization_id)
+        ? {
+            id: organizationById.get(entry.workspace.organization_id)?.id ?? entry.workspace.organization_id,
+            name: organizationById.get(entry.workspace.organization_id)?.name ?? entry.workspace.name,
+            slug: organizationById.get(entry.workspace.organization_id)?.slug ?? entry.workspace.slug,
+            accountType: organizationById.get(entry.workspace.organization_id)?.account_type ?? "individual",
+            role: organizationRoleById.get(entry.workspace.organization_id) ?? null,
+          }
+        : null,
     })),
   };
 }

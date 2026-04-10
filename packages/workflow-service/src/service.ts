@@ -212,6 +212,16 @@ type WorkspaceRow = {
   name: string;
   slug: string;
   workspace_type: string;
+  organization_id: string;
+  owner_user_id: string;
+  billing_email: string | null;
+};
+
+type OrganizationRow = {
+  id: string;
+  name: string;
+  slug: string;
+  account_type: "individual" | "corporate";
   owner_user_id: string;
   billing_email: string | null;
 };
@@ -219,6 +229,13 @@ type WorkspaceRow = {
 type WorkspaceMembershipWithWorkspaceRow = {
   role: string;
   workspaces: WorkspaceRow | WorkspaceRow[] | null;
+};
+
+type OrganizationMembershipRow = {
+  organization_id: string;
+  user_id: string;
+  role: "owner" | "admin" | "member" | "billing_admin";
+  created_at: string;
 };
 
 type ProcessingJobType = "ocr" | "field_detection";
@@ -317,6 +334,7 @@ type AdminManagedUserResponse = {
 
 export type AuthenticatedUser = User & {
   rawEmail: string;
+  accountType?: "individual" | "corporate";
   workspaceName?: string;
 };
 
@@ -592,7 +610,7 @@ async function listWorkspaceMembershipsForUser(userId: string) {
   const adminClient = createServiceRoleClient();
   const { data: memberships, error: membershipsError } = await adminClient
     .from("workspace_memberships")
-    .select("role, workspaces(id, name, slug, workspace_type, owner_user_id, billing_email)")
+    .select("role, workspaces(id, name, slug, workspace_type, organization_id, owner_user_id, billing_email)")
     .eq("user_id", userId);
 
   if (membershipsError) {
@@ -614,6 +632,92 @@ function flattenWorkspaceMemberships(memberships: WorkspaceMembershipWithWorkspa
       role: membership.role,
     })),
   );
+}
+
+export async function getOrganizationById(organizationId: string) {
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("organizations")
+    .select("id, name, slug, account_type, owner_user_id, billing_email")
+    .eq("id", organizationId)
+    .maybeSingle();
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return (data ?? null) as OrganizationRow | null;
+}
+
+export async function ensureOrganizationForWorkspace(workspace: WorkspaceRow) {
+  if (workspace.organization_id) {
+    const existing = await getOrganizationById(workspace.organization_id);
+
+    if (existing) {
+      return existing;
+    }
+  }
+
+  const adminClient = createServiceRoleClient();
+  const organizationPayload = {
+    name: workspace.name,
+    slug: workspace.slug,
+    account_type: (workspace.workspace_type === "team" ? "corporate" : "individual") as "corporate" | "individual",
+    owner_user_id: workspace.owner_user_id,
+    billing_email: workspace.billing_email,
+  };
+
+  const { data: organization, error: organizationError } = await adminClient
+    .from("organizations")
+    .upsert(organizationPayload, { onConflict: "slug" })
+    .select("id, name, slug, account_type, owner_user_id, billing_email")
+    .single();
+
+  if (organizationError || !organization) {
+    throw new AppError(500, organizationError?.message ?? "Unable to ensure organization.");
+  }
+
+  const { error: workspaceError } = await adminClient
+    .from("workspaces")
+    .update({ organization_id: organization.id })
+    .eq("id", workspace.id);
+
+  if (workspaceError) {
+    throw new AppError(500, workspaceError.message);
+  }
+
+  const { error: membershipError } = await adminClient
+    .from("organization_memberships")
+    .upsert(
+      {
+        organization_id: organization.id,
+        user_id: workspace.owner_user_id,
+        role: "owner",
+      },
+      { onConflict: "organization_id,user_id" },
+    );
+
+  if (membershipError) {
+    throw new AppError(500, membershipError.message);
+  }
+
+  return organization as OrganizationRow;
+}
+
+export async function getOrganizationMembershipRole(organizationId: string, userId: string) {
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("organization_memberships")
+    .select("role")
+    .eq("organization_id", organizationId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return (data?.role ?? null) as OrganizationMembershipRow["role"] | null;
 }
 
 export async function listAccessibleWorkspacesForUser(user: AuthenticatedUser) {
@@ -643,6 +747,7 @@ export async function resolveWorkspaceForUser(
     );
 
     if (preferredMembership) {
+      await ensureOrganizationForWorkspace(preferredMembership.workspace);
       return preferredMembership.workspace;
     }
   }
@@ -652,12 +757,13 @@ export async function resolveWorkspaceForUser(
     .filter((workspace) => workspace.workspace_type === "team");
 
   if (joinedTeamWorkspaces.length === 1) {
+    await ensureOrganizationForWorkspace(joinedTeamWorkspaces[0]);
     return joinedTeamWorkspaces[0];
   }
 
   const { data: existingWorkspace, error: existingWorkspaceError } = await adminClient
     .from("workspaces")
-    .select("id, name, slug, workspace_type, owner_user_id, billing_email")
+    .select("id, name, slug, workspace_type, organization_id, owner_user_id, billing_email")
     .eq("owner_user_id", user.id)
     .eq("workspace_type", "personal")
     .maybeSingle();
@@ -667,6 +773,7 @@ export async function resolveWorkspaceForUser(
   }
 
   if (existingWorkspace) {
+    await ensureOrganizationForWorkspace(existingWorkspace as WorkspaceRow);
     await adminClient.from("workspace_memberships").upsert(
       {
         workspace_id: existingWorkspace.id,
@@ -681,23 +788,55 @@ export async function resolveWorkspaceForUser(
     return existingWorkspace;
   }
 
-  const workspaceName =
-    user.workspaceName?.trim() ||
-    (user.name?.trim() ? `${user.name.trim()}'s workspace` : "My workspace");
-  const workspaceSlug = [slugify(user.name || user.email.split("@")[0]), user.id.slice(0, 8)]
+  const wantsCorporateAccount = user.accountType === "corporate" || Boolean(user.workspaceName?.trim());
+  const workspaceType = wantsCorporateAccount ? "team" : "personal";
+  const organizationName = wantsCorporateAccount
+    ? user.workspaceName?.trim() || (user.name?.trim() ? `${user.name.trim()}'s organization` : "My organization")
+    : user.name?.trim()
+      ? `${user.name.trim()}'s account`
+      : "My account";
+  const workspaceName = wantsCorporateAccount
+    ? organizationName
+    : user.name?.trim()
+      ? `${user.name.trim()}'s workspace`
+      : "My workspace";
+  const baseSlug = slugify(
+    wantsCorporateAccount ? organizationName : user.name || user.email.split("@")[0],
+  );
+  const workspaceSlug = [baseSlug, user.id.slice(0, 8)]
     .filter(Boolean)
     .join("-");
+
+  const { data: createdOrganization, error: createOrganizationError } = await adminClient
+    .from("organizations")
+    .insert({
+      name: organizationName,
+      slug: workspaceSlug,
+      account_type: wantsCorporateAccount ? "corporate" : "individual",
+      owner_user_id: user.id,
+      billing_email: user.email,
+    })
+    .select("id, name, slug, account_type, owner_user_id, billing_email")
+    .single();
+
+  if (createOrganizationError || !createdOrganization) {
+    throw new AppError(
+      500,
+      createOrganizationError?.message ?? "Unable to create an organization.",
+    );
+  }
 
   const { data: createdWorkspace, error: createWorkspaceError } = await adminClient
     .from("workspaces")
     .insert({
       name: workspaceName,
       slug: workspaceSlug,
-      workspace_type: "personal",
+      workspace_type: workspaceType,
+      organization_id: createdOrganization.id,
       owner_user_id: user.id,
       billing_email: user.email,
     })
-    .select("id, name, slug, workspace_type, owner_user_id, billing_email")
+    .select("id, name, slug, workspace_type, organization_id, owner_user_id, billing_email")
     .single();
 
   if (createWorkspaceError || !createdWorkspace) {
@@ -712,6 +851,16 @@ export async function resolveWorkspaceForUser(
 
   if (membershipError) {
     throw new AppError(500, membershipError.message);
+  }
+
+  const { error: orgMembershipError } = await adminClient.from("organization_memberships").insert({
+    organization_id: createdOrganization.id,
+    user_id: user.id,
+    role: "owner",
+  });
+
+  if (orgMembershipError) {
+    throw new AppError(500, orgMembershipError.message);
   }
 
   return createdWorkspace;
@@ -971,6 +1120,8 @@ export async function resolveAuthenticatedUser(authorizationHeader: string | und
       data.user.user_metadata.full_name ??
       data.user.user_metadata.name ??
       data.user.email.split("@")[0],
+    accountType:
+      data.user.user_metadata.account_type === "corporate" ? "corporate" : "individual",
     workspaceName: data.user.user_metadata.workspace_name ?? undefined,
   };
   const normalizedEmail = normalizeEmailAddress(user.rawEmail);

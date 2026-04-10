@@ -66,7 +66,7 @@ export function BillingPanel({ session, billingOverview, onBillingRefresh }: Pro
     billingOverview.subscription?.planKey ?? billingOverview.plans[0]?.key ?? "",
   );
 
-  const { subscription, externalTokens, plans, workspace, billingMode } = billingOverview;
+  const { subscription, externalTokens, plans, workspace, organization, billingMode } = billingOverview;
   const isSubscribed = subscription !== null && ["active", "trialing"].includes(subscription.status);
   const isTrialing = subscription?.status === "trialing";
   const trialDaysLeft = daysUntil(subscription?.trialEndsAt ?? null);
@@ -134,7 +134,7 @@ export function BillingPanel({ session, billingOverview, onBillingRefresh }: Pro
     <section className="card">
       <div className="section-heading compact">
         <p className="eyebrow">Billing</p>
-        <span>{workspace.name}</span>
+        <span>{organization.name}</span>
       </div>
 
       {billingMode === "placeholder" ? (
@@ -150,7 +150,7 @@ export function BillingPanel({ session, billingOverview, onBillingRefresh }: Pro
       <div className="stack">
         <div className="row-card">
           <p className="eyebrow" style={{ margin: 0 }}>
-            Team subscription
+            {organization.accountType === "corporate" ? "Corporate subscription" : "Account subscription"}
           </p>
         </div>
 
@@ -207,8 +207,10 @@ export function BillingPanel({ session, billingOverview, onBillingRefresh }: Pro
             ) : null}
 
             <p className="muted">
-              Internal team members are billed on the {currentPlan.billingInterval === "year" ? "annual" : "monthly"} plan you selected.
-              External signers are not billed as users. Tokens remain $12 CAD for 12.
+              {organization.accountType === "corporate" ? "Your organization members" : "Your account"}
+              {" "}
+              are billed on the {currentPlan.billingInterval === "year" ? "annual" : "monthly"} plan you selected.
+              External signers are not billed as users. Tokens remain shared at $12 CAD for 12.
             </p>
 
             <button
@@ -255,7 +257,11 @@ export function BillingPanel({ session, billingOverview, onBillingRefresh }: Pro
             <div className="row-card">
               <label htmlFor="seat-count">
                 <strong>Seats</strong>
-                <p className="muted">How many internal team members will use EasyDraftDocs?</p>
+                <p className="muted">
+                  {organization.accountType === "corporate"
+                    ? "How many internal members should this corporate account cover?"
+                    : "How many internal users should this account cover?"}
+                </p>
               </label>
               <input
                 id="seat-count"
@@ -306,19 +312,25 @@ export function BillingPanel({ session, billingOverview, onBillingRefresh }: Pro
         </div>
 
         <p className="muted">
-          External signer tokens are only used when sending workflows outside your organization.
-          Internal team approvals are covered by your seat subscription.
+          External signer tokens are only used when sending workflows outside your
+          {" "}
+          {organization.accountType === "corporate" ? "organization" : "account"}.
+          Internal approvals are covered by your seat subscription.
         </p>
         <p className="muted">
-          $12 CAD buys 12 external signer tokens. 1 token = 1 external workflow sent outside your
-          organization.
+          $12 CAD buys 12 external signer tokens. This balance is shared across the
+          {" "}
+          {organization.accountType === "corporate" ? "organization" : "account"}.
+          {" "}1 token = 1 external workflow sent outside your
+          {" "}
+          {organization.accountType === "corporate" ? "organization" : "account"}.
         </p>
 
         {isSubscribed ? (
           confirmingTokenPurchase ? (
             <div className="stack">
               <div className="alert">
-                This will charge <strong>$12 CAD</strong> to your payment method on file and add 12 external signer tokens to your balance.
+                This will charge <strong>$12 CAD</strong> to your payment method on file and add 12 external signer tokens to the shared balance for {organization.name}.
               </div>
               <div className="row-inline">
                 <button className="primary-button" disabled={isRedirecting} onClick={handleTokenCheckout}>

@@ -21,6 +21,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const email = typeof request.body?.email === "string" ? request.body.email.trim() : "";
     const password = typeof request.body?.password === "string" ? request.body.password : "";
     const fullName = typeof request.body?.fullName === "string" ? request.body.fullName.trim() : "";
+    const accountType =
+      request.body?.accountType === "corporate" ? "corporate" : "individual";
     const workspaceName =
       typeof request.body?.workspaceName === "string" ? request.body.workspaceName.trim() : "";
 
@@ -37,6 +39,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         emailRedirectTo: getCanonicalAppOrigin(env),
         data: {
           full_name: fullName,
+          account_type: accountType,
           workspace_name: workspaceName || undefined,
         },
       },

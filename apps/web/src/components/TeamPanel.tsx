@@ -25,7 +25,9 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [editingName, setEditingName] = useState(false);
-  const [workspaceName, setWorkspaceName] = useState(team.workspace.name);
+  const [workspaceName, setWorkspaceName] = useState(
+    team.organization.accountType === "corporate" ? team.organization.name : team.workspace.name,
+  );
   const [editingRoleUserId, setEditingRoleUserId] = useState<string | null>(null);
   const [editingRoleValue, setEditingRoleValue] = useState<"owner" | "member" | "admin" | "billing_admin">("member");
   const [confirmRemoveUserId, setConfirmRemoveUserId] = useState<string | null>(null);
@@ -115,7 +117,11 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
         body: JSON.stringify({ name: workspaceName.trim() }),
       });
       setEditingName(false);
-      setNoticeMessage("Workspace name updated.");
+      setNoticeMessage(
+        team.organization.accountType === "corporate"
+          ? "Organization name updated."
+          : "Workspace name updated.",
+      );
       onTeamRefresh();
     } catch (error) {
       setErrorMessage((error as Error).message);
@@ -175,7 +181,11 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
         method: "DELETE",
         body: JSON.stringify({ userId }),
       });
-      setNoticeMessage("Member removed from workspace.");
+      setNoticeMessage(
+        team.organization.accountType === "corporate"
+          ? "Member removed from organization."
+          : "Member removed from workspace.",
+      );
       onTeamRefresh();
     } catch (error) {
       setErrorMessage((error as Error).message);
@@ -187,11 +197,14 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
   return (
     <section className="card">
       <div className="section-heading compact">
-        <p className="eyebrow">Team</p>
+        <p className="eyebrow">{team.organization.accountType === "corporate" ? "Organization" : "Team"}</p>
         {isOwnerOrAdmin && !editingName ? (
           <button
             className="ghost-button"
-            onClick={() => { setEditingName(true); setWorkspaceName(team.workspace.name); }}
+            onClick={() => {
+              setEditingName(true);
+              setWorkspaceName(team.organization.accountType === "corporate" ? team.organization.name : team.workspace.name);
+            }}
             type="button"
           >
             Rename
@@ -216,7 +229,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
             <button className="ghost-button" onClick={() => setEditingName(false)} type="button">Cancel</button>
           </form>
         ) : (
-          <p><strong>{team.workspace.name}</strong></p>
+          <p><strong>{team.organization.accountType === "corporate" ? team.organization.name : team.workspace.name}</strong></p>
         )}
 
         {/* Seat summary */}
@@ -313,7 +326,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
             {confirmRemoveUserId === member.userId ? (
               <div className="delete-confirm-inline">
                 <p className="delete-confirm-warning">
-                  Remove <strong>{member.displayName}</strong> from this workspace? They will lose access immediately.
+                  Remove <strong>{member.displayName}</strong> from this {team.organization.accountType === "corporate" ? "organization" : "workspace"}? They will lose access immediately.
                 </p>
                 <div className="row-inline">
                   <button
@@ -377,8 +390,8 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
           <>
             <p className="eyebrow" style={{ marginTop: "0.5rem" }}>Invite a teammate</p>
             <p className="muted">
-              Internal team members are billed at either $12 CAD per user/month or $120 CAD per
-              user/year. External signers are not billed as users.
+              Internal members are billed at either $12 CAD per user/month or $120 CAD per
+              user/year. External signers are not billed as users, and token purchases are shared across the {team.organization.accountType === "corporate" ? "organization" : "account"}.
             </p>
             {isCurrentUserOwner ? (
               <p className="muted">

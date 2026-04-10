@@ -48,6 +48,14 @@ export type WorkflowDocument = DocumentRecord & {
 
 export type BillingOverview = {
   billingMode: "live" | "placeholder";
+  organization: {
+    id: string;
+    name: string;
+    slug: string;
+    accountType: "individual" | "corporate";
+    membershipRole: "owner" | "admin" | "member" | "billing_admin" | null;
+    memberCount: number;
+  };
   workspace: {
     id: string;
     name: string;
@@ -172,10 +180,18 @@ export type WorkspaceTeamInvitation = {
 };
 
 export type WorkspaceTeam = {
+  organization: {
+    id: string;
+    name: string;
+    slug: string;
+    accountType: "individual" | "corporate";
+    membershipRole: "owner" | "admin" | "member" | "billing_admin" | null;
+  };
   workspace: {
     id: string;
     name: string;
     slug: string;
+    organizationId: string;
   };
   members: WorkspaceTeamMember[];
   pendingInvitations: WorkspaceTeamInvitation[];
@@ -187,6 +203,13 @@ export type WorkspaceOption = {
   slug: string;
   workspaceType: "personal" | "team";
   role: "owner" | "admin" | "member" | "billing_admin" | null;
+  organization: {
+    id: string;
+    name: string;
+    slug: string;
+    accountType: "individual" | "corporate";
+    role: "owner" | "admin" | "member" | "billing_admin" | null;
+  } | null;
 };
 
 export type WorkspaceDirectory = {

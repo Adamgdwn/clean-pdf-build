@@ -23,6 +23,7 @@ export function AuthPanel({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [accountType, setAccountType] = useState<"individual" | "corporate">("corporate");
   const [workspaceName, setWorkspaceName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -64,14 +65,16 @@ export function AuthPanel({
           null,
           {
             method: "POST",
-            body: JSON.stringify({
-              email,
-              password,
-              fullName,
-              workspaceName: workspaceName.trim() || undefined,
-            }),
-          },
-        );
+              body: JSON.stringify({
+                email,
+                password,
+                fullName,
+                accountType,
+                workspaceName:
+                  accountType === "corporate" ? workspaceName.trim() || undefined : undefined,
+              }),
+            },
+          );
         if (!payload.session) {
           setErrorMessage(
             "Account created but could not sign in automatically. Please sign in below.",
@@ -188,19 +191,43 @@ export function AuthPanel({
               </label>
               {!hasPendingInvite ? (
                 <>
-                  <label className="form-field">
-                    <span>Organization name</span>
-                    <input
-                      required
-                      autoComplete="organization"
-                      placeholder="e.g. Acme Corp"
-                      value={workspaceName}
-                      onChange={(event) => setWorkspaceName(event.target.value)}
-                    />
-                  </label>
-                  <p className="muted">
-                    Team subscriptions cover internal members. External managed workflows use prepaid tokens, so outside signers do not become paid seats.
-                  </p>
+                  <div className="pill-row">
+                    <button
+                      className={`pill-button ${accountType === "corporate" ? "active" : ""}`}
+                      onClick={() => setAccountType("corporate")}
+                      type="button"
+                    >
+                      Corporate account
+                    </button>
+                    <button
+                      className={`pill-button ${accountType === "individual" ? "active" : ""}`}
+                      onClick={() => setAccountType("individual")}
+                      type="button"
+                    >
+                      Individual account
+                    </button>
+                  </div>
+                  {accountType === "corporate" ? (
+                    <>
+                      <label className="form-field">
+                        <span>Organization name</span>
+                        <input
+                          required
+                          autoComplete="organization"
+                          placeholder="e.g. Acme Corp"
+                          value={workspaceName}
+                          onChange={(event) => setWorkspaceName(event.target.value)}
+                        />
+                      </label>
+                      <p className="muted">
+                        Your company account will own billing, seats, and the shared token balance for invited team members.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="muted">
+                      Start with your own account and workspace. You can prepare, send, and manage documents without setting up a company account first.
+                    </p>
+                  )}
                 </>
               ) : null}
             </>

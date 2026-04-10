@@ -4,6 +4,9 @@ import { z } from "zod";
 import { getCanonicalAppOrigin, readServerEnv, shouldRequireStripe } from "./env.js";
 import { AppError } from "./errors.js";
 import {
+  ensureOrganizationForWorkspace,
+  getOrganizationById,
+  getOrganizationMembershipRole,
   resolveAuthenticatedUser,
   resolveWorkspaceForUser,
   type AuthenticatedUser,
@@ -32,6 +35,7 @@ type WorkspaceRow = {
   name: string;
   slug: string;
   workspace_type: "personal" | "team";
+  organization_id: string;
   owner_user_id: string;
   billing_email: string | null;
 };
@@ -40,6 +44,15 @@ type WorkspaceMembershipRow = {
   workspace_id: string;
   user_id: string;
   role: "owner" | "admin" | "member" | "billing_admin";
+};
+
+type OrganizationRow = {
+  id: string;
+  name: string;
+  slug: string;
+  account_type: "individual" | "corporate";
+  owner_user_id: string;
+  billing_email: string | null;
 };
 
 type WorkspaceBillingCustomerRow = {
@@ -148,6 +161,7 @@ async function getBillingWorkspaceForUser(
   preferredWorkspaceId?: string | null,
 ) {
   const workspace = (await resolveWorkspaceForUser(user, preferredWorkspaceId)) as WorkspaceRow;
+  const organization = await ensureOrganizationForWorkspace(workspace);
   const adminClient = createServiceRoleClient();
   const { data: membership, error: membershipError } = await adminClient
     .from("workspace_memberships")
@@ -162,7 +176,9 @@ async function getBillingWorkspaceForUser(
 
   return {
     workspace,
+    organization: organization as OrganizationRow,
     membership: (membership ?? null) as WorkspaceMembershipRow | null,
+    organizationMembershipRole: await getOrganizationMembershipRole(organization.id, user.id),
   };
 }
 
@@ -214,11 +230,29 @@ async function countWorkspaceMembers(workspaceId: string) {
   return count ?? 0;
 }
 
+async function countOrganizationMembers(organizationId: string) {
+  const adminClient = createServiceRoleClient();
+  const { count, error } = await adminClient
+    .from("organization_memberships")
+    .select("*", { head: true, count: "exact" })
+    .eq("organization_id", organizationId);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return count ?? 0;
+}
+
 // ---------------------------------------------------------------------------
 // Stripe customer management
 // ---------------------------------------------------------------------------
 
-async function getOrCreateStripeCustomer(workspace: WorkspaceRow, user: AuthenticatedUser) {
+async function getOrCreateStripeCustomer(
+  workspace: WorkspaceRow,
+  organization: OrganizationRow,
+  user: AuthenticatedUser,
+) {
   const adminClient = createServiceRoleClient();
   const { data, error } = await adminClient
     .from("workspace_billing_customers")
@@ -238,12 +272,13 @@ async function getOrCreateStripeCustomer(workspace: WorkspaceRow, user: Authenti
 
   const stripe = getStripeClient();
   const customer = await stripe.customers.create({
-    email: workspace.billing_email ?? user.email,
-    name: workspace.name,
+    email: organization.billing_email ?? user.email,
+    name: organization.name,
     metadata: {
-      workspace_id: workspace.id,
-      workspace_slug: workspace.slug,
-      owner_user_id: workspace.owner_user_id,
+      workspace_id: organization.id,
+      workspace_slug: organization.slug,
+      owner_user_id: organization.owner_user_id,
+      account_type: organization.account_type,
     },
   });
 
@@ -251,7 +286,7 @@ async function getOrCreateStripeCustomer(workspace: WorkspaceRow, user: Authenti
     workspace_id: workspace.id,
     provider: "stripe",
     provider_customer_id: customer.id,
-    billing_email: workspace.billing_email ?? user.email,
+    billing_email: organization.billing_email ?? user.email,
   };
 
   if (existingCustomer) {
@@ -432,24 +467,40 @@ export async function getBillingOverviewForAuthorizationHeader(
 ) {
   const stripeReady = isStripeConfigured();
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, membership } = await getBillingWorkspaceForUser(user, preferredWorkspaceId);
+  const { workspace, organization, membership, organizationMembershipRole } =
+    await getBillingWorkspaceForUser(user, preferredWorkspaceId);
 
   const [plans, subscription, internalMemberCount] = await Promise.all([
     listActivePlans(),
     getLatestSubscriptionForWorkspace(workspace.id),
-    countWorkspaceMembers(workspace.id),
+    workspace.workspace_type === "team"
+      ? countOrganizationMembers(organization.id)
+      : countWorkspaceMembers(workspace.id),
   ]);
 
   const tokenBalance = await computeExternalTokenBalance(workspace.id);
 
   return {
     billingMode: stripeReady ? ("live" as const) : ("placeholder" as const),
+    organization: {
+      id: organization.id,
+      name: organization.name,
+      slug: organization.slug,
+      accountType: organization.account_type,
+      membershipRole: organizationMembershipRole,
+      memberCount: internalMemberCount,
+    },
     workspace: {
       id: workspace.id,
       name: workspace.name,
       slug: workspace.slug,
       workspaceType: workspace.workspace_type,
-      membershipRole: membership?.role ?? null,
+      membershipRole: (organizationMembershipRole ?? membership?.role ?? null) as
+        | "owner"
+        | "admin"
+        | "member"
+        | "billing_admin"
+        | null,
       internalMemberCount,
     },
     subscription: subscription
@@ -493,8 +544,11 @@ export async function createCheckoutSessionForAuthorizationHeader(
 ) {
   const appOrigin = getCanonicalAppOrigin();
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, membership } = await getBillingWorkspaceForUser(user, preferredWorkspaceId);
-  requireBillingPermission(membership);
+  const { workspace, organization, organizationMembershipRole } =
+    await getBillingWorkspaceForUser(user, preferredWorkspaceId);
+  requireBillingPermission(
+    organizationMembershipRole ? { workspace_id: workspace.id, user_id: user.id, role: organizationMembershipRole } : null,
+  );
 
   const existingSubscription = await getLatestSubscriptionForWorkspace(workspace.id);
 
@@ -504,7 +558,7 @@ export async function createCheckoutSessionForAuthorizationHeader(
   ) {
     throw new AppError(
       409,
-      "This workspace already has a subscription. Use the billing portal to manage it.",
+      "This account already has a subscription. Use the billing portal to manage it.",
     );
   }
 
@@ -523,7 +577,7 @@ export async function createCheckoutSessionForAuthorizationHeader(
   }
 
   const stripe = getStripeClient();
-  const customerId = await getOrCreateStripeCustomer(workspace, user);
+  const customerId = await getOrCreateStripeCustomer(workspace, organization, user);
 
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
@@ -537,6 +591,8 @@ export async function createCheckoutSessionForAuthorizationHeader(
     payment_method_collection: "if_required",
     metadata: {
       workspace_id: workspace.id,
+      organization_name: organization.name,
+      account_type: organization.account_type,
       plan_key: selectedPlan.key,
       checkout_type: "subscription",
     },
@@ -544,6 +600,8 @@ export async function createCheckoutSessionForAuthorizationHeader(
       trial_period_days: 30,
       metadata: {
         workspace_id: workspace.id,
+        organization_name: organization.name,
+        account_type: organization.account_type,
         plan_key: selectedPlan.key,
       },
     },
@@ -590,8 +648,11 @@ export async function createTokenCheckoutSessionForAuthorizationHeader(
 ) {
   const appOrigin = getCanonicalAppOrigin();
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, membership } = await getBillingWorkspaceForUser(user, preferredWorkspaceId);
-  requireBillingPermission(membership);
+  const { workspace, organization, organizationMembershipRole } =
+    await getBillingWorkspaceForUser(user, preferredWorkspaceId);
+  requireBillingPermission(
+    organizationMembershipRole ? { workspace_id: workspace.id, user_id: user.id, role: organizationMembershipRole } : null,
+  );
 
   // Only subscribed workspaces can purchase tokens
   const subscription = await getLatestSubscriptionForWorkspace(workspace.id);
@@ -610,7 +671,7 @@ export async function createTokenCheckoutSessionForAuthorizationHeader(
   }
 
   const stripe = getStripeClient();
-  const customerId = await getOrCreateStripeCustomer(workspace, user);
+  const customerId = await getOrCreateStripeCustomer(workspace, organization, user);
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
@@ -620,6 +681,8 @@ export async function createTokenCheckoutSessionForAuthorizationHeader(
     cancel_url: `${appOrigin}?checkout=cancelled`,
     metadata: {
       workspace_id: workspace.id,
+      organization_name: organization.name,
+      account_type: organization.account_type,
       checkout_type: "token_purchase",
       token_quantity: String(TOKEN_BUNDLE_SIZE),
     },
@@ -657,8 +720,11 @@ export async function createBillingPortalSessionForAuthorizationHeader(
 ) {
   const appOrigin = getCanonicalAppOrigin();
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, membership } = await getBillingWorkspaceForUser(user, preferredWorkspaceId);
-  requireBillingPermission(membership);
+  const { workspace, organization, organizationMembershipRole } =
+    await getBillingWorkspaceForUser(user, preferredWorkspaceId);
+  requireBillingPermission(
+    organizationMembershipRole ? { workspace_id: workspace.id, user_id: user.id, role: organizationMembershipRole } : null,
+  );
 
   if (!assertStripeConfigurationReady()) {
     return {
@@ -666,7 +732,7 @@ export async function createBillingPortalSessionForAuthorizationHeader(
     };
   }
 
-  const customerId = await getOrCreateStripeCustomer(workspace, user);
+  const customerId = await getOrCreateStripeCustomer(workspace, organization, user);
   const stripe = getStripeClient();
   const session = await stripe.billingPortal.sessions.create({
     customer: customerId,

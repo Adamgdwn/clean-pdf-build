@@ -29,6 +29,8 @@ Recommended user data split:
 
 - `auth.users`: login identity, provider, email verification state
 - `public.profiles`: display name, avatar URL, company name, locale, timezone, opt-in flags
+- `public.organizations`: parent account for individual or corporate customers
+- `public.organization_memberships`: which organization the user belongs to and their account role
 - `public.workspace_memberships`: which workspace the user belongs to and their workspace role
 - `public.document_access`: document-level access for owner, editor, signer, viewer
 
@@ -53,18 +55,40 @@ Do not collect:
 
 Stripe should own card storage.
 
-### 3. Use workspaces for billing
+### 3. Use parent accounts for billing
 
-Billing should attach to a workspace, not an individual document and not an individual signer.
+Billing should attach to the customer account boundary, not an individual document and not an individual signer.
 
 That gives you:
 
-- one billing customer per workspace
-- one subscription per workspace
-- multiple internal members under the same paid account
-- room to support agencies, law firms, and finance teams later
+- one billing customer per individual or corporate account
+- one subscription per account
+- multiple internal members under the same paid corporate account
+- a shared token pool that corporate administrators can monitor and top up
+- room to support agencies, law firms, finance teams, and multi-department customers later
 
-The repo now includes additive billing-oriented tables in [20260330234500_identity_and_billing.sql](/home/adamgoodwin/code/Applications/Clean_pdf_build/supabase/migrations/20260330234500_identity_and_billing.sql).
+The repo now includes the base account/workspace tables in [20260330234500_identity_and_billing.sql](/home/adamgoodwin/code/Applications/Clean_pdf_build/supabase/migrations/20260330234500_identity_and_billing.sql) and the parent-organization layer in [20260409130000_organizations_parent_accounts.sql](/home/adamgoodwin/code/Applications/Clean_pdf_build/supabase/migrations/20260409130000_organizations_parent_accounts.sql).
+
+### 4. Recommended account model
+
+Use two account types:
+
+- `individual`: one user operating alone, with their own billing and private workspace
+- `corporate`: a parent account that owns billing, members, and shared external signer tokens
+
+Recommended hierarchy:
+
+- `User`
+- `Organization`
+- `Workspace`
+- `Document`
+
+That means:
+
+- users keep their own login identity
+- corporate admins add or remove member access
+- billing and shared token usage belong to the corporate account
+- workspaces remain the operational container for document flows
 
 ## Monetization model
 
@@ -72,7 +96,7 @@ The repo now includes additive billing-oriented tables in [20260330234500_identi
 
 Use a hybrid model:
 
-- seat-based for internal users
+- seat-based for internal users under a parent account
 - plan quotas for workflow volume
 - metered overages for OCR/storage if needed
 
@@ -83,6 +107,7 @@ This is the cleanest tradeoff between simplicity and margin protection.
 Customers think in terms of:
 
 - “How many people on my team need to prepare and manage documents?”
+- “Can our company admin control access and billing in one place?”
 - “How many documents do we send each month?”
 - “How many scanned pages are we paying the system to process?”
 
@@ -156,21 +181,23 @@ Your biggest direct variable costs in early production are more likely to come f
 ### Phase 1
 
 - keep personal accounts and direct document access as-is
-- create one workspace per paying customer
-- attach Stripe customer and subscription to workspace
+- create an individual or corporate account at signup
+- create one primary workspace under that account
+- attach Stripe customer and subscription to the account boundary
 - track usage events in `billing_usage_events`
 
 ### Phase 2
 
-- move documents under workspace ownership
-- add seat enforcement for owners and editors
+- move documents under workspace ownership beneath the parent account
+- add seat enforcement for corporate members
 - add Stripe webhooks to sync subscription state
+- expose shared token history and organization-wide admin visibility
 
 ### Phase 3
 
 - add annual plans
 - add usage-based OCR packs
-- add higher-trust business features like custom branding and retention controls
+- add higher-trust business features like custom branding, retention controls, and multi-workspace corporate accounts
 
 ## Implementation note
 
