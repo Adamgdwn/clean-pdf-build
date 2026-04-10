@@ -37,32 +37,41 @@ before update on public.organizations
 for each row
 execute function public.set_updated_at();
 
-with created_organizations as (
-  insert into public.organizations (name, slug, account_type, owner_user_id, billing_email)
-  select
-    workspace.name,
-    workspace.slug,
-    case
-      when workspace.workspace_type = 'team' then 'corporate'::public.account_type
-      else 'individual'::public.account_type
-    end,
-    workspace.owner_user_id,
-    workspace.billing_email
-  from public.workspaces workspace
-  where workspace.organization_id is null
-  on conflict (slug) do update
-  set
-    name = excluded.name,
-    account_type = excluded.account_type,
-    owner_user_id = excluded.owner_user_id,
-    billing_email = excluded.billing_email
-  returning id, slug
-)
+insert into public.organizations (name, slug, account_type, owner_user_id, billing_email)
+select
+  workspace.name,
+  workspace.slug,
+  case
+    when workspace.workspace_type = 'team' then 'corporate'::public.account_type
+    else 'individual'::public.account_type
+  end,
+  workspace.owner_user_id,
+  workspace.billing_email
+from public.workspaces workspace
+where workspace.organization_id is null
+on conflict (slug) do update
+set
+  name = excluded.name,
+  account_type = excluded.account_type,
+  owner_user_id = excluded.owner_user_id,
+  billing_email = excluded.billing_email;
+
 update public.workspaces workspace
 set organization_id = organization.id
 from public.organizations organization
 where workspace.organization_id is null
   and organization.slug = workspace.slug;
+
+do $$
+begin
+  if exists (
+    select 1
+    from public.workspaces
+    where organization_id is null
+  ) then
+    raise exception 'Organization backfill incomplete: some workspaces still have null organization_id values.';
+  end if;
+end $$;
 
 insert into public.organization_memberships (organization_id, user_id, role, created_at)
 select
