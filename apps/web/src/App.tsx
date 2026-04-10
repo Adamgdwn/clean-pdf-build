@@ -39,6 +39,14 @@ const shouldRestoreSessionFromRedirect =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get("signedIn") === "1";
 
+const MARKETING_PRICING = {
+  trialDays: 30,
+  monthlySeatCad: 12,
+  annualSeatCad: 120,
+  annualMonthlyEquivalentCad: 10,
+  tokenPackCad: 12,
+  tokenPackCount: 12,
+};
 
 
 const documentBucket = import.meta.env.VITE_SUPABASE_DOCUMENT_BUCKET ?? "documents";
@@ -2190,18 +2198,28 @@ export default function App() {
           <div className="landing-pricing-grid">
             <article className="toolbar-card landing-price-card">
               <p className="eyebrow">Free trial</p>
-              <strong>30 days, no card up front</strong>
+              <strong className="landing-price-value">{MARKETING_PRICING.trialDays} days free</strong>
+              <p className="landing-price-detail">No card required to start</p>
               <p className="muted">Create your workspace, invite teammates, and run real workflows before choosing a paid team plan.</p>
             </article>
             <article className="toolbar-card landing-price-card">
               <p className="eyebrow">Team subscription</p>
-              <strong>Seats for internal users</strong>
+              <strong className="landing-price-value">${MARKETING_PRICING.monthlySeatCad} CAD</strong>
+              <p className="landing-price-detail">Per internal user / month</p>
+              <p className="muted">
+                Or ${MARKETING_PRICING.annualSeatCad} CAD per user / year
+                {" "}
+                (${MARKETING_PRICING.annualMonthlyEquivalentCad} CAD per user / month equivalent).
+              </p>
               <p className="muted">Owners, admins, editors, and internal members are covered by your plan. Billing stays visible to owners inside the control center.</p>
             </article>
             <article className="toolbar-card landing-price-card">
               <p className="eyebrow">External tokens</p>
-              <strong>Pay only when EasyDraft routes outside your team</strong>
-              <p className="muted">1 token = 1 managed external workflow send. Self-managed and internal-only flows don&apos;t use tokens.</p>
+              <strong className="landing-price-value">${MARKETING_PRICING.tokenPackCad} CAD</strong>
+              <p className="landing-price-detail">{MARKETING_PRICING.tokenPackCount} external workflow tokens</p>
+              <p className="muted">
+                1 token = 1 managed external workflow send. Self-managed and internal-only flows don&apos;t use tokens.
+              </p>
             </article>
           </div>
         </section>
@@ -2239,11 +2257,11 @@ export default function App() {
                 </article>
                 <article className="toolbar-card">
                   <strong>When do tokens get used?</strong>
-                  <p className="muted">Only when EasyDraft manages an external routing send. Internal-only and self-managed flows do not use them.</p>
+                  <p className="muted">Only when EasyDraft manages an external routing send. Internal-only and self-managed flows do not use them, and ${MARKETING_PRICING.tokenPackCad} CAD buys {MARKETING_PRICING.tokenPackCount} tokens.</p>
                 </article>
                 <article className="toolbar-card">
                   <strong>Can we start without a credit card?</strong>
-                  <p className="muted">Yes. The trial starts without a card so teams can validate their process before committing.</p>
+                  <p className="muted">Yes. The {MARKETING_PRICING.trialDays}-day trial starts without a card so teams can validate their process before committing.</p>
                 </article>
               </div>
             </section>
