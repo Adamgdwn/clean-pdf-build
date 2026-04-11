@@ -20,8 +20,9 @@ create table if not exists public.feedback_requests (
 
 alter table public.feedback_requests enable row level security;
 
-create policy "admins can read feedback requests"
+drop policy if exists "requesters can read feedback requests" on public.feedback_requests;
+create policy "requesters can read feedback requests"
 on public.feedback_requests
 for select
 to authenticated
-using (public.is_admin_user(auth.jwt() ->> 'email'));
+using (requester_user_id = auth.uid());
