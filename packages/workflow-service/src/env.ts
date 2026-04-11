@@ -66,6 +66,7 @@ const serverEnvSchema = z.object({
   SMTP_SECURE: optionalBooleanFromEnv,
   SMTP_USER: trimmedOptionalString,
   SMTP_PASSWORD: trimmedOptionalString,
+  EASYDRAFT_ENABLE_CERTIFICATE_SIGNING: optionalBooleanFromEnv,
   EASYDRAFT_DIGITAL_SIGNING_PROVIDER: z.preprocess(
     (value) => typeof value === "string" ? value.trim() : value,
     z.enum(["qualified_remote", "organization_hsm", "easy_draft_remote"]),
@@ -76,6 +77,11 @@ const serverEnvSchema = z.object({
   EASYDRAFT_PROCESSOR_SECRET: trimmedOptionalString,
   STRIPE_SECRET_KEY: trimmedOptionalString,
   STRIPE_WEBHOOK_SECRET: trimmedOptionalString,
+  UPSTASH_REDIS_REST_URL: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string().url()).optional(),
+  UPSTASH_REDIS_REST_TOKEN: trimmedOptionalString,
+  SENTRY_DSN: trimmedOptionalString,
+  VITE_EASYDRAFT_ENABLE_CERTIFICATE_SIGNING: optionalBooleanFromEnv,
+  VITE_SENTRY_DSN: trimmedOptionalString,
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
@@ -115,4 +121,12 @@ export function shouldRequireEmailDelivery(env: ServerEnv = readServerEnv()) {
 
 export function shouldRequireProcessorSecret(env: ServerEnv = readServerEnv()) {
   return env.NODE_ENV === "production";
+}
+
+export function isCertificateSigningEnabled(env: ServerEnv = readServerEnv()) {
+  return env.EASYDRAFT_ENABLE_CERTIFICATE_SIGNING ?? false;
+}
+
+export function hasRedisRateLimitConfig(env: ServerEnv = readServerEnv()) {
+  return Boolean(env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN);
 }

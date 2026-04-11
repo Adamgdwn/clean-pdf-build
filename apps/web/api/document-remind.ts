@@ -10,7 +10,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
   }
 
   try {
-    enforceRateLimit(request, response, {
+    await enforceRateLimit(request, response, {
       key: "api:document-remind",
       limit: 6,
       windowMs: 60_000,

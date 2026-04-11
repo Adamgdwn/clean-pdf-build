@@ -1,5 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
+import { captureBrowserException } from "../lib/telemetry";
+
 type Props = {
   children: ReactNode;
   label?: string;
@@ -18,6 +20,11 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error(`[ErrorBoundary${this.props.label ? ` – ${this.props.label}` : ""}]`, error, info.componentStack);
+    captureBrowserException(error, {
+      scope: "react-error-boundary",
+      label: this.props.label ?? null,
+      componentStack: info.componentStack ?? null,
+    });
   }
 
   render() {

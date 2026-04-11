@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import {
   AppError,
+  captureServerException,
   markProcessingJobCompleted,
   processQueuedJobs,
   processQueuedNotifications,
@@ -18,6 +19,18 @@ const completeJobSchema = z.object({
 
 export function buildDocumentProcessorServer() {
   const app = Fastify({ logger: false });
+
+  function sendError(reply: { code: (statusCode: number) => { send: (body: { message: string }) => unknown } }, error: unknown) {
+    const typedError = error as AppError;
+    if ((typedError.statusCode ?? 500) >= 500) {
+      captureServerException(error, {
+        scope: "document-processor",
+        statusCode: typedError.statusCode ?? 500,
+      });
+    }
+
+    return reply.code(typedError.statusCode ?? 500).send({ message: typedError.message ?? "Unexpected error" });
+  }
 
   app.register(cors, {
     origin: true,
@@ -67,8 +80,7 @@ export function buildDocumentProcessorServer() {
     try {
       return await processQueuedJobs();
     } catch (error) {
-      const typedError = error as AppError;
-      return reply.code(typedError.statusCode ?? 500).send({ message: typedError.message });
+      return sendError(reply, error);
     }
   });
 
@@ -76,8 +88,7 @@ export function buildDocumentProcessorServer() {
     try {
       return await processQueuedNotifications();
     } catch (error) {
-      const typedError = error as AppError;
-      return reply.code(typedError.statusCode ?? 500).send({ message: typedError.message });
+      return sendError(reply, error);
     }
   });
 
@@ -86,8 +97,7 @@ export function buildDocumentProcessorServer() {
       const payload = completeJobSchema.parse(request.body);
       return await markProcessingJobCompleted(payload.jobId, payload.result);
     } catch (error) {
-      const typedError = error as AppError;
-      return reply.code(typedError.statusCode ?? 500).send({ message: typedError.message });
+      return sendError(reply, error);
     }
   });
 

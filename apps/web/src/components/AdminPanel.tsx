@@ -189,17 +189,48 @@ export function AdminConsole({ session, sessionUser, adminOverview, adminUsers, 
               <span>Users</span>
               <strong>{adminOverview.metrics.totalUsers}</strong>
             </div>
-            <div className="metric">
-              <span>Queued emails</span>
-              <strong>{adminOverview.metrics.pendingNotifications}</strong>
-            </div>
-            <div className="metric">
-              <span>Workspaces</span>
-              <strong>{adminOverview.metrics.totalWorkspaces}</strong>
+          <div className="metric">
+            <span>Queued emails</span>
+            <strong>{adminOverview.metrics.pendingNotifications}</strong>
+          </div>
+          <div className="metric">
+            <span>Failed emails</span>
+            <strong>{adminOverview.metrics.failedNotifications}</strong>
+          </div>
+          <div className="metric">
+            <span>Workspaces</span>
+            <strong>{adminOverview.metrics.totalWorkspaces}</strong>
             </div>
             <div className="metric">
               <span>Documents</span>
               <strong>{adminOverview.metrics.totalDocuments}</strong>
+            </div>
+          </div>
+
+          <div className="toolbar-card">
+            <div className="section-heading compact">
+              <p className="eyebrow">Queues</p>
+              <span>Operational visibility</span>
+            </div>
+            <div className="stack">
+              <div className="row-card">
+                <div>
+                  <strong>Notifications</strong>
+                  <p className="muted">
+                    {adminOverview.metrics.pendingNotifications} queued · {adminOverview.metrics.failedNotifications} failed
+                  </p>
+                </div>
+                <span>{formatTimestamp(adminOverview.metrics.oldestPendingNotificationAt)}</span>
+              </div>
+              <div className="row-card">
+                <div>
+                  <strong>Processing jobs</strong>
+                  <p className="muted">
+                    {adminOverview.metrics.queuedProcessingJobs} queued or running
+                  </p>
+                </div>
+                <span>{formatTimestamp(adminOverview.metrics.oldestQueuedProcessingAt)}</span>
+              </div>
             </div>
           </div>
 

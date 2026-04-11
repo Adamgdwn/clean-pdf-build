@@ -1,6 +1,11 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import { AppError, consumeRateLimit, type RateLimitPolicy } from "@clean-pdf/workflow-service";
+import {
+  AppError,
+  captureServerException,
+  consumeRateLimit,
+  type RateLimitPolicy,
+} from "@clean-pdf/workflow-service";
 
 import { accountRoutes } from "./routes/account";
 import { adminRoutes } from "./routes/admin";
@@ -54,7 +59,7 @@ export function buildWorkflowServer() {
       return;
     }
 
-    const result = consumeRateLimit(request.ip, policy);
+    const result = await consumeRateLimit(request.ip, policy);
     reply.header("X-RateLimit-Limit", String(result.limit));
     reply.header("X-RateLimit-Remaining", String(result.remaining));
     reply.header("X-RateLimit-Reset", String(Math.floor(result.resetAt / 1000)));
@@ -77,6 +82,18 @@ export function buildWorkflowServer() {
   app.register(billingRoutes);
   app.register(teamRoutes);
   app.register(documentRoutes);
+
+  app.setErrorHandler((error, _, reply) => {
+    const typedError = error as AppError;
+    if ((typedError.statusCode ?? 500) >= 500) {
+      captureServerException(error, {
+        scope: "workflow-api",
+        statusCode: typedError.statusCode ?? 500,
+      });
+    }
+
+    reply.code(typedError.statusCode ?? 500).send({ message: typedError.message ?? "Unexpected error" });
+  });
 
   return app;
 }

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@clean-pdf/domain": "0.1.0",
+    "@sentry/node": "^9.18.0",
     "@supabase/supabase-js": "^2.57.4",
     "nodemailer": "^8.0.4",
     "pdf-lib": "^1.17.1",

@@ -1,3 +1,5 @@
+import { hasRedisRateLimitConfig, readServerEnv } from "./env.js";
+
 type RateLimitState = {
   count: number;
   resetAt: number;
@@ -27,10 +29,10 @@ function clearExpiredBuckets(now: number) {
   }
 }
 
-export function consumeRateLimit(
+function consumeMemoryRateLimit(
   clientKey: string,
   policy: RateLimitPolicy,
-  now = Date.now(),
+  now: number,
 ): RateLimitResult {
   clearExpiredBuckets(now);
 
@@ -72,4 +74,64 @@ export function consumeRateLimit(
     resetAt: current.resetAt,
     retryAfterSeconds: Math.max(Math.ceil((current.resetAt - now) / 1000), 1),
   };
+}
+
+async function consumeRedisRateLimit(
+  clientKey: string,
+  policy: RateLimitPolicy,
+  now: number,
+): Promise<RateLimitResult> {
+  const env = readServerEnv();
+  const bucketKey = `${policy.key}:${clientKey}`;
+  const resetAt = now + policy.windowMs;
+  const requestBody = JSON.stringify([
+    ["INCR", bucketKey],
+    ["PEXPIRE", bucketKey, String(policy.windowMs), "NX"],
+    ["PTTL", bucketKey],
+  ]);
+  const response = await fetch(env.UPSTASH_REDIS_REST_URL!, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.UPSTASH_REDIS_REST_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: requestBody,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Redis rate limit request failed with status ${response.status}.`);
+  }
+
+  const payload = (await response.json()) as {
+    result?: Array<number | string | null>;
+  };
+  const count = Number(payload.result?.[0] ?? 0);
+  const ttlMs = Number(payload.result?.[2] ?? policy.windowMs);
+  const effectiveResetAt = now + Math.max(ttlMs, 0);
+
+  return {
+    allowed: count <= policy.limit,
+    limit: policy.limit,
+    remaining: Math.max(policy.limit - count, 0),
+    resetAt: count > 0 ? effectiveResetAt : resetAt,
+    retryAfterSeconds: Math.max(Math.ceil(Math.max(ttlMs, 1) / 1000), 1),
+  };
+}
+
+export async function consumeRateLimit(
+  clientKey: string,
+  policy: RateLimitPolicy,
+  now = Date.now(),
+): Promise<RateLimitResult> {
+  const env = readServerEnv();
+
+  if (hasRedisRateLimitConfig(env)) {
+    return consumeRedisRateLimit(clientKey, policy, now);
+  }
+
+  if ((env.NODE_ENV ?? "development") === "production") {
+    throw new Error("Distributed rate limiting requires UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in production.");
+  }
+
+  return consumeMemoryRateLimit(clientKey, policy, now);
 }

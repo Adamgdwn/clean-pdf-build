@@ -16,7 +16,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
   }
 
   try {
-    enforceRateLimit(request, response, {
+    await enforceRateLimit(request, response, {
       key: "api:storage-upload",
       limit: 20,
       windowMs: 60_000,

@@ -437,12 +437,19 @@ select {
 }
 
 .form-field input,
-.form-field select {
+.form-field select,
+.form-field textarea {
   width: 100%;
   padding: 11px 12px;
   border-radius: 12px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.88);
+}
+
+.form-field textarea {
+  resize: vertical;
+  min-height: 120px;
+  font: inherit;
 }
 
 .form-grid {
@@ -469,6 +476,15 @@ select {
 
 .action-wrap {
   flex-wrap: wrap;
+}
+
+.feedback-button-row .ghost-button.active {
+  border-color: rgba(24, 36, 29, 0.3);
+  background: rgba(24, 36, 29, 0.08);
+}
+
+.feedback-card-compact {
+  margin-top: 18px;
 }
 
 .form-block {

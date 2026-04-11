@@ -681,67 +681,40 @@
     <p class="section-label">Section 12</p>
     <h2 class="section-title">Digital signatures</h2>
 
-    <p>In addition to the image-based signatures in the Signature Library, EasyDraftDocs supports certificate-backed <strong>digital signature profiles</strong>. These are cryptographic credentials issued by a trust provider that embed verifiable identity into the signed PDF — a higher assurance standard than a drawn or typed image.</p>
+    <p>EasyDraftDocs currently uses saved image or typed signatures together with workflow history, audit events, and a SHA-256 hash of the rendered export. <strong>Certificate-backed PDF signing is not part of the current private beta.</strong></p>
 
     <div class="callout note">
-      <strong>This is an advanced feature</strong>
-      Digital signature profiles require provider verification before they can be used on PDFs. Creating a profile submits a request; the provider verifies your identity out-of-band before activating it. You can continue using image-based signatures while verification is pending.
+      <strong>Current trust model</strong>
+      The completion certificate shows the export SHA-256 value so you can verify the downloaded PDF bytes. If your process requires certificate-backed or jurisdiction-specific signature standards, treat that as out of scope for the current beta.
     </div>
 
-    <h3>Providers</h3>
+    <h3>What is available today</h3>
     <table>
       <thead>
-        <tr><th>Provider</th><th>What it means</th></tr>
+        <tr><th>Capability</th><th>What it means</th></tr>
       </thead>
       <tbody>
         <tr>
-          <td><strong>EasyDraft remote</strong></td>
-          <td>Certificate managed by EasyDraftDocs on your behalf. Suitable for most business use cases.</td>
+          <td><strong>Saved signatures</strong></td>
+          <td>Reusable typed or uploaded signatures for assigned workflow fields.</td>
         </tr>
         <tr>
-          <td><strong>Qualified remote</strong></td>
-          <td>A qualified electronic signature issued by an accredited third-party trust service provider (TSP). Meets the highest regulatory standards in supported jurisdictions (e.g. eIDAS in the EU).</td>
+          <td><strong>Audit history</strong></td>
+          <td>Tracked send, sign, reminder, reopen, export, and workflow-status events.</td>
         </tr>
         <tr>
-          <td><strong>Organization HSM</strong></td>
-          <td>Signing key held in your organization's own Hardware Security Module. For enterprises that manage their own PKI infrastructure.</td>
+          <td><strong>SHA-256 export hash</strong></td>
+          <td>Stored when the final PDF is rendered so the completion certificate can reference the exact exported bytes.</td>
         </tr>
       </tbody>
     </table>
 
-    <h3>Assurance levels</h3>
-    <table>
-      <thead>
-        <tr><th>Level</th><th>What it means</th></tr>
-      </thead>
-      <tbody>
-        <tr><td><strong>Advanced</strong></td><td>Uniquely linked to the signer, capable of identifying them, and detects any subsequent change to the signed data.</td></tr>
-        <tr><td><strong>Qualified</strong></td><td>An advanced electronic signature created with a qualified certificate issued by an accredited TSP. Carries legal equivalence to a handwritten signature in supporting jurisdictions.</td></tr>
-      </tbody>
-    </table>
-
-    <h3>Profile statuses</h3>
-    <table>
-      <thead>
-        <tr><th>Status</th><th>Meaning</th></tr>
-      </thead>
-      <tbody>
-        <tr><td><strong>Setup required</strong></td><td>Profile created but identity verification with the provider has not yet started.</td></tr>
-        <tr><td><strong>Requested</strong></td><td>Verification request submitted. Awaiting provider confirmation.</td></tr>
-        <tr><td><strong>Verified</strong></td><td>Certificate issued and active. The profile can be used for signing.</td></tr>
-        <tr><td><strong>Rejected</strong></td><td>Verification was unsuccessful. Contact the provider or create a new profile.</td></tr>
-      </tbody>
-    </table>
-
-    <h3>Creating a digital signature profile</h3>
-    <ol class="step-list">
-      <li>Scroll to the <strong>Digital Signatures</strong> section in the sidebar.</li>
-      <li>Enter a profile label (e.g. "Corporate signing cert") and optional title text that will appear on signed documents.</li>
-      <li>Select a <strong>Provider</strong> and <strong>Assurance level</strong>.</li>
-      <li>Click <strong>Request digital signing profile</strong>. The profile is created in <em>Requested</em> status.</li>
-      <li>Complete any out-of-band identity verification steps required by your chosen provider.</li>
-      <li>Once the provider confirms verification, the profile moves to <em>Verified</em> status and becomes available for use on PDFs.</li>
-    </ol>
+    <h3>Trust pages</h3>
+    <ul>
+      <li><a href="/security">Security summary</a></li>
+      <li><a href="/privacy">Privacy summary</a></li>
+      <li><a href="/terms">Beta terms</a></li>
+    </ul>
   </section>
 
 

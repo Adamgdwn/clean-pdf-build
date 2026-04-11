@@ -1,5 +1,7 @@
 # Identity And Monetization
 
+> Planning note: the live private-beta product currently uses the simpler `seats + shared external tokens` story shown in the app, guide, and README. The quota-based ideas below remain internal exploration, not current public pricing.
+
 ## Product recommendation
 
 For this product, charge for internal team usage and workflow volume, not for external signers.

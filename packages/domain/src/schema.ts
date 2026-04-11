@@ -14,6 +14,11 @@ export const workflowOperationalStatusSchema = z.enum([
   "rejected",
   "canceled",
 ]);
+export const documentChangeImpactSchema = z.enum([
+  "non_material",
+  "review_required",
+  "resign_required",
+]);
 
 export const accessRoleSchema = z.enum(["owner", "editor", "signer", "viewer"]);
 export const routingStrategySchema = z.enum(["sequential", "parallel"]);
@@ -56,6 +61,8 @@ export const auditEventTypeSchema = z.enum([
   "processing.field_detection.requested",
   "processing.field_detection.completed",
   "document.delivery_mode.updated",
+  "document.change_impact.assessed",
+  "document.resign_required",
   "notification.queued",
   "notification.sent",
 ]);
@@ -114,6 +121,8 @@ export const documentVersionSchema = z.object({
   createdAt: z.string().datetime(),
   createdByUserId: z.string(),
   note: z.string(),
+  changeImpact: documentChangeImpactSchema.nullable().default(null),
+  changeImpactSummary: z.string().nullable().default(null),
 });
 
 export const auditEventSchema = z.object({
@@ -180,6 +189,9 @@ export const documentSchema = z.object({
   isOcrComplete: z.boolean().default(false),
   isFieldDetectionComplete: z.boolean().default(false),
   exportSha256: z.string().nullable().default(null),
+  latestChangeImpact: documentChangeImpactSchema.nullable().default(null),
+  latestChangeImpactSummary: z.string().nullable().default(null),
+  latestChangeImpactAt: z.string().datetime().nullable().default(null),
   access: z.array(documentAccessSchema),
   signers: z.array(signerSchema),
   fields: z.array(fieldSchema),
@@ -190,6 +202,7 @@ export const documentSchema = z.object({
 
 export type WorkflowState = z.infer<typeof workflowStateSchema>;
 export type WorkflowOperationalStatus = z.infer<typeof workflowOperationalStatusSchema>;
+export type DocumentChangeImpact = z.infer<typeof documentChangeImpactSchema>;
 export type AccessRole = z.infer<typeof accessRoleSchema>;
 export type RoutingStrategy = z.infer<typeof routingStrategySchema>;
 export type ParticipantType = z.infer<typeof participantTypeSchema>;

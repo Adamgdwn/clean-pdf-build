@@ -42,6 +42,9 @@ const baseDocument: DocumentRecord = {
   isOcrComplete: true,
   isFieldDetectionComplete: true,
   exportSha256: null,
+  latestChangeImpact: null,
+  latestChangeImpactSummary: null,
+  latestChangeImpactAt: null,
   access: [
     { userId: "user_owner", role: "owner" },
     { userId: "user_signer_1", role: "signer" },

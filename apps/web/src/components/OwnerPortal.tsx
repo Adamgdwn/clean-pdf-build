@@ -142,7 +142,9 @@ export function OwnerPortal({
   const renewsOn = subscription?.currentPeriodEnd ? formatShortDate(subscription.currentPeriodEnd) : null;
   const trialEndsOn = subscription?.trialEndsAt ? formatShortDate(subscription.trialEndsAt) : null;
   const queuePressure = adminOverview
-    ? adminOverview.metrics.pendingNotifications + adminOverview.metrics.queuedProcessingJobs
+    ? adminOverview.metrics.pendingNotifications +
+      adminOverview.metrics.failedNotifications +
+      adminOverview.metrics.queuedProcessingJobs
     : 0;
 
   const ownerWatchlist = [...documents]
@@ -545,13 +547,16 @@ export function OwnerPortal({
               {adminOverview ? (
                 <div className="row-card">
                   <div>
-                    <strong>Platform queue</strong>
-                    <p className="muted">
-                      {adminOverview.metrics.pendingNotifications} pending notification{adminOverview.metrics.pendingNotifications === 1 ? "" : "s"} and {adminOverview.metrics.queuedProcessingJobs} queued processing job{adminOverview.metrics.queuedProcessingJobs === 1 ? "" : "s"}.
-                    </p>
-                  </div>
-                  <span>{queuePressure} total</span>
+                  <strong>Platform queue</strong>
+                  <p className="muted">
+                      {adminOverview.metrics.pendingNotifications} pending notification{adminOverview.metrics.pendingNotifications === 1 ? "" : "s"}, {adminOverview.metrics.failedNotifications} failed notification{adminOverview.metrics.failedNotifications === 1 ? "" : "s"}, and {adminOverview.metrics.queuedProcessingJobs} queued processing job{adminOverview.metrics.queuedProcessingJobs === 1 ? "" : "s"}.
+                  </p>
+                  <p className="muted">
+                    Oldest pending email: {formatTimestamp(adminOverview.metrics.oldestPendingNotificationAt)} · oldest queued job: {formatTimestamp(adminOverview.metrics.oldestQueuedProcessingAt)}
+                  </p>
                 </div>
+                <span>{queuePressure} total</span>
+              </div>
               ) : null}
             </div>
           </section>

@@ -138,7 +138,10 @@ export type AdminOverview = {
     sentDocuments: number;
     completedDocuments: number;
     pendingNotifications: number;
+    failedNotifications: number;
+    oldestPendingNotificationAt: string | null;
     queuedProcessingJobs: number;
+    oldestQueuedProcessingAt: string | null;
     billingCustomers: number;
     estimatedMrrUsd: number;
   };

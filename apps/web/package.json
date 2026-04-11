@@ -8,6 +8,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@sentry/browser": "^9.18.0",
     "@clean-pdf/domain": "0.1.0",
     "@clean-pdf/workflow-service": "0.1.0",
     "@supabase/supabase-js": "^2.101.0",

@@ -16,7 +16,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
   }
 
   try {
-    enforceRateLimit(request, response, {
+    await enforceRateLimit(request, response, {
       key: "api:billing-token-checkout",
       limit: 8,
       windowMs: 60_000,

@@ -35,6 +35,7 @@ import documentWorkflowHandler from "../apps/web/api/document-workflow.js";
 import documentHandler from "../apps/web/api/document.js";
 import documentsListHandler from "../apps/web/api/documents-list.js";
 import documentsHandler from "../apps/web/api/documents.js";
+import feedbackHandler from "../apps/web/api/feedback.js";
 import healthHandler from "../apps/web/api/health.js";
 import profileHandler from "../apps/web/api/profile.js";
 import savedSignaturesHandler from "../apps/web/api/saved-signatures.js";
@@ -86,6 +87,7 @@ const routeHandlers: Record<string, RouteHandler> = {
   document: documentHandler,
   "documents-list": documentsListHandler,
   documents: documentsHandler,
+  feedback: feedbackHandler,
   health: healthHandler,
   profile: profileHandler,
   "saved-signatures": savedSignaturesHandler,

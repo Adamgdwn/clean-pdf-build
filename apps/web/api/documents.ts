@@ -21,7 +21,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     }
 
     if (request.method === "POST") {
-      enforceRateLimit(request, response, {
+      await enforceRateLimit(request, response, {
         key: "api:documents-create",
         limit: 20,
         windowMs: 10 * 60_000,

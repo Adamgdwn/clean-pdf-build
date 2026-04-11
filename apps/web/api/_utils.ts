@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import {
   AppError,
+  captureServerException,
   consumeRateLimit,
   getCanonicalAppOrigin,
   type RateLimitPolicy,
@@ -43,6 +44,12 @@ export async function readRawBody(request: VercelRequest) {
 
 export function sendError(response: VercelResponse, error: unknown) {
   const typedError = error as AppError;
+  if ((typedError.statusCode ?? 500) >= 500) {
+    captureServerException(error, {
+      scope: "vercel-api",
+      statusCode: typedError.statusCode ?? 500,
+    });
+  }
 
   return response.status(typedError.statusCode ?? 500).json({
     message: typedError.message ?? "Unexpected error",
@@ -63,12 +70,12 @@ function getClientIdentifier(request: VercelRequest) {
   return forwardedIp || request.socket.remoteAddress || "unknown";
 }
 
-export function enforceRateLimit(
+export async function enforceRateLimit(
   request: VercelRequest,
   response: VercelResponse,
   policy: RateLimitPolicy,
 ) {
-  const result = consumeRateLimit(getClientIdentifier(request), policy);
+  const result = await consumeRateLimit(getClientIdentifier(request), policy);
   setRateLimitHeaders(response, result.limit, result.remaining, result.resetAt);
 
   if (!result.allowed) {

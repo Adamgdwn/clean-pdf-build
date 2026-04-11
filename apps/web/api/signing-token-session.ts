@@ -10,7 +10,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
   }
 
   try {
-    enforceRateLimit(request, response, {
+    await enforceRateLimit(request, response, {
       key: "api:signing-token-session",
       limit: 10,
       windowMs: 5 * 60_000,

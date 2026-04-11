@@ -12,7 +12,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
   try {
     if (request.method === "POST") {
-      enforceRateLimit(request, response, {
+      await enforceRateLimit(request, response, {
         key: "api:workspace-invite",
         limit: 10,
         windowMs: 60_000,

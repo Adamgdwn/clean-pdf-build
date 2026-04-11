@@ -8,6 +8,7 @@ import {
   type AccessRole,
   type AuditEvent,
   type DeliveryMode,
+  type DocumentChangeImpact,
   type DocumentRecord,
   type DocumentNotification,
   type DocumentVersion,
@@ -25,6 +26,7 @@ import { z } from "zod";
 
 import {
   getCanonicalAppOrigin,
+  isCertificateSigningEnabled,
   readServerEnv,
   shouldRequireEmailDelivery,
   shouldRequireStripe,
@@ -70,6 +72,9 @@ type DocumentRow = {
   is_ocr_complete: boolean;
   is_field_detection_complete: boolean;
   export_sha256: string | null;
+  latest_change_impact: DocumentChangeImpact | null;
+  latest_change_impact_summary: string | null;
+  latest_change_impact_at: string | null;
 };
 
 type DocumentAccessRow = {
@@ -124,6 +129,8 @@ type DocumentVersionRow = {
   created_at: string;
   created_by_user_id: string;
   note: string;
+  change_impact: DocumentChangeImpact | null;
+  change_impact_summary: string | null;
 };
 
 type AuditEventRow = {
@@ -482,6 +489,15 @@ const createDigitalSignatureProfileInputSchema = z.object({
   assuranceLevel: z.string().trim().min(1).max(40).default("advanced"),
 });
 
+const createFeedbackRequestInputSchema = z.object({
+  feedbackType: z.enum(["bug_report", "feature_request"]),
+  title: z.string().trim().min(1).max(140),
+  details: z.string().trim().min(1).max(4000),
+  email: z.string().trim().email().optional(),
+  source: z.string().trim().min(1).max(80).default("web_app"),
+  requestedPath: z.string().trim().max(400).nullable().default(null),
+});
+
 function slugify(value: string) {
   return value
     .toLowerCase()
@@ -535,6 +551,129 @@ function describeDeliveryMode(deliveryMode: DeliveryMode) {
   }
 
   return "self-managed distribution path";
+}
+
+type ChangeImpactAssessment = {
+  impact: DocumentChangeImpact;
+  summary: string;
+};
+
+type NormalizedFieldForImpact = {
+  id: string;
+  kind: Field["kind"];
+  label: string;
+  required: boolean;
+  assigneeSignerId: string | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  value: string | null;
+  completedAt: string | null;
+  completedBySignerId: string | null;
+};
+
+function describeChangeImpact(impact: DocumentChangeImpact) {
+  return impact.replaceAll("_", " ");
+}
+
+function normalizeFieldForImpact(field: Field | FieldRow): NormalizedFieldForImpact {
+  if ("assigneeSignerId" in field) {
+    return {
+      id: field.id,
+      kind: field.kind,
+      label: field.label,
+      required: field.required,
+      assigneeSignerId: field.assigneeSignerId,
+      x: field.x,
+      y: field.y,
+      width: field.width,
+      height: field.height,
+      value: field.value,
+      completedAt: field.completedAt,
+      completedBySignerId: field.completedBySignerId,
+    };
+  }
+
+  return {
+    id: field.id,
+    kind: field.kind,
+    label: field.label,
+    required: field.required,
+    assigneeSignerId: field.assignee_signer_id,
+    x: field.x,
+    y: field.y,
+    width: field.width,
+    height: field.height,
+    value: field.value,
+    completedAt: field.completed_at,
+    completedBySignerId: field.completed_by_signer_id,
+  };
+}
+
+function documentHasSignedActionFields(document: DocumentRecord) {
+  return document.fields.some((field) => isActionFieldKind(field.kind) && Boolean(field.completedAt));
+}
+
+export function classifyFieldSetChangeImpact(
+  previousFields: Array<Field | FieldRow>,
+  nextFields: Array<Field | FieldRow>,
+): ChangeImpactAssessment | null {
+  const before = previousFields.map(normalizeFieldForImpact);
+  const after = nextFields.map(normalizeFieldForImpact);
+  const beforeById = new Map(before.map((field) => [field.id, field]));
+  const afterById = new Map(after.map((field) => [field.id, field]));
+
+  for (const field of before) {
+    if (!isActionFieldKind(field.kind) || !field.completedAt) {
+      continue;
+    }
+
+    const nextField = afterById.get(field.id);
+    if (!nextField) {
+      return {
+        impact: "resign_required",
+        summary: `A signed field was removed after signing started. All action fields must be signed again.`,
+      };
+    }
+
+    if (
+      nextField.assigneeSignerId !== field.assigneeSignerId ||
+      nextField.x !== field.x ||
+      nextField.y !== field.y ||
+      nextField.width !== field.width ||
+      nextField.height !== field.height ||
+      nextField.value !== field.value
+    ) {
+      return {
+        impact: "resign_required",
+        summary: `A signed field changed after signing started. All action fields must be signed again.`,
+      };
+    }
+  }
+
+  const changedUnsignedField = before.some((field) => {
+    const nextField = afterById.get(field.id);
+    if (!nextField) {
+      return !field.completedAt;
+    }
+
+    return (
+      nextField.kind !== field.kind ||
+      nextField.label !== field.label ||
+      nextField.required !== field.required ||
+      nextField.assigneeSignerId !== field.assigneeSignerId
+    );
+  });
+
+  if (changedUnsignedField || before.length !== after.length) {
+    return {
+      impact: "review_required",
+      summary: "The field map changed after signing started. Review the document and reopen it before more signing continues.",
+    };
+  }
+
+  return null;
 }
 
 const accessRolePriority: Record<AccessRole, number> = {
@@ -918,6 +1057,8 @@ function mapVersion(row: DocumentVersionRow): DocumentVersion {
     createdAt: row.created_at,
     createdByUserId: row.created_by_user_id,
     note: row.note,
+    changeImpact: row.change_impact,
+    changeImpactSummary: row.change_impact_summary,
   };
 }
 
@@ -989,6 +1130,12 @@ function mapProfile(row: ProfileRow): ProfileResponse["profile"] {
   };
 }
 
+function assertCertificateSigningEnabledForRequest() {
+  if (!isCertificateSigningEnabled()) {
+    throw new AppError(404, "Feature not available.");
+  }
+}
+
 function mapDigitalSignatureProfile(
   row: DigitalSignatureProfileRow,
 ): DigitalSignatureProfileResponse {
@@ -1056,6 +1203,9 @@ function mapDocumentRecord(
     isOcrComplete: row.is_ocr_complete,
     isFieldDetectionComplete: row.is_field_detection_complete,
     exportSha256: row.export_sha256 ?? null,
+    latestChangeImpact: row.latest_change_impact ?? null,
+    latestChangeImpactSummary: row.latest_change_impact_summary ?? null,
+    latestChangeImpactAt: row.latest_change_impact_at ?? null,
     access: accessRows.map((entry) => ({
       userId: entry.user_id,
       role: entry.role,
@@ -1196,6 +1346,14 @@ export async function resolveAuthenticatedUser(authorizationHeader: string | und
   await ensureDefaultWorkspaceForUser(user);
 
   return user;
+}
+
+async function tryResolveAuthenticatedUser(authorizationHeader: string | undefined) {
+  if (!authorizationHeader) {
+    return null;
+  }
+
+  return resolveAuthenticatedUser(authorizationHeader);
 }
 
 async function requireDocumentRole(documentId: string, userId: string) {
@@ -1394,7 +1552,7 @@ async function requireDocumentBundle(documentId: string) {
       .eq("document_id", documentId),
     adminClient
       .from("document_versions")
-      .select("id, document_id, label, created_at, created_by_user_id, note")
+      .select("id, document_id, label, created_at, created_by_user_id, note, change_impact, change_impact_summary")
       .eq("document_id", documentId),
     adminClient
       .from("document_audit_events")
@@ -2458,6 +2616,8 @@ async function appendVersion(
   createdByUserId: string,
   label: string,
   note: string,
+  changeImpact: DocumentChangeImpact | null = null,
+  changeImpactSummary: string | null = null,
 ) {
   const adminClient = createServiceRoleClient();
   const { error } = await adminClient.from("document_versions").insert({
@@ -2465,10 +2625,148 @@ async function appendVersion(
     created_by_user_id: createdByUserId,
     label,
     note,
+    change_impact: changeImpact,
+    change_impact_summary: changeImpactSummary,
   });
 
   if (error) {
     throw new AppError(500, error.message);
+  }
+
+  if (changeImpact) {
+    const now = new Date().toISOString();
+    const { error: updateError } = await adminClient
+      .from("documents")
+      .update({
+        latest_change_impact: changeImpact,
+        latest_change_impact_summary: changeImpactSummary ?? note,
+        latest_change_impact_at: now,
+      })
+      .eq("id", documentId);
+
+    if (updateError) {
+      throw new AppError(500, updateError.message);
+    }
+  }
+}
+
+async function resetCompletedActionFields(documentId: string) {
+  const adminClient = createServiceRoleClient();
+  const { error } = await adminClient
+    .from("document_fields")
+    .update({
+      value: null,
+      applied_saved_signature_id: null,
+      completed_at: null,
+      completed_by_signer_id: null,
+    })
+    .eq("document_id", documentId)
+    .in("kind", ["signature", "initial", "approval"]);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+}
+
+async function queueWorkflowUpdateForRecipient(
+  documentId: string,
+  recipientEmail: string,
+  summary: string,
+  metadata: Record<string, string | number | boolean | null>,
+  recipientUserId?: string | null,
+  recipientSignerId?: string | null,
+) {
+  await queueNotification(documentId, "workflow_update", recipientEmail, {
+    recipientUserId: recipientUserId ?? null,
+    recipientSignerId: recipientSignerId ?? null,
+    metadata: {
+      ...metadata,
+      summary,
+    },
+  });
+}
+
+async function applyDocumentChangeImpact(
+  document: DocumentRecord,
+  actorUserId: string,
+  actorLabel: string,
+  assessment: ChangeImpactAssessment,
+  appOrigin?: string,
+) {
+  const adminClient = createServiceRoleClient();
+  await appendVersion(
+    document.id,
+    actorUserId,
+    `Change impact: ${describeChangeImpact(assessment.impact)}`,
+    assessment.summary,
+    assessment.impact,
+    assessment.summary,
+  );
+  await appendAuditEvent(
+    document.id,
+    actorUserId,
+    assessment.impact === "resign_required" ? "document.resign_required" : "document.change_impact.assessed",
+    assessment.summary,
+    {
+      changeImpact: assessment.impact,
+    },
+  );
+
+  if (assessment.impact === "non_material") {
+    return;
+  }
+
+  if (assessment.impact === "review_required") {
+    await updateDocumentWorkflowStatus(document.id, actorUserId, "changes_requested", assessment.summary);
+    await queueOriginatorWorkflowUpdate(document, actorUserId, actorLabel, assessment.summary, appOrigin);
+    return;
+  }
+
+  await resetCompletedActionFields(document.id);
+  const now = new Date().toISOString();
+  const { error } = await adminClient
+    .from("documents")
+    .update({
+      completed_at: null,
+      locked_at: null,
+      locked_by_user_id: null,
+      workflow_status: "active",
+      workflow_status_reason: assessment.summary,
+      workflow_status_updated_at: now,
+      workflow_status_updated_by_user_id: actorUserId.startsWith("guest:") ? null : actorUserId,
+    })
+    .eq("id", document.id);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  const metadata = {
+    ...(appOrigin ? { appOrigin } : {}),
+    actorLabel,
+    changeImpact: assessment.impact,
+  };
+  await queueOriginatorWorkflowUpdate(document, actorUserId, actorLabel, assessment.summary, appOrigin);
+
+  const notifiedEmails = new Set<string>();
+  for (const signer of document.signers) {
+    const completedField = document.fields.find(
+      (field) => field.completedBySignerId === signer.id && isActionFieldKind(field.kind),
+    );
+
+    if (!completedField || notifiedEmails.has(signer.email)) {
+      continue;
+    }
+
+    await queueWorkflowUpdateForRecipient(
+      document.id,
+      signer.email,
+      assessment.summary,
+      metadata,
+      signer.userId,
+      signer.id,
+    );
+    notifiedEmails.add(signer.email);
   }
 }
 
@@ -2555,6 +2853,50 @@ export async function getSessionFromAuthorizationHeader(authorizationHeader: str
   };
 }
 
+export async function createFeedbackRequest(
+  authorizationHeader: string | undefined,
+  input: unknown,
+) {
+  const parsed = createFeedbackRequestInputSchema.parse(input);
+  const maybeUser = await tryResolveAuthenticatedUser(authorizationHeader);
+  const requesterEmail = maybeUser?.email ?? parsed.email?.trim().toLowerCase();
+
+  if (!requesterEmail) {
+    throw new AppError(400, "Email is required when you are not signed in.");
+  }
+
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("feedback_requests")
+    .insert({
+      feedback_type: parsed.feedbackType,
+      title: parsed.title,
+      details: parsed.details,
+      requester_email: requesterEmail,
+      requester_user_id: maybeUser?.id ?? null,
+      source: parsed.source,
+      requested_path: parsed.requestedPath,
+    })
+    .select("id, feedback_type, title, requester_email, source, requested_path, created_at")
+    .single();
+
+  if (error || !data) {
+    throw new AppError(500, error?.message ?? "Unable to save feedback right now.");
+  }
+
+  return {
+    feedback: {
+      id: (data as { id: string }).id,
+      feedbackType: (data as { feedback_type: "bug_report" | "feature_request" }).feedback_type,
+      title: (data as { title: string }).title,
+      requesterEmail: (data as { requester_email: string }).requester_email,
+      source: (data as { source: string }).source,
+      requestedPath: (data as { requested_path: string | null }).requested_path,
+      createdAt: (data as { created_at: string }).created_at,
+    },
+  };
+}
+
 export async function getProfileForAuthorizationHeader(authorizationHeader: string | undefined) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const adminClient = createServiceRoleClient();
@@ -2630,6 +2972,7 @@ export async function updateProfileForAuthorizationHeader(
 export async function listDigitalSignatureProfilesForAuthorizationHeader(
   authorizationHeader: string | undefined,
 ) {
+  assertCertificateSigningEnabledForRequest();
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const adminClient = createServiceRoleClient();
   const { data, error } = await adminClient
@@ -2653,6 +2996,7 @@ export async function createDigitalSignatureProfileForAuthorizationHeader(
   authorizationHeader: string | undefined,
   input: unknown,
 ) {
+  assertCertificateSigningEnabledForRequest();
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const parsed = createDigitalSignatureProfileInputSchema.parse(input);
   const adminClient = createServiceRoleClient();
@@ -2702,7 +3046,10 @@ export async function getAdminOverviewForAuthorizationHeader(
     sentDocumentsCount,
     completedDocumentsCount,
     pendingNotificationsCount,
+    failedNotificationsCount,
+    oldestPendingNotificationResponse,
     queuedJobsCount,
+    oldestQueuedJobResponse,
     subscriptionsResponse,
     billingCustomersCount,
     workspacesResponse,
@@ -2725,9 +3072,27 @@ export async function getAdminOverviewForAuthorizationHeader(
       .select("*", { count: "exact", head: true })
       .eq("status", "queued"),
     adminClient
+      .from("document_notifications")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "failed"),
+    adminClient
+      .from("document_notifications")
+      .select("queued_at")
+      .eq("status", "queued")
+      .order("queued_at", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+    adminClient
       .from("document_processing_jobs")
       .select("*", { count: "exact", head: true })
       .in("status", ["queued", "running"]),
+    adminClient
+      .from("document_processing_jobs")
+      .select("created_at")
+      .in("status", ["queued", "running"])
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
     adminClient
       .from("workspace_subscriptions")
       .select(
@@ -2750,7 +3115,10 @@ export async function getAdminOverviewForAuthorizationHeader(
     sentDocumentsCount,
     completedDocumentsCount,
     pendingNotificationsCount,
+    failedNotificationsCount,
+    oldestPendingNotificationResponse,
     queuedJobsCount,
+    oldestQueuedJobResponse,
     subscriptionsResponse,
     billingCustomersCount,
     workspacesResponse,
@@ -2806,7 +3174,12 @@ export async function getAdminOverviewForAuthorizationHeader(
       sentDocuments: sentDocumentsCount.count ?? 0,
       completedDocuments: completedDocumentsCount.count ?? 0,
       pendingNotifications: pendingNotificationsCount.count ?? 0,
+      failedNotifications: failedNotificationsCount.count ?? 0,
+      oldestPendingNotificationAt:
+        (oldestPendingNotificationResponse.data as { queued_at: string } | null)?.queued_at ?? null,
       queuedProcessingJobs: queuedJobsCount.count ?? 0,
+      oldestQueuedProcessingAt:
+        (oldestQueuedJobResponse.data as { created_at: string } | null)?.created_at ?? null,
       billingCustomers: billingCustomersCount.count ?? 0,
       estimatedMrrUsd,
     },
@@ -3244,10 +3617,10 @@ export async function getDocumentForAuthorizationHeader(
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   await requireDocumentRole(documentId, user.id);
-  const document = await requireDocumentBundle(documentId);
+  const updatedDocument = await requireDocumentBundle(documentId);
 
   return {
-    document: toWorkflowDocumentResponse(document, user.id),
+    document: toWorkflowDocumentResponse(updatedDocument, user.id),
   };
 }
 
@@ -3344,6 +3717,7 @@ export async function addSignerForAuthorizationHeader(
   await assertPermission(documentId, user, "manage_signers");
   const parsed = addSignerInputSchema.parse(input);
   const adminClient = createServiceRoleClient();
+  const document = await requireDocumentBundle(documentId);
   const { data: existingSigner, error: existingSignerError } = await adminClient
     .from("document_signers")
     .select("id")
@@ -3404,8 +3778,15 @@ export async function addSignerForAuthorizationHeader(
   );
   await appendVersion(documentId, user.id, "Updated signer routing", `Added signer ${parsed.email}`);
 
-  const document = await requireDocumentBundle(documentId);
-  return { document: toWorkflowDocumentResponse(document, user.id) };
+  if (documentHasSignedActionFields(document)) {
+    await applyDocumentChangeImpact(document, user.id, user.name, {
+      impact: "review_required",
+      summary: `A participant was added after signing started. Review the workflow and reopen it before more signing continues.`,
+    });
+  }
+
+  const updatedDocument = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(updatedDocument, user.id) };
 }
 
 export async function updateDocumentRoutingStrategyForAuthorizationHeader(
@@ -3417,6 +3798,7 @@ export async function updateDocumentRoutingStrategyForAuthorizationHeader(
   await assertPermission(documentId, user, "manage_signers");
   const parsed = updateDocumentRoutingInputSchema.parse(input);
   const adminClient = createServiceRoleClient();
+  const document = await requireDocumentBundle(documentId);
   const { error } = await adminClient
     .from("documents")
     .update({
@@ -3442,8 +3824,15 @@ export async function updateDocumentRoutingStrategyForAuthorizationHeader(
     `Updated routing to ${parsed.routingStrategy}`,
   );
 
-  const document = await requireDocumentBundle(documentId);
-  return { document: toWorkflowDocumentResponse(document, user.id) };
+  if (documentHasSignedActionFields(document)) {
+    await applyDocumentChangeImpact(document, user.id, user.name, {
+      impact: "review_required",
+      summary: `Routing changed after signing started. Review the workflow and reopen it before more signing continues.`,
+    });
+  }
+
+  const updatedDocument = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(updatedDocument, user.id) };
 }
 
 export async function updateDocumentWorkflowSettingsForAuthorizationHeader(
@@ -3455,6 +3844,7 @@ export async function updateDocumentWorkflowSettingsForAuthorizationHeader(
   await assertPermission(documentId, user, "manage_workflow");
   const parsed = updateDocumentWorkflowSettingsInputSchema.parse(input);
   const adminClient = createServiceRoleClient();
+  const document = await requireDocumentBundle(documentId);
   const { error } = await adminClient
     .from("documents")
     .update({
@@ -3480,10 +3870,14 @@ export async function updateDocumentWorkflowSettingsForAuthorizationHeader(
     user.id,
     parsed.dueAt ? "Updated workflow due date" : "Cleared workflow due date",
     parsed.dueAt ? `Workflow due date set to ${parsed.dueAt}` : "Workflow due date removed",
+    documentHasSignedActionFields(document) ? "non_material" : null,
+    documentHasSignedActionFields(document)
+      ? "Workflow metadata changed after signing started without affecting signed fields."
+      : null,
   );
 
-  const document = await requireDocumentBundle(documentId);
-  return { document: toWorkflowDocumentResponse(document, user.id) };
+  const updatedDocument = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(updatedDocument, user.id) };
 }
 
 export async function reassignDocumentSignerForAuthorizationHeader(
@@ -3573,6 +3967,13 @@ export async function reassignDocumentSignerForAuthorizationHeader(
   );
   await appendVersion(documentId, user.id, "Reassigned participant", `Signer slot now belongs to ${parsed.email}`);
 
+  if (documentHasSignedActionFields(document)) {
+    await applyDocumentChangeImpact(document, user.id, user.name, {
+      impact: "review_required",
+      summary: `A signer assignment changed after signing started. Review the workflow and reopen it before more signing continues.`,
+    }, appOrigin);
+  }
+
   const updatedDocument = await requireDocumentBundle(documentId);
   const eligibleSignerIds = getEligibleSignerIdsForNotifications(updatedDocument);
 
@@ -3601,6 +4002,7 @@ export async function addFieldForAuthorizationHeader(
   await assertPermission(documentId, user, "edit_document");
   const parsed = addFieldInputSchema.parse(input);
   const adminClient = createServiceRoleClient();
+  const document = await requireDocumentBundle(documentId);
   const currentFieldRows = await listFieldRowsForDocument(documentId);
   await ensureInitialEditorSnapshot(documentId, user.id, currentFieldRows);
   const { data, error } = await adminClient
@@ -3645,8 +4047,16 @@ export async function addFieldForAuthorizationHeader(
   });
   await appendVersion(documentId, user.id, "Updated field map", `Added field ${parsed.label}`);
 
-  const document = await requireDocumentBundle(documentId);
-  return { document: toWorkflowDocumentResponse(document, user.id) };
+  const changeImpact = documentHasSignedActionFields(document)
+    ? classifyFieldSetChangeImpact(document.fields, [...currentFieldRows, data as FieldRow])
+    : null;
+
+  if (changeImpact) {
+    await applyDocumentChangeImpact(document, user.id, user.name, changeImpact);
+  }
+
+  const updatedDocument = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(updatedDocument, user.id) };
 }
 
 export async function inviteCollaboratorForAuthorizationHeader(
@@ -4157,6 +4567,7 @@ export async function clearDocumentFieldsForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   await assertPermission(documentId, user, "manage_editor_history");
   const adminClient = createServiceRoleClient();
+  const document = await requireDocumentBundle(documentId);
   const currentFieldRows = await listFieldRowsForDocument(documentId);
   await ensureInitialEditorSnapshot(documentId, user.id, currentFieldRows);
 
@@ -4175,8 +4586,16 @@ export async function clearDocumentFieldsForAuthorizationHeader(
     removedFieldCount: currentFieldRows.length,
   });
 
-  const document = await requireDocumentBundle(documentId);
-  return { document: toWorkflowDocumentResponse(document, user.id) };
+  const changeImpact = documentHasSignedActionFields(document)
+    ? classifyFieldSetChangeImpact(document.fields, [])
+    : null;
+
+  if (changeImpact) {
+    await applyDocumentChangeImpact(document, user.id, user.name, changeImpact);
+  }
+
+  const updatedDocument = await requireDocumentBundle(documentId);
+  return { document: toWorkflowDocumentResponse(updatedDocument, user.id) };
 }
 
 export async function undoDocumentEditorForAuthorizationHeader(
@@ -4212,6 +4631,14 @@ export async function undoDocumentEditorForAuthorizationHeader(
     historyIndex: targetIndex,
   });
 
+  const changeImpact = documentHasSignedActionFields(document)
+    ? classifyFieldSetChangeImpact(currentFieldRows, (data as EditorSnapshotRow).fields as FieldRow[])
+    : null;
+
+  if (changeImpact) {
+    await applyDocumentChangeImpact(document, user.id, user.name, changeImpact);
+  }
+
   const finalDocument = await requireDocumentBundle(documentId);
   return { document: toWorkflowDocumentResponse(finalDocument, user.id) };
 }
@@ -4224,6 +4651,7 @@ export async function redoDocumentEditorForAuthorizationHeader(
   await assertPermission(documentId, user, "manage_editor_history");
   const adminClient = createServiceRoleClient();
   const document = await requireDocumentBundle(documentId);
+  const currentFieldRows = await listFieldRowsForDocument(documentId);
 
   if (document.editorHistory.currentIndex >= document.editorHistory.latestIndex) {
     throw new AppError(409, "There is no later editor state to redo to.");
@@ -4246,6 +4674,14 @@ export async function redoDocumentEditorForAuthorizationHeader(
   await appendAuditEvent(documentId, user.id, "field.created", "Redid field layout change", {
     historyIndex: targetIndex,
   });
+
+  const changeImpact = documentHasSignedActionFields(document)
+    ? classifyFieldSetChangeImpact(currentFieldRows, (data as EditorSnapshotRow).fields as FieldRow[])
+    : null;
+
+  if (changeImpact) {
+    await applyDocumentChangeImpact(document, user.id, user.name, changeImpact);
+  }
 
   const finalDocument = await requireDocumentBundle(documentId);
   return { document: toWorkflowDocumentResponse(finalDocument, user.id) };
@@ -4450,6 +4886,7 @@ export async function renameDocumentForAuthorizationHeader(
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   await assertPermission(documentId, user, "edit_document");
+  const document = await requireDocumentBundle(documentId);
 
   const trimmed = name.trim();
 
@@ -4473,11 +4910,21 @@ export async function renameDocumentForAuthorizationHeader(
   }
 
   await appendAuditEvent(documentId, user.id, "document.renamed", `Document renamed to "${trimmed}"`);
+  await appendVersion(
+    documentId,
+    user.id,
+    "Renamed document",
+    `Document renamed to "${trimmed}"`,
+    documentHasSignedActionFields(document) ? "non_material" : null,
+    documentHasSignedActionFields(document)
+      ? "Document metadata changed after signing started without affecting signed fields."
+      : null,
+  );
 
-  const document = await requireDocumentBundle(documentId);
+  const updatedDocument = await requireDocumentBundle(documentId);
 
   return {
-    document: toWorkflowDocumentResponse(document, user.id),
+    document: toWorkflowDocumentResponse(updatedDocument, user.id),
   };
 }
 
