@@ -1,91 +1,165 @@
 flowchart TD
 
-    %% ── ACCOUNT SETUP ──────────────────────────────────────────────────────
-    subgraph ACCOUNT["① Account setup"]
-        A1([Sign up]) --> A2[Onboarding prompt\nworkspace name · invite teammates]
-        A2 --> A3[Owner Portal — Billing]
-        A3 --> A4{Choose plan}
-        A4 -->|no card required| A5[Free trial — 30 days\n$0 invoice emailed by Stripe]
-        A4 --> A6[Monthly — $12 CAD per seat]
-        A4 --> A7[Annual — $120 CAD per seat]
-        A5 & A6 & A7 --> A8[Subscription active]
+    %% ── COMMON START ───────────────────────────────────────────────────────
+    subgraph START["1. Upload and prepare"]
+        U1([User uploads PDF]) --> U2[Document created in draft]
+        U2 --> U3[Add participants]
+        U3 --> U4[Place fields]
+        U4 --> U5[Assign required action fields]
+        U5 --> U6{Routing strategy}
+        U6 -->|Sequential| U7[One signer active at a time]
+        U6 -->|Parallel| U8[All signers in current stage active together]
+        U7 --> U9{Delivery mode}
+        U8 --> U9
     end
 
-    %% ── PREPARE DOCUMENT ────────────────────────────────────────────────────
-    subgraph PREPARE["② Prepare document"]
-        P1[Upload PDF] --> P2[Draft]
-        P2 --> P3[Add participants\ninternal users · external signers]
-        P3 --> P4[Place fields\nsignature · initial · approval · text · date]
-        P4 --> P5[Assign fields to participants]
-        P5 --> P6{Routing strategy}
-        P6 -->|lowest stage + order first| P7[Sequential]
-        P6 -->|all in stage at once| P8[Parallel]
-        P7 & P8 --> P9{Delivery mode}
+    %% ── PATH A ─────────────────────────────────────────────────────────────
+    subgraph PATH_A["2A. Self-managed path"]
+        A1[Owner marks document ready] --> A2[EasyDraft records sentAt\nversion snapshot and audit event]
+        A2 --> A3[No platform emails sent]
+        A3 --> A4[Owner downloads, shares, or distributes links manually]
+        A4 --> A5{Who signs?}
+        A5 -->|Internal signer| A6[Internal signer signs in to EasyDraft]
+        A5 -->|External signer| A7[External signer uses owner-managed link or offline distribution]
+        A6 --> A8[Complete assigned fields]
+        A7 --> A8
+        A8 --> A9{All required assigned\naction fields complete?}
+        A9 -->|No| A10[Owner follows up manually\nand next signer acts]
+        A10 --> A5
+        A9 -->|Yes| A11[Document completed]
     end
 
-    %% ── DELIVERY MODES ──────────────────────────────────────────────────────
-    P9 -->|no platform emails\nowner distributes manually| D1[Self-managed]
-    P9 -->|authenticated users only\nno external emails| D2[Internal-only]
-    P9 -->|full email routing| D3[Platform-managed]
-
-    D3 --> G1{Active subscription?}
-    G1 -->|No| G2[402 — subscribe first]
-    G1 -->|Yes| G3{Enough signing tokens\nfor external participants?}
-    G3 -->|No| G4[402 — buy tokens\n$12 CAD for 12]
-    G3 -->|Yes| SND
-
-    D1 & D2 --> SND[Send\nsentAt recorded · version snapshot · audit event]
-
-    %% ── ROUTING ─────────────────────────────────────────────────────────────
-    SND --> R1[Determine eligible signers]
-    R1 -->|Sequential| R2[Lowest stage, lowest signing order only\none signer active at a time per stage]
-    R1 -->|Parallel| R3[All signers in lowest pending stage\nactive simultaneously]
-
-    %% ── SIGNING ─────────────────────────────────────────────────────────────
-    subgraph SIGN["③ Signing"]
-        R2 & R3 --> S1{Signer type}
-
-        S1 -->|EasyDraft account| S2[Internal signer\nauthenticated session]
-        S1 -->|no account needed| S3[External signer\ntoken link delivered via email]
-
-        S2 --> S4{Pre-placed field?}
-        S4 -->|Yes| S5[Complete assigned field\nsaved signature · draw · type]
-        S4 -->|No| S6[Free-placement\nposition and sign in one step\nany page, any size]
-        S6 --> S5
-
-        S3 --> S7[Guest signing session\nno account created\ntoken validated server-side]
-        S7 --> S8[Complete assigned field\ndraw or type directly]
-
-        S5 & S8 --> S9[Field complete\naudit event recorded\noriginator notified if enabled]
+    %% ── PATH B ─────────────────────────────────────────────────────────────
+    subgraph PATH_B["2B. Internal-use-only path"]
+        B1[Owner sends internal workflow] --> B2[EasyDraft records sentAt\nversion snapshot and audit event]
+        B2 --> B3[Only authenticated EasyDraft users can act]
+        B3 --> B4{Routing strategy}
+        B4 -->|Sequential| B5[Lowest stage and order signer becomes active]
+        B4 -->|Parallel| B6[All signers in current stage become active]
+        B5 --> B7[Internal signer signs in]
+        B6 --> B7
+        B7 --> B8{Pre-placed field or free placement?}
+        B8 -->|Pre-placed| B9[Signer completes assigned signature\ninitial or approval field]
+        B8 -->|Free placement| B10[Signer places signature field\nand signs immediately]
+        B9 --> B11[Audit event recorded]
+        B10 --> B11
+        B11 --> B12{All required assigned\naction fields complete?}
+        B12 -->|No| B13[Next eligible internal signer is shown]
+        B13 --> B4
+        B12 -->|Yes| B14[Document completed]
     end
 
-    S9 --> CHK{All required assigned\naction fields complete?}
-    CHK -->|No| NXT[Advance to next eligible signer\nnotify newly eligible participants]
-    NXT --> S1
-    CHK -->|Yes| C1
-
-    %% ── COMPLETION AND EXPORT ────────────────────────────────────────────────
-    subgraph COMPLETE["④ Completion and export"]
-        C1[Completed\ncompletedAt set · document unlocked · audit event] --> C2[Render signed PDF\nembed all field values]
-        C2 --> C3[SHA-256 hash computed\nstored on document record]
-        C3 --> C4[Export available\nsigned PDF · completion certificate]
-        C4 --> C5([Download via signed URL\n10-minute expiry])
+    %% ── PATH C ─────────────────────────────────────────────────────────────
+    subgraph PATH_C["2C. Platform-managed path"]
+        C1[Owner sends managed workflow] --> C2{Active subscription?}
+        C2 -->|No| C3[Send blocked\nsubscribe first]
+        C2 -->|Yes| C4{Any external participants?}
+        C4 -->|No| C5[No tokens required]
+        C4 -->|Yes| C6{Enough external tokens?}
+        C6 -->|No| C7[Send blocked\nbuy more tokens]
+        C6 -->|Yes| C8[Tokens reserved for this external workflow]
+        C5 --> C9[EasyDraft records sentAt\nversion snapshot and audit event]
+        C8 --> C9
+        C9 --> C10[Notifications queued for eligible participants]
+        C10 --> C11{Current active participant type}
+        C11 -->|Internal| C12[Internal signer signs in to EasyDraft]
+        C11 -->|External| C13[External signer opens secure token link]
+        C12 --> C14[Signer completes assigned fields]
+        C13 --> C15[Guest signing session validated\nno account required]
+        C15 --> C14
+        C14 --> C16[Audit event recorded\noriginator notified if enabled]
+        C16 --> C17{All required assigned\naction fields complete?}
+        C17 -->|No| C18[Next eligible signer is activated\nand notified automatically]
+        C18 --> C11
+        C17 -->|Yes| C19[Document completed]
     end
 
-    %% ── OPERATIONAL PAUSES ───────────────────────────────────────────────────
-    subgraph PAUSES["Operational pauses — available after Send"]
-        L1[Locked\nno further signing\nowner/editor action]
-        CR1[Changes requested\nworkflow paused\nsigner initiates · originator notified]
-        X1([Rejected\nworkflow terminated\nsigner declines])
-        X2([Canceled\nworkflow terminated\nowner/editor aborts])
+    %% ── COMPLETION ─────────────────────────────────────────────────────────
+    subgraph COMPLETE["3. Completion and export"]
+        X1[Completed document] --> X2[Render final PDF with field values]
+        X2 --> X3[SHA-256 hash generated\nand stored on document]
+        X3 --> X4[Completion certificate available]
+        X4 --> X5([Download via signed URL])
     end
 
-    SND -. owner/editor locks .-> L1
-    L1 -. owner/editor reopens .-> R1
-    S1 -. signer requests changes .-> CR1
-    CR1 -. originator revises and reopens .-> R1
-    S1 -. signer rejects .-> X1
-    SND -. owner/editor cancels .-> X2
+    %% ── CHANGE IMPACT ──────────────────────────────────────────────────────
+    subgraph IMPACT["4. Post-send changes and impact classification"]
+        M1[Owner or editor changes document\nafter signing has started] --> M2{What changed?}
+        M2 -->|Rename or due date only| M3[Non-material\nversion and audit entry only]
+        M2 -->|Signer routing or unsigned field map| M4[Review required]
+        M2 -->|Signed field layout or value impact| M5[Re-sign required]
+        M4 --> M6[Workflow moves to changes_requested\noriginator update queued]
+        M5 --> M7[Completed action fields cleared\nworkflow returns to active signing]
+        M7 --> M8[Previously completed signers\nand originator notified]
+    end
 
-    %% ── AUDIT TRAIL ──────────────────────────────────────────────────────────
-    SND & S9 & C1 & L1 & CR1 & X1 & X2 -.-> AT[(Audit trail\nfull event history\nvisible to all participants)]
+    %% ── OPERATIONAL PAUSES ─────────────────────────────────────────────────
+    subgraph PAUSES["5. Operational pauses after send"]
+        P1[Locked\nsigning paused]
+        P2[Changes requested\nworkflow paused]
+        P3[Rejected\nworkflow ends]
+        P4[Canceled by owner/editor\nworkflow ends]
+        P5[Reopened\nworkflow resumes]
+    end
+
+    %% ── OPERATOR LOOP ──────────────────────────────────────────────────────
+    subgraph OPS["6. Operator loop"]
+        O1[Deploy or active beta operations] --> O2[Smoke-check public routes:\npricing privacy terms security]
+        O2 --> O3{All direct links return 200?}
+        O3 -->|No| O4[Fix deployment routing\nbefore broader selling]
+        O3 -->|Yes| O5[Review admin queues\nand feedback queue]
+        O5 --> O6{Any issue needs action?}
+        O6 -->|No| O7[Continue beta operations]
+        O6 -->|Yes| O8[Assign owner\nset priority and status]
+        O8 --> O9[Resolve or escalate\nadd closure note and changelog entry]
+    end
+
+    %% ── SHARED LINKS ───────────────────────────────────────────────────────
+    U9 -->|Self-managed| A1
+    U9 -->|Internal-use-only| B1
+    U9 -->|Platform-managed| C1
+
+    A11 --> X1
+    B14 --> X1
+    C19 --> X1
+
+    A2 -. owner/editor locks .-> P1
+    B2 -. owner/editor locks .-> P1
+    C9 -. owner/editor locks .-> P1
+
+    A8 -. post-send edit .-> M1
+    B11 -. post-send edit .-> M1
+    C16 -. post-send edit .-> M1
+
+    M6 --> P2
+    M3 -. workflow continues .-> A5
+    M3 -. workflow continues .-> B4
+    M3 -. workflow continues .-> C11
+    M8 -. signing restarts .-> A5
+    M8 -. signing restarts .-> B4
+    M8 -. signing restarts .-> C11
+
+    B7 -. signer requests changes .-> P2
+    C11 -. signer requests changes .-> P2
+
+    B7 -. signer rejects .-> P3
+    C11 -. signer rejects .-> P3
+
+    A2 -. owner/editor cancels .-> P4
+    B2 -. owner/editor cancels .-> P4
+    C9 -. owner/editor cancels .-> P4
+
+    P1 -. reopen .-> P5
+    P2 -. revise and reopen .-> P5
+    P5 --> A5
+    P5 --> B4
+    P5 --> C11
+
+    C10 -. queue health .-> O5
+    P2 -. review follow-up .-> O5
+    P3 -. support follow-up .-> O5
+    P4 -. support follow-up .-> O5
+    X4 -. release and trust checks .-> O5
+
+    %% ── AUDIT TRAIL ────────────────────────────────────────────────────────
+    U2 & A2 & B2 & C9 & B11 & C16 & M3 & M6 & M7 & X1 & P1 & P2 & P3 & P4 -.-> AT[(Audit trail and version history)]

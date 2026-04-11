@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import adminOverviewHandler from "../apps/web/api/admin-overview.js";
+import adminFeedbackHandler from "../apps/web/api/admin-feedback.js";
 import adminUsersHandler from "../apps/web/api/admin-users.js";
 import authPasswordHandler from "../apps/web/api/auth-password.js";
 import authPasswordFormHandler from "../apps/web/api/auth-password-form.js";
@@ -53,6 +54,7 @@ type RouteHandler = (request: VercelRequest, response: VercelResponse) => Promis
 
 const routeHandlers: Record<string, RouteHandler> = {
   "admin-overview": adminOverviewHandler,
+  "admin-feedback": adminFeedbackHandler,
   "admin-user-invite": adminUserInviteHandler,
   "admin-users": adminUsersHandler,
   "auth-password": authPasswordHandler,

@@ -309,7 +309,8 @@ Admins should communicate these clearly during the pilot:
 - billing may still be in placeholder mode
 - live email delivery may not be enabled yet
 - third-party certificate-backed signing is not yet integrated
-- change-impact handling after partial completion is still a next-step feature
+- change-impact handling after partial completion is live, but it should still be smoke-tested on real workflows before broader selling
+- public trust pages exist, and their direct deploy routes should be checked after each release
 
 That positioning helps keep tester expectations aligned with the current stage of the product.
 
@@ -318,8 +319,7 @@ That positioning helps keep tester expectations aligned with the current stage o
 To make the product more market-ready, operators should prioritize:
 
 - finalizing Stripe account setup
-- publishing privacy policy and terms
-- preparing security/privacy summary copy
+- reviewing privacy, terms, and security copy for legal/commercial accuracy
 - refining pricing copy and trust proof
 - preparing tester onboarding and invite email copy
 - validating the core workflow paths with real users
@@ -331,3 +331,4 @@ To make the product more market-ready, operators should prioritize:
 - [go-live-checklist.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/go-live-checklist.md)
 - [deployment.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/deployment.md)
 - [identity-and-monetization.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/identity-and-monetization.md)
+- [operator-runbook.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/operator-runbook.md)

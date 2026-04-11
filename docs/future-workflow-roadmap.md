@@ -9,6 +9,19 @@
 - always make edits after partial completion understandable and auditable
 - always close the loop with a clear completion package
 
+## Current boundary
+
+EasyDraft is not intended to become a full PDF editor. The current and next-phase roadmap should stay centered on:
+
+- upload existing PDF
+- place minimal workflow-safe fields
+- assign participants
+- route cleanly
+- verify signers appropriately
+- complete and preserve evidence
+
+Anything outside that boundary should be treated as lower priority than workflow hardening.
+
 ---
 
 ## Current workflow diagram
@@ -176,8 +189,10 @@ Owners and editors cannot sign their own fields. Signers cannot lock, reopen, or
 
 These are not yet implemented. Add them when there is proven demand:
 
+- **External signer OTP verification** — require a one-time email code before final external signature/initial/approval submission so the completion event is meaningfully email-verified.
+- **Executed-record durability** — make completed workflows harder to delete or silently mutate, and ensure reopen/revision flows preserve completed history cleanly.
 - **Certificate-backed PDF signing** — PAdES/CAdES embedding via `easy_draft_remote`, `qualified_remote`, or `organization_hsm` provider. The `DigitalSignatureProfile` model and UI already exist; only the provider wiring is missing.
-- **Change-impact classification** — classify edits made after partial signing as `non_material`, `review_required`, or `resign_required` rather than treating all edits the same.
+- **Change-impact expansion** — extend test and endpoint coverage so every post-sign mutation path produces the right `non_material`, `review_required`, or `resign_required` consequence.
 - **Purpose-built signer page** — replace the current sidebar layout for external signers with a focused signing experience that shows the document prominently with field highlights.
 - **Stage-level originator updates** — send one email per stage completion rather than one per field to reduce notification noise on large documents.
 - **Overdue escalation** — auto-reassign or auto-remind when a due date passes and the signer has not acted.

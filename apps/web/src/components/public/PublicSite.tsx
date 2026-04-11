@@ -1,4 +1,5 @@
 import type { Session } from "@supabase/supabase-js";
+import type { MouseEvent } from "react";
 
 import { AuthPanel } from "../AuthPanel";
 import { FeedbackPanel } from "../FeedbackPanel";
@@ -76,6 +77,11 @@ export function PublicSite({
     ? renderLegalPage(publicPage)
     : null;
 
+  function handlePublicNav(event: MouseEvent<HTMLAnchorElement>, nextPage: PublicPage) {
+    event.preventDefault();
+    onNavigatePublicPage(nextPage);
+  }
+
   return (
     <div className="landing-shell">
       <header className="landing-header">
@@ -88,11 +94,11 @@ export function PublicSite({
             </div>
           </div>
           <nav className="landing-nav">
-            <button className="landing-nav-link" onClick={() => onNavigatePublicPage("home")} type="button">Home</button>
-            <button className="landing-nav-link" onClick={() => onNavigatePublicPage("pricing")} type="button">Pricing</button>
-            <button className="landing-nav-link" onClick={() => onNavigatePublicPage("security")} type="button">Security</button>
-            <button className="landing-nav-link" onClick={() => onNavigatePublicPage("privacy")} type="button">Privacy</button>
-            <button className="landing-nav-link" onClick={() => onNavigatePublicPage("terms")} type="button">Terms</button>
+            <a className="landing-nav-link" href="/" onClick={(event) => handlePublicNav(event, "home")}>Home</a>
+            <a className="landing-nav-link" href="/pricing" onClick={(event) => handlePublicNav(event, "pricing")}>Pricing</a>
+            <a className="landing-nav-link" href="/security" onClick={(event) => handlePublicNav(event, "security")}>Security</a>
+            <a className="landing-nav-link" href="/privacy" onClick={(event) => handlePublicNav(event, "privacy")}>Privacy</a>
+            <a className="landing-nav-link" href="/terms" onClick={(event) => handlePublicNav(event, "terms")}>Terms</a>
             <a className="landing-nav-cta" href="#landing-auth">Start free trial</a>
           </nav>
         </div>
@@ -109,7 +115,7 @@ export function PublicSite({
               </p>
               <div className="landing-cta-row">
                 <a className="primary-button" href="#landing-auth">Start free trial</a>
-                <button className="ghost-button" onClick={() => onNavigatePublicPage("pricing")} type="button">View pricing</button>
+                <a className="ghost-button" href="/pricing" onClick={(event) => handlePublicNav(event, "pricing")}>View pricing</a>
                 <a className="ghost-button" href="#landing-tour">Explore product tour</a>
               </div>
               <div className="landing-proof-grid">
@@ -152,7 +158,7 @@ export function PublicSite({
               </p>
               <div className="landing-cta-row">
                 <a className="primary-button" href="#landing-auth">Start free trial</a>
-                <button className="ghost-button" onClick={() => onNavigatePublicPage("home")} type="button">Back to overview</button>
+                <a className="ghost-button" href="/" onClick={(event) => handlePublicNav(event, "home")}>Back to overview</a>
               </div>
               <div className="landing-proof-grid">
                 <div className="landing-proof-card">
@@ -279,17 +285,17 @@ export function PublicSite({
           <article className="toolbar-card">
             <strong>Privacy</strong>
             <p className="muted">Understand what the beta stores and what stays with providers like Stripe.</p>
-            <button className="ghost-button" onClick={() => onNavigatePublicPage("privacy")} type="button">Open privacy</button>
+            <a className="ghost-button" href="/privacy" onClick={(event) => handlePublicNav(event, "privacy")}>Open privacy</a>
           </article>
           <article className="toolbar-card">
             <strong>Terms</strong>
             <p className="muted">Review the private-beta usage posture and scope of the current release.</p>
-            <button className="ghost-button" onClick={() => onNavigatePublicPage("terms")} type="button">Open terms</button>
+            <a className="ghost-button" href="/terms" onClick={(event) => handlePublicNav(event, "terms")}>Open terms</a>
           </article>
           <article className="toolbar-card">
             <strong>Security</strong>
             <p className="muted">See how SHA-256 integrity, audit history, and queue visibility work today.</p>
-            <button className="ghost-button" onClick={() => onNavigatePublicPage("security")} type="button">Open security</button>
+            <a className="ghost-button" href="/security" onClick={(event) => handlePublicNav(event, "security")}>Open security</a>
           </article>
         </div>
         <div style={{ marginTop: "18px" }}>

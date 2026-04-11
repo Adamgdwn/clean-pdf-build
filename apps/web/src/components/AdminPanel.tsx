@@ -2,11 +2,15 @@ import { useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 
 import { apiFetch } from "../lib/api";
-import type { AdminManagedUser, AdminOverview, SessionUser } from "../types";
+import type { AdminFeedbackRequest, AdminManagedUser, AdminOverview, SessionUser } from "../types";
 
 function formatTimestamp(timestamp: string | null) {
   if (!timestamp) return "Not set";
   return new Date(timestamp).toLocaleString();
+}
+
+function formatFeedbackLabel(value: string) {
+  return value.replaceAll("_", " ");
 }
 
 // ─── Sidebar summary card ────────────────────────────────────────────────────
@@ -69,16 +73,57 @@ type ConsoleProps = {
   sessionUser: SessionUser;
   adminOverview: AdminOverview;
   adminUsers: AdminManagedUser[];
+  adminFeedbackRequests: AdminFeedbackRequest[];
   onRefresh: () => void;
 };
 
-export function AdminConsole({ session, sessionUser, adminOverview, adminUsers, onRefresh }: ConsoleProps) {
+export function AdminConsole({
+  session,
+  sessionUser,
+  adminOverview,
+  adminUsers,
+  adminFeedbackRequests,
+  onRefresh,
+}: ConsoleProps) {
   const [adminInviteName, setAdminInviteName] = useState("");
   const [adminInviteEmail, setAdminInviteEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<string | null>(null);
+  const [feedbackDrafts, setFeedbackDrafts] = useState<Record<string, {
+    status: AdminFeedbackRequest["status"];
+    priority: AdminFeedbackRequest["priority"];
+    ownerUserId: string | null;
+    resolutionNote: string;
+  }>>({});
+
+  function getFeedbackDraft(feedbackRequest: AdminFeedbackRequest) {
+    return feedbackDrafts[feedbackRequest.id] ?? {
+      status: feedbackRequest.status,
+      priority: feedbackRequest.priority,
+      ownerUserId: feedbackRequest.ownerUserId,
+      resolutionNote: feedbackRequest.resolutionNote ?? "",
+    };
+  }
+
+  function updateFeedbackDraft(
+    feedbackRequestId: string,
+    patch: Partial<ReturnType<typeof getFeedbackDraft>>,
+  ) {
+    setFeedbackDrafts((current) => ({
+      ...current,
+      [feedbackRequestId]: {
+        ...(current[feedbackRequestId] ?? {
+          status: "new" as const,
+          priority: "medium" as const,
+          ownerUserId: null,
+          resolutionNote: "",
+        }),
+        ...patch,
+      },
+    }));
+  }
 
   async function handleAdminSendPasswordReset(userId: string) {
     setIsLoading(true);
@@ -162,6 +207,41 @@ export function AdminConsole({ session, sessionUser, adminOverview, adminUsers, 
       setIsLoading(false);
     }
   }
+
+  async function handleSaveFeedback(feedbackRequest: AdminFeedbackRequest) {
+    const draft = getFeedbackDraft(feedbackRequest);
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      await apiFetch("/admin-feedback", session, {
+        method: "POST",
+        body: JSON.stringify({
+          feedbackRequestId: feedbackRequest.id,
+          status: draft.status,
+          priority: draft.priority,
+          ownerUserId: draft.ownerUserId,
+          resolutionNote: draft.resolutionNote.trim() || null,
+        }),
+      });
+      setNoticeMessage(`Updated feedback item "${feedbackRequest.title}".`);
+      setFeedbackDrafts((current) => {
+        const next = { ...current };
+        delete next[feedbackRequest.id];
+        return next;
+      });
+      onRefresh();
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  const openFeedbackCount = adminFeedbackRequests.filter((request) => request.status !== "closed").length;
+  const unassignedFeedbackCount = adminFeedbackRequests.filter((request) => !request.ownerUserId).length;
+  const highPriorityFeedbackCount = adminFeedbackRequests.filter((request) => request.priority === "high").length;
 
   return (
     <section className="panel admin-console-panel">
@@ -287,6 +367,138 @@ export function AdminConsole({ session, sessionUser, adminOverview, adminUsers, 
                   <span>{formatTimestamp(workspace.created_at)}</span>
                 </div>
               ))}
+            </div>
+          </div>
+
+          <div className="toolbar-card">
+            <div className="section-heading compact">
+              <p className="eyebrow">Feedback queue</p>
+              <span>{adminFeedbackRequests.length}</span>
+            </div>
+            <p className="muted action-note">
+              Keep bug reports and feature requests moving with a lightweight operator loop: assign, prioritize,
+              update status, and close with a note.
+            </p>
+            <div className="admin-metrics">
+              <div className="metric">
+                <span>Open</span>
+                <strong>{openFeedbackCount}</strong>
+              </div>
+              <div className="metric">
+                <span>Unassigned</span>
+                <strong>{unassignedFeedbackCount}</strong>
+              </div>
+              <div className="metric">
+                <span>High priority</span>
+                <strong>{highPriorityFeedbackCount}</strong>
+              </div>
+            </div>
+            <div className="stack" style={{ marginTop: "1rem" }}>
+              {adminFeedbackRequests.length === 0 ? (
+                <p className="muted">No feedback has been submitted yet.</p>
+              ) : (
+                adminFeedbackRequests.slice(0, 8).map((feedbackRequest) => {
+                  const draft = getFeedbackDraft(feedbackRequest);
+
+                  return (
+                    <div key={feedbackRequest.id} className="row-card" style={{ display: "block" }}>
+                      <div className="section-heading compact">
+                        <p className="eyebrow">{feedbackRequest.feedbackType === "bug_report" ? "Bug report" : "Feature request"}</p>
+                        <span>{formatFeedbackLabel(feedbackRequest.status)} · {feedbackRequest.priority}</span>
+                      </div>
+                      <strong>{feedbackRequest.title}</strong>
+                      <p className="muted">
+                        {feedbackRequest.requesterEmail} · {formatTimestamp(feedbackRequest.createdAt)}
+                      </p>
+                      <p className="muted">
+                        Source: {formatFeedbackLabel(feedbackRequest.source)}
+                        {feedbackRequest.requestedPath ? ` · ${feedbackRequest.requestedPath}` : ""}
+                      </p>
+                      <p className="muted" style={{ whiteSpace: "pre-wrap" }}>{feedbackRequest.details}</p>
+                      <div className="form-grid compact-grid">
+                        <label className="form-field">
+                          <span>Status</span>
+                          <select
+                            value={draft.status}
+                            onChange={(event) =>
+                              updateFeedbackDraft(feedbackRequest.id, {
+                                status: event.target.value as AdminFeedbackRequest["status"],
+                              })
+                            }
+                          >
+                            <option value="new">New</option>
+                            <option value="acknowledged">Acknowledged</option>
+                            <option value="planned">Planned</option>
+                            <option value="in_progress">In progress</option>
+                            <option value="closed">Closed</option>
+                          </select>
+                        </label>
+                        <label className="form-field">
+                          <span>Priority</span>
+                          <select
+                            value={draft.priority}
+                            onChange={(event) =>
+                              updateFeedbackDraft(feedbackRequest.id, {
+                                priority: event.target.value as AdminFeedbackRequest["priority"],
+                              })
+                            }
+                          >
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                          </select>
+                        </label>
+                      </div>
+                      <p className="muted">
+                        Owner: {feedbackRequest.ownerDisplayName ?? "Unassigned"}
+                        {feedbackRequest.ownerEmail ? ` (${feedbackRequest.ownerEmail})` : ""}
+                      </p>
+                      <label className="form-field">
+                        <span>Resolution note</span>
+                        <textarea
+                          rows={3}
+                          value={draft.resolutionNote}
+                          onChange={(event) =>
+                            updateFeedbackDraft(feedbackRequest.id, { resolutionNote: event.target.value })
+                          }
+                          placeholder="Capture the fix, decision, workaround, or reason for closing."
+                        />
+                      </label>
+                      <div className="action-row action-wrap">
+                        <button
+                          className="ghost-button"
+                          disabled={isLoading}
+                          onClick={() => updateFeedbackDraft(feedbackRequest.id, { ownerUserId: sessionUser.id })}
+                          type="button"
+                        >
+                          Assign to me
+                        </button>
+                        <button
+                          className="ghost-button"
+                          disabled={isLoading}
+                          onClick={() => updateFeedbackDraft(feedbackRequest.id, { ownerUserId: null })}
+                          type="button"
+                        >
+                          Unassign
+                        </button>
+                        <button
+                          className="secondary-button"
+                          disabled={isLoading}
+                          onClick={() => handleSaveFeedback(feedbackRequest)}
+                          type="button"
+                        >
+                          Save feedback update
+                        </button>
+                      </div>
+                      <p className="muted">
+                        Last updated: {formatTimestamp(feedbackRequest.updatedAt)}
+                        {feedbackRequest.updatedByDisplayName ? ` by ${feedbackRequest.updatedByDisplayName}` : ""}
+                        {feedbackRequest.resolvedAt ? ` · closed ${formatTimestamp(feedbackRequest.resolvedAt)}` : ""}
+                      </p>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>

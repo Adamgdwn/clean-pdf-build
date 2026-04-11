@@ -71,5 +71,23 @@
       "destination": "https://easydraftdocs.app/$1",
       "permanent": true
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/pricing",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/privacy",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/terms",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/security",
+      "destination": "/index.html"
+    }
   ]
 }

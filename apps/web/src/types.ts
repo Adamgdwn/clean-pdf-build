@@ -165,6 +165,28 @@ export type AdminOverview = {
   }>;
 };
 
+export type AdminFeedbackRequest = {
+  id: string;
+  feedbackType: "bug_report" | "feature_request";
+  title: string;
+  details: string;
+  requesterEmail: string;
+  requesterUserId: string | null;
+  source: string;
+  requestedPath: string | null;
+  status: "new" | "acknowledged" | "planned" | "in_progress" | "closed";
+  priority: "low" | "medium" | "high";
+  ownerUserId: string | null;
+  ownerDisplayName: string | null;
+  ownerEmail: string | null;
+  updatedByUserId: string | null;
+  updatedByDisplayName: string | null;
+  resolutionNote: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type WorkspaceTeamMember = {
   userId: string;
   role: string;

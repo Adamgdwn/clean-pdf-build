@@ -1,6 +1,7 @@
 {
   "name": "clean-pdf-build",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "workspaces": [
     "apps/*",
@@ -19,6 +20,7 @@
     "supabase:start": "npx supabase start",
     "supabase:stop": "npx supabase stop",
     "supabase:db:reset": "npx supabase db reset",
+    "smoke:public-routes": "node scripts/smoke-public-routes.mjs",
     "processor:run-queued": "curl -s -X POST http://localhost:4010/jobs/run-queued",
     "processor:run-notifications": "curl -s -X POST http://localhost:4010/notifications/run-queued"
   },

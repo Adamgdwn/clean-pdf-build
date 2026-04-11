@@ -2,6 +2,18 @@
 
 ## System boundaries
 
+EasyDraft should be treated as a **minimal-change, workflow-safe PDF execution system**.
+
+It is:
+- a field overlay and routing system
+- a signer assignment and completion engine
+- a workflow evidence and export layer
+
+It is not:
+- a broad PDF editor
+- a content authoring tool
+- a general layout/transformation workspace
+
 ### Client app
 
 Responsibilities:
@@ -9,13 +21,13 @@ Responsibilities:
 - authentication UX
 - public marketing and pricing surfaces
 - upload initiation
-- PDF preview and editing interactions
+- PDF preview and field-overlay interactions
 - signer setup, review, and send flows
 - owner/admin control-center orchestration
 - active workspace selection and persistence
 - audit and version history views
 
-This layer should stay thin. It orchestrates, but does not own workflow truth or heavy document processing.
+This layer should stay thin. It orchestrates, but does not own workflow truth, arbitrary document editing, or heavy document processing.
 
 ### Workflow service
 
@@ -43,8 +55,10 @@ Responsibilities:
 
 - OCR jobs
 - field-detection jobs
-- PDF transforms such as rotate, reorder, split, merge, and flatten
+- tightly scoped PDF processing utilities when they directly support workflow execution
 - provenance and confidence metadata for machine-assisted results
+
+Non-core PDF transformations should not drive the product roadmap ahead of workflow hardening.
 
 ### Storage
 
@@ -89,7 +103,9 @@ Extraction order (in progress):
 2. ✅ AdminPanel — AdminConsole owns invite/delete/reset handlers + scoped error state
 3. ✅ BillingPanel — checkout/portal handlers + scoped redirect/error state
 4. ✅ OwnerPortal — owner-first KPI, watchlist, billing/team/admin composition
-5. Next: DocumentSidebar, WorkflowChecklistPanel, FieldEditorPanel, public landing/pricing extraction
+5. ✅ PublicSite — public landing, pricing, privacy, terms, and security surfaces extracted into focused components
+6. Next: DocumentSidebar, WorkflowChecklistPanel, and FieldEditorPanel
+7. After that: SignerActionPanel and SignatureLibraryPanel extraction, while keeping `App.tsx` as orchestration rather than workflow implementation
 
 ## Workflow features added
 
@@ -145,7 +161,8 @@ State that remains in App.tsx intentionally:
 
 ## Next implementation steps
 
-1. Extract the public landing and pricing surfaces out of `App.tsx`.
-2. Extract the document workspace sidebar and checklist/editor panels into focused components.
-3. Replace in-memory/shared-instance assumptions such as rate limiting with durable infrastructure.
+1. Extract the document workspace sidebar and checklist/editor panels into focused components.
+2. Harden external signer verification and executed-record durability before broadening any prep/editing surface.
+3. Keep workflow-service domain seams shrinking where they reduce change-risk the most.
 4. Deploy OCR and notification processing on a scheduled/container runtime.
+5. Keep docs and deployment truth aligned with the code after each hardening pass.

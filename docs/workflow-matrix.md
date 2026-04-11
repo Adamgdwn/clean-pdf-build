@@ -2,6 +2,8 @@
 
 This matrix turns common document-handling requests into a small set of canonical flows.
 
+Boundary reminder: these flows describe a **workflow execution product**, not a general document editor. The document should remain fundamentally the uploaded PDF plus workflow-safe overlays, routing, and completion evidence.
+
 The goal is to avoid inventing a new workflow type for every customer story. Most requests can be expressed as a combination of:
 
 - origin: internal or external
@@ -114,7 +116,6 @@ What would still need explicit product and data-model decisions for full coverag
 - staged routing as a first-class concept
 - expire status surfaced more explicitly in the UI
 - lock permissions by policy instead of broad signer access
-- change-impact classification after partial signing
 
 ## Future-state roadmap
 
@@ -122,7 +123,10 @@ For the full current workflow reference (states, routing, delivery modes, field 
 
 ## Next steps for workflow coverage
 
+- keep the product boundary narrow: workflow-safe overlays and routing first, broad editing never by accident
+- harden external signer verification with an OTP-style final submit check for higher-confidence external signatures
+- make completed/executed records harder to mutate or delete through ordinary user actions
 - formalize staged routing as a first-class workflow concept rather than an emergent pattern
-- add change-impact classification for post-sign edits
+- verify every post-sign mutation path routes through the existing change-impact system
 - decide how expiration should appear operationally for owners and participants
 - evaluate certificate-backed signing only when customer demand justifies it

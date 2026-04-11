@@ -1,0 +1,73 @@
+# Current Priority Handoff
+
+Date: `2026-04-11`
+
+## What just completed
+
+- Public trust/legal surfaces were hardened and documented:
+  - direct routes for `/pricing`, `/privacy`, `/terms`, and `/security`
+  - deployment smoke checks for those routes
+  - public copy corrected so certificate-backed signing is not presented as live
+- Operations and ownership loops were tightened:
+  - admin-visible queue metrics
+  - lightweight feedback intake + triage workflow
+  - operator runbook and changelog discipline
+- Repo/docs alignment improved:
+  - deployment and env documentation updated
+  - proprietary license posture documented
+  - workflow/change-impact/operator docs reconciled with the current codebase
+- The product was re-audited against the latest core-workflow brief.
+
+## Current judgment
+
+EasyDraft is strongest when treated as a **minimal-change, workflow-safe PDF execution system**.
+
+That means:
+- upload an existing PDF
+- place only the fields needed
+- assign signers/participants
+- route the workflow reliably
+- verify signers appropriately
+- complete with durable evidence
+
+It should **not** drift into a general PDF editor.
+
+## What is next
+
+### Immediate next engineering priorities
+
+1. Harden external signer verification
+   - add email OTP verification before final external signature/initial/approval submit
+   - record verification method as part of the completion evidence
+   - tighten token replay, resend invalidation, and submit idempotency
+
+2. Strengthen executed-record durability
+   - prevent ordinary deletion of completed executed records
+   - preserve completed history when reopening or starting a new revision workflow
+   - keep the final export hash, certificate, and audit chain attached to the executed artifact
+
+3. Keep the workflow surface narrow
+   - preserve field overlay + routing + completion as the product heart
+   - avoid broad editing features unless they directly support workflow execution
+
+4. Extract the workflow core from `App.tsx`
+   - `FieldEditorPanel`
+   - `WorkflowChecklistPanel`
+   - `SignerActionPanel`
+   - `SignatureLibraryPanel`
+
+### Next product checks
+
+- Verify the live app still feels like a workflow tool, not an editor.
+- Run real-user tests through all three delivery modes.
+- Confirm the signer experience is simple, trustworthy, and unsurprising.
+
+## Verification status
+
+At end of day, the current branch verifies cleanly with:
+
+```bash
+npm run typecheck
+npm run test
+npm run build
+```

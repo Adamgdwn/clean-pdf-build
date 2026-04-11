@@ -15,6 +15,7 @@ Because the Vercel project root is `apps/web`, the files in `apps/web/api` becom
 - `https://easydraftdocs.app` is the canonical application origin
 - `https://easydraftdocs.com`, `www` variants, and known production `vercel.app` aliases should redirect to the canonical `.app` domain
 - Supabase Auth should keep the same canonical `site_url` so auth flows and notification links stay consistent
+- Vercel must also rewrite `/pricing`, `/privacy`, `/terms`, and `/security` to the SPA entry so direct trust-page links work outside client-side navigation
 
 ### Required environment variables
 
@@ -43,6 +44,12 @@ Set these in Vercel for Preview and Production:
 - `EASYDRAFT_REQUIRE_STRIPE`
 - `EASYDRAFT_REQUIRE_EMAIL_DELIVERY`
 - `EASYDRAFT_PROCESSOR_SECRET`
+- `UPSTASH_REDIS_REST_URL`
+- `UPSTASH_REDIS_REST_TOKEN`
+- `SENTRY_DSN`
+- `VITE_SENTRY_DSN`
+- `EASYDRAFT_ENABLE_CERTIFICATE_SIGNING`
+- `VITE_EASYDRAFT_ENABLE_CERTIFICATE_SIGNING`
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 
@@ -71,8 +78,23 @@ Recommended values:
 - `EASYDRAFT_REQUIRE_STRIPE` = `true` in environments where billing must fail closed if Stripe is missing
 - `EASYDRAFT_REQUIRE_EMAIL_DELIVERY` = `true` in environments where managed sends must fail closed if email is missing
 - `EASYDRAFT_PROCESSOR_SECRET` = shared secret required by the processor service in production; send it as `x-processor-secret` or `Authorization: Bearer <secret>`
+- `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` = shared Redis limiter credentials required for production rate limiting
+- `SENTRY_DSN` = server-side Sentry DSN for workflow API, Vercel handlers, and processor errors
+- `VITE_SENTRY_DSN` = browser-side Sentry DSN for the web client
+- `EASYDRAFT_ENABLE_CERTIFICATE_SIGNING` = `false` unless a real provider-backed certificate-signing implementation is live
+- `VITE_EASYDRAFT_ENABLE_CERTIFICATE_SIGNING` = match the server-side certificate-signing flag
 - `STRIPE_SECRET_KEY` = your Stripe secret key for the environment
 - `STRIPE_WEBHOOK_SECRET` = the signing secret for the `POST /api/stripe-webhook` endpoint
+
+### Post-deploy smoke check
+
+After each production deployment, run:
+
+```bash
+npm run smoke:public-routes -- https://easydraftdocs.app
+```
+
+All of `/pricing`, `/privacy`, `/terms`, and `/security` must return `200`.
 
 ## Supabase
 
@@ -196,3 +218,4 @@ This keeps OCR, field detection, and notification retries off Vercel while prese
 - local processor -> containerized worker
 
 Detailed launch prep also lives in [go-live-checklist.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/go-live-checklist.md).
+Operational response steps live in [operator-runbook.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/operator-runbook.md).

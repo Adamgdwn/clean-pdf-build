@@ -1,6 +1,6 @@
 # EasyDraftDocs
 
-A production-ready PDF workflow platform. Teams upload contracts and agreements, assign signers, route for signatures and approvals, and receive a complete audit trail and signed export — without chasing anyone down.
+A production-ready, minimal-change PDF workflow platform. Teams upload existing contracts and agreements, place only the fields they need, assign signers, route for signatures and approvals, and receive a complete audit trail and signed export without turning EasyDraft into a general PDF editor.
 
 **Live:** [easydraftdocs.app](https://easydraftdocs.app) · **User guide:** [easydraftdocs.app/guide.html](https://easydraftdocs.app/guide.html)
 
@@ -55,18 +55,25 @@ A production-ready PDF workflow platform. Teams upload contracts and agreements,
 - Team invitations with organization and workspace membership management
 - Workspace-aware navigation with persistent active-workspace selection
 - Owner-first organization control center with KPI summary, watchlist, billing, team, and admin layers
-- Public landing page with dedicated pricing route and product-tour content
+- Public landing page with dedicated pricing, privacy, terms, and security routes
 - Stripe billing: 30-day free trial, seat subscription, token packs, and Customer Portal
 - Email via Resend (`noreply@easydraftdocs.app`, DKIM + SPF verified) or SMTP
 - Admin console for user management, resets, and deletion
+- Feedback intake with bug reports, feature requests, and admin-side triage workflow
+- Change-impact classification for post-sign document edits with `non_material`, `review_required`, and `resign_required`
+- Redis-backed production rate limiting plus admin-visible queue metrics and Sentry hooks
 - Self-service account deletion
 - User guide at `/guide.html`
 
 ### Still intentionally unfinished
 - **Certificate-backed PDF signing**: the `DigitalSignatureProfile` model and UI exist, but actual PAdES/CAdES embedding is still a TODO in `renderDocumentExportToStorage`.
-- **Change-impact classification**: edits after partial signing are audited, but not yet classified into `non_material`, `review_required`, or `resign_required`.
-- **Distributed rate limiting**: sensitive routes have baseline in-memory protection, but heavier public traffic should move to a shared limiter.
 - **Background processing runtime**: OCR and queued notification retries still need a durable scheduled/container deployment.
+- **External alert routing**: error capture and queue visibility exist, but production alert delivery and escalation ownership still need final operational setup.
+
+### Current product boundary
+- EasyDraft is a workflow-safe PDF execution layer, not a full PDF editor.
+- After upload, the intended scope is still minimal workflow changes only: place fields, assign participants, route, sign, review, lock, reopen, and complete.
+- The next hardening pass should strengthen signer verification and executed-record durability before adding broader editing power.
 
 ---
 
@@ -86,6 +93,15 @@ The latest application pass closed the most important product-surface gaps for s
 - active workspace is explicit and persistent for multi-workspace users
 - loading/skeleton states now cover workspace hydration and switching
 
+## What Just Completed
+
+- Public trust/legal pages now exist as first-class routes and have deployment smoke coverage.
+- Certificate-backed signing claims were corrected so public copy reflects the current live assurance level.
+- Admin feedback intake moved from raw storage toward a triage-ready operator workflow.
+- Rate limiting, observability, and queue/admin visibility were hardened for private beta operations.
+- Workflow change-impact handling and the operator loop were documented more clearly across the repo.
+- The product direction was re-audited against the latest brief to re-center EasyDraft on its core: upload, place fields, assign, verify, complete, preserve evidence.
+
 ---
 
 ## Documentation map
@@ -96,10 +112,30 @@ The latest application pass closed the most important product-surface gaps for s
 - [docs/workflow-matrix.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/workflow-matrix.md): canonical workflow patterns
 - [docs/architecture.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/architecture.md): system and codebase structure
 - [docs/identity-and-monetization.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/identity-and-monetization.md): role and billing model
+- [docs/operator-runbook.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/operator-runbook.md): queue, feedback, and release operating loop
+- [docs/current-priority-handoff.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/current-priority-handoff.md): end-of-day summary of what completed and what comes next
+- [CHANGELOG.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/CHANGELOG.md): release-facing change log
 
 ---
 
 ## Next steps
+
+### Immediate product hardening
+
+1. **Keep the product boundary tight**
+   - preserve EasyDraft as a minimal workflow-safe PDF system
+   - avoid expanding into arbitrary content/layout editing
+   - keep the workflow core extraction focused on field placement, signer actions, and workflow state
+
+2. **Harden external signer verification**
+   - add email OTP verification before final external signature/initial/approval submit
+   - bind verification method to the completion event
+   - tighten token replay, resend invalidation, and completion idempotency
+
+3. **Strengthen executed-record durability**
+   - prevent ordinary deletion of completed executed records
+   - make reopen/create-next-workflow behavior preserve completed history cleanly
+   - keep final PDF hash, certificate, and audit chain attached to the executed artifact
 
 ### Before active selling
 
@@ -116,21 +152,19 @@ The latest application pass closed the most important product-surface gaps for s
    - Accept an invite into an existing org and confirm the correct workspace becomes active
    - Switch between at least two workspaces and confirm billing, team data, and documents remain scoped correctly
 
-3. **Publish trust and legal surfaces**
-   - add privacy policy
-   - add terms of service
-   - add a short security/privacy summary for prospects
+3. **Verify trust and legal surfaces**
+   - confirm `/pricing`, `/privacy`, `/terms`, and `/security` resolve directly after deployment
+   - review privacy, terms, and security copy with legal/founder eyes before broader selling
    - add customer-ready screenshots or proof content for sales conversations
 
 ### Short-term product improvements
 
-4. **Add change-impact classification**
-   - `non_material`: labels, metadata, layout-only changes
-   - `review_required`: content changes in unsigned sections
-   - `resign_required`: changes that affect already signed content or field placement
+4. **Close remaining change-impact coverage gaps**
+   - verify every post-sign document mutation path maps to `non_material`, `review_required`, or `resign_required`
+   - keep the current classification model and tighten endpoint coverage rather than redesigning it
 
-5. **Upgrade rate limiting beyond single-instance memory**
-   - move to a shared store or edge-native limiter
+5. **Keep deployment truth aligned with production controls**
+   - document Upstash-backed rate limiting and Sentry DSNs in `.env.example` and deployment docs
    - keep the strictest limits on signing token validation, uploads, and notification dispatch
 
 6. **Improve billing clarity in-product**
@@ -145,10 +179,10 @@ The latest application pass closed the most important product-surface gaps for s
 
 ### Operations
 
-8. **Set up monitoring**
-   - add Vercel log drains or Sentry
-   - watch `document_notifications` for `failed` rows
-   - track `pendingNotifications` and `queuedProcessingJobs` in the admin console
+8. **Operationalize monitoring**
+   - keep Sentry and admin queue metrics wired in production
+   - add alert routing and operator ownership for failed notifications and stuck jobs
+   - use the operator runbook and smoke checks on every deploy
 
 9. **Deploy the processor on a durable schedule**
    The document processor (`services/document-processor`) handles OCR jobs and queued notification retries. For the pilot it can be triggered manually:
@@ -203,6 +237,9 @@ See `.env.example`. Required for a working deployment:
 | `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` | Client-side Supabase |
 | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | Server-side Supabase |
 | `EASYDRAFT_ADMIN_EMAILS` | Comma-separated admin email addresses |
+| `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | Shared production rate limiting |
+| `SENTRY_DSN` + `VITE_SENTRY_DSN` | Server/client error capture |
+| `EASYDRAFT_ENABLE_CERTIFICATE_SIGNING` + `VITE_EASYDRAFT_ENABLE_CERTIFICATE_SIGNING` | Explicitly gated certificate-signing feature flag |
 | `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` | Stripe billing; required when `EASYDRAFT_REQUIRE_STRIPE=true` or in production runtime |
 | `RESEND_API_KEY` or SMTP vars | Email delivery; required when `EASYDRAFT_REQUIRE_EMAIL_DELIVERY=true` or in production runtime |
 | `EASYDRAFT_PROCESSOR_SECRET` | Shared secret for processor endpoints; required in production runtime |
@@ -221,6 +258,8 @@ See `.env.example`. Required for a working deployment:
 **Account deletion is irreversible.** It cancels Stripe, removes all storage files, and cascade-deletes the entire DB record tree. Users must type their email address to confirm.
 
 **SHA-256 integrity, not cryptographic signing (yet).** Every download generates a SHA-256 hash of the rendered PDF bytes and stores it on the document. The completion certificate shows this hash. Full PAdES/CAdES signing is a clearly marked next step in the code.
+
+**License posture is proprietary.** This repository is intentionally unlicensed for public reuse. See [LICENSE.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/LICENSE.md).
 
 ---
 

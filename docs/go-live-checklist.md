@@ -2,6 +2,11 @@
 
 Use this after workflow testing passes and before you present EasyDraft as production-ready.
 
+Current scope reminder:
+- present EasyDraft as a minimal-change PDF workflow execution system
+- do not position it as a broad PDF editor
+- prioritize workflow trust, signer verification, and executed-record durability over feature breadth
+
 ## Canonical domains
 
 - Canonical app domain: `https://easydraftdocs.app`
@@ -134,6 +139,7 @@ Store the future values in your secret manager or Vercel using these names for c
    - Completion certificate opens as printable HTML on completed documents
    - external signer opens a dedicated signer page rather than the internal workspace shell
    - signing flow prompts for `Reason for signing` and optional `Signing location`
+   - the product still feels like field placement + routing + completion, not arbitrary document editing
 
 ## Final release gate
 
@@ -152,13 +158,16 @@ Only claim production readiness after all of these are true:
 
 Once the above is complete, the next operational/product tasks should be:
 
-1. Publish legal/trust pages:
-   - privacy policy
-   - terms of service
-   - concise security/privacy summary
+1. Keep legal/trust pages verified:
+   - review privacy policy, terms, and security copy before major selling pushes
+   - run `npm run smoke:public-routes -- https://easydraftdocs.app` after deploys
 2. Add monitoring and alerting:
-   - Sentry or equivalent
-   - Vercel log drains
-   - alerting for failed notification rows
-3. Move rate limiting from in-memory to shared/distributed infrastructure.
+   - keep Sentry or equivalent active
+   - keep Vercel log drains or equivalent enabled
+   - alert on failed notification rows and aging queues
+3. Keep deployment docs aligned with live runtime requirements and env vars.
 4. Deploy the processor as a durable scheduled or containerized worker.
+5. Harden the core workflow before adding broader feature surface:
+   - external signer OTP verification
+   - stronger executed-record retention / reopen behavior
+   - extraction of workflow core panels from `App.tsx`

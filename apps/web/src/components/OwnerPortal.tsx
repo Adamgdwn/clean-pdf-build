@@ -5,6 +5,7 @@ import { AdminConsole } from "./AdminPanel";
 import { BillingPanel } from "./BillingPanel";
 import { TeamPanel } from "./TeamPanel";
 import type {
+  AdminFeedbackRequest,
   AdminManagedUser,
   AdminOverview,
   BillingOverview,
@@ -78,6 +79,7 @@ type Props = {
   billingOverview: BillingOverview | null;
   adminOverview: AdminOverview | null;
   adminUsers: AdminManagedUser[];
+  adminFeedbackRequests: AdminFeedbackRequest[];
   onRefreshTeam: () => Promise<void>;
   onRefreshBilling: () => Promise<void>;
   onRefreshAdmin: () => Promise<void>;
@@ -93,6 +95,7 @@ export function OwnerPortal({
   billingOverview,
   adminOverview,
   adminUsers,
+  adminFeedbackRequests,
   onRefreshTeam,
   onRefreshBilling,
   onRefreshAdmin,
@@ -568,6 +571,7 @@ export function OwnerPortal({
                 sessionUser={sessionUser}
                 adminOverview={adminOverview}
                 adminUsers={adminUsers}
+                adminFeedbackRequests={adminFeedbackRequests}
                 onRefresh={onRefreshAdmin}
               />
             </div>

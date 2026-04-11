@@ -20,6 +20,7 @@ import { OwnerPortal } from "./components/OwnerPortal";
 import { PublicSite, type PublicPage } from "./components/public/PublicSite";
 import type {
   AccountProfile,
+  AdminFeedbackRequest,
   AdminManagedUser,
   AdminOverview,
   BillingOverview,
@@ -450,6 +451,7 @@ export default function App() {
   const [digitalSignatureProfiles, setDigitalSignatureProfiles] = useState<DigitalSignatureProfile[]>([]);
   const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
   const [adminUsers, setAdminUsers] = useState<AdminManagedUser[]>([]);
+  const [adminFeedbackRequests, setAdminFeedbackRequests] = useState<AdminFeedbackRequest[]>([]);
   const [workspaceTeam, setWorkspaceTeam] = useState<WorkspaceTeam | null>(null);
   const [availableWorkspaces, setAvailableWorkspaces] = useState<WorkspaceOption[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(
@@ -719,6 +721,7 @@ export default function App() {
       setDigitalSignatureProfiles([]);
       setAdminOverview(null);
       setAdminUsers([]);
+      setAdminFeedbackRequests([]);
       setWorkspaceTeam(null);
       setAvailableWorkspaces([]);
       setActiveWorkspaceId(null);
@@ -801,6 +804,11 @@ export default function App() {
   async function refreshAdminUsers(activeSession: Session) {
     const payload = await apiFetch<{ users: AdminManagedUser[] }>("/admin-users", activeSession);
     setAdminUsers(payload.users);
+  }
+
+  async function refreshAdminFeedback(activeSession: Session) {
+    const payload = await apiFetch<{ feedbackRequests: AdminFeedbackRequest[] }>("/admin-feedback", activeSession);
+    setAdminFeedbackRequests(payload.feedbackRequests);
   }
 
   async function refreshDocuments(activeSession: Session) {
@@ -1890,7 +1898,13 @@ export default function App() {
           refreshSavedSignatures(activeSession),
           refreshProfile(activeSession),
           ...(isCertificateSigningEnabled ? [refreshDigitalSignatureProfiles(activeSession)] : []),
-          ...(sessionUser?.isAdmin ? [refreshAdminOverview(activeSession), refreshAdminUsers(activeSession)] : []),
+          ...(sessionUser?.isAdmin
+            ? [
+                refreshAdminOverview(activeSession),
+                refreshAdminUsers(activeSession),
+                refreshAdminFeedback(activeSession),
+              ]
+            : []),
         ]);
       } catch (error) {
         if (!cancelled) {
@@ -2561,6 +2575,11 @@ export default function App() {
                 You can export or download any document at any time from the document list.
                 Deleting your account permanently removes all of the above and cannot be undone.
               </p>
+              <div className="action-row action-wrap">
+                <a className="ghost-button" href="/privacy">Privacy</a>
+                <a className="ghost-button" href="/terms">Terms</a>
+                <a className="ghost-button" href="/security">Security</a>
+              </div>
 
               <div className="row-card" style={{ marginTop: "0.5rem" }}>
                 <p className="eyebrow" style={{ margin: 0, color: "var(--color-danger, #c0392b)" }}>
@@ -3097,11 +3116,12 @@ export default function App() {
                 billingOverview={billingOverview}
                 adminOverview={adminOverview}
                 adminUsers={adminUsers}
+                adminFeedbackRequests={adminFeedbackRequests}
                 onRefreshTeam={() => refreshTeam(session)}
                 onRefreshBilling={() => refreshBilling(session)}
                 onRefreshAdmin={() => {
                   const requests = sessionUser.isAdmin
-                    ? [refreshAdminOverview(session), refreshAdminUsers(session)]
+                    ? [refreshAdminOverview(session), refreshAdminUsers(session), refreshAdminFeedback(session)]
                     : [];
                   return Promise.all(requests).then(() => undefined);
                 }}

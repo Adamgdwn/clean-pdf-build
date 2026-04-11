@@ -3,11 +3,13 @@ import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import {
   AppError,
   getCanonicalAppOrigin,
+  listAdminFeedbackRequestsForAuthorizationHeader,
   deleteAdminUserForAuthorizationHeader,
   getAdminOverviewForAuthorizationHeader,
   listAdminUsersForAuthorizationHeader,
   sendAdminUserInviteForAuthorizationHeader,
   sendAdminPasswordResetForAuthorizationHeader,
+  updateAdminFeedbackRequestForAuthorizationHeader,
 } from "@clean-pdf/workflow-service";
 
 function sendError(reply: FastifyReply, error: unknown) {
@@ -27,6 +29,22 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
   app.get("/admin-users", async (request, reply) => {
     try {
       return await listAdminUsersForAuthorizationHeader(request.headers.authorization);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.get("/admin-feedback", async (request, reply) => {
+    try {
+      return await listAdminFeedbackRequestsForAuthorizationHeader(request.headers.authorization);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/admin-feedback", async (request, reply) => {
+    try {
+      return await updateAdminFeedbackRequestForAuthorizationHeader(request.headers.authorization, request.body);
     } catch (error) {
       return sendError(reply, error);
     }

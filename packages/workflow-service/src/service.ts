@@ -158,6 +158,28 @@ type NotificationRow = {
   metadata: Record<string, string | number | boolean | null> | null;
 };
 
+type FeedbackRequestStatus = "new" | "acknowledged" | "planned" | "in_progress" | "closed";
+type FeedbackRequestPriority = "low" | "medium" | "high";
+
+type FeedbackRequestRow = {
+  id: string;
+  feedback_type: "bug_report" | "feature_request";
+  title: string;
+  details: string;
+  requester_email: string;
+  requester_user_id: string | null;
+  source: string;
+  requested_path: string | null;
+  status: FeedbackRequestStatus;
+  priority: FeedbackRequestPriority;
+  owner_user_id: string | null;
+  updated_by_user_id: string | null;
+  resolution_note: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 type SavedSignatureRow = {
   id: string;
   user_id: string;
@@ -496,6 +518,14 @@ const createFeedbackRequestInputSchema = z.object({
   email: z.string().trim().email().optional(),
   source: z.string().trim().min(1).max(80).default("web_app"),
   requestedPath: z.string().trim().max(400).nullable().default(null),
+});
+
+const updateAdminFeedbackRequestInputSchema = z.object({
+  feedbackRequestId: z.string().uuid(),
+  status: z.enum(["new", "acknowledged", "planned", "in_progress", "closed"]).optional(),
+  priority: z.enum(["low", "medium", "high"]).optional(),
+  ownerUserId: z.string().uuid().nullable().optional(),
+  resolutionNote: z.string().trim().max(4000).nullable().optional(),
 });
 
 function slugify(value: string) {
@@ -2877,7 +2907,7 @@ export async function createFeedbackRequest(
       source: parsed.source,
       requested_path: parsed.requestedPath,
     })
-    .select("id, feedback_type, title, requester_email, source, requested_path, created_at")
+    .select("id, feedback_type, title, requester_email, source, requested_path, status, priority, created_at")
     .single();
 
   if (error || !data) {
@@ -2892,7 +2922,150 @@ export async function createFeedbackRequest(
       requesterEmail: (data as { requester_email: string }).requester_email,
       source: (data as { source: string }).source,
       requestedPath: (data as { requested_path: string | null }).requested_path,
+      status: (data as { status: FeedbackRequestStatus }).status,
+      priority: (data as { priority: FeedbackRequestPriority }).priority,
       createdAt: (data as { created_at: string }).created_at,
+    },
+  };
+}
+
+export async function listAdminFeedbackRequestsForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  assertAdminUser(user);
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("feedback_requests")
+    .select(
+      "id, feedback_type, title, details, requester_email, requester_user_id, source, requested_path, status, priority, owner_user_id, updated_by_user_id, resolution_note, resolved_at, created_at, updated_at",
+    )
+    .order("created_at", { ascending: false })
+    .limit(30);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  const rows = (data ?? []) as FeedbackRequestRow[];
+  const relatedProfileIds = Array.from(
+    new Set(
+      rows.flatMap((row) => [row.owner_user_id, row.updated_by_user_id]).filter(
+        (value): value is string => Boolean(value),
+      ),
+    ),
+  );
+
+  const profileById = new Map<string, { display_name: string; email: string }>();
+
+  if (relatedProfileIds.length > 0) {
+    const { data: profileRows, error: profileError } = await adminClient
+      .from("profiles")
+      .select("id, display_name, email")
+      .in("id", relatedProfileIds);
+
+    if (profileError) {
+      throw new AppError(500, profileError.message);
+    }
+
+    for (const profile of (profileRows ?? []) as Array<{ id: string; display_name: string; email: string }>) {
+      profileById.set(profile.id, {
+        display_name: profile.display_name,
+        email: profile.email,
+      });
+    }
+  }
+
+  return {
+    feedbackRequests: rows.map((row) => ({
+      id: row.id,
+      feedbackType: row.feedback_type,
+      title: row.title,
+      details: row.details,
+      requesterEmail: row.requester_email,
+      requesterUserId: row.requester_user_id,
+      source: row.source,
+      requestedPath: row.requested_path,
+      status: row.status,
+      priority: row.priority,
+      ownerUserId: row.owner_user_id,
+      ownerDisplayName: row.owner_user_id ? profileById.get(row.owner_user_id)?.display_name ?? "Assigned admin" : null,
+      ownerEmail: row.owner_user_id ? profileById.get(row.owner_user_id)?.email ?? null : null,
+      updatedByUserId: row.updated_by_user_id,
+      updatedByDisplayName:
+        row.updated_by_user_id ? profileById.get(row.updated_by_user_id)?.display_name ?? "Admin" : null,
+      resolutionNote: row.resolution_note,
+      resolvedAt: row.resolved_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    })),
+  };
+}
+
+export async function updateAdminFeedbackRequestForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  assertAdminUser(user);
+  const parsed = updateAdminFeedbackRequestInputSchema.parse(input);
+
+  if (
+    parsed.status === undefined &&
+    parsed.priority === undefined &&
+    parsed.ownerUserId === undefined &&
+    parsed.resolutionNote === undefined
+  ) {
+    throw new AppError(400, "Choose at least one feedback field to update.");
+  }
+
+  const adminClient = createServiceRoleClient();
+  const updatePayload: Record<string, string | null> = {
+    updated_by_user_id: user.id,
+  };
+
+  if (parsed.status !== undefined) {
+    updatePayload.status = parsed.status;
+    updatePayload.resolved_at = parsed.status === "closed" ? new Date().toISOString() : null;
+  }
+
+  if (parsed.priority !== undefined) {
+    updatePayload.priority = parsed.priority;
+  }
+
+  if (parsed.ownerUserId !== undefined) {
+    updatePayload.owner_user_id = parsed.ownerUserId;
+  }
+
+  if (parsed.resolutionNote !== undefined) {
+    updatePayload.resolution_note = parsed.resolutionNote?.trim() || null;
+  }
+
+  const { data, error } = await adminClient
+    .from("feedback_requests")
+    .update(updatePayload)
+    .eq("id", parsed.feedbackRequestId)
+    .select(
+      "id, feedback_type, title, details, requester_email, requester_user_id, source, requested_path, status, priority, owner_user_id, updated_by_user_id, resolution_note, resolved_at, created_at, updated_at",
+    )
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new AppError(500, error?.message ?? "Unable to update feedback right now.");
+  }
+
+  const row = data as FeedbackRequestRow;
+
+  return {
+    feedbackRequest: {
+      id: row.id,
+      status: row.status,
+      priority: row.priority,
+      ownerUserId: row.owner_user_id,
+      updatedByUserId: row.updated_by_user_id,
+      resolutionNote: row.resolution_note,
+      resolvedAt: row.resolved_at,
+      updatedAt: row.updated_at,
     },
   };
 }
