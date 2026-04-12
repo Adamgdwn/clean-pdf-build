@@ -34,9 +34,14 @@ type WorkspaceMemberRow = {
 type WorkspaceMemberResetRow = {
   user_id: string;
   role: string;
-  profiles: {
-    email: string;
-  } | null;
+  profiles:
+    | {
+        email: string;
+      }
+    | Array<{
+        email: string;
+      }>
+    | null;
 };
 
 type WorkspaceInvitationRow = {
@@ -76,6 +81,16 @@ type OrganizationRow = {
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
+}
+
+function getMembershipEmail(
+  profiles: WorkspaceMemberResetRow["profiles"],
+): string | null {
+  if (!profiles) {
+    return null;
+  }
+
+  return Array.isArray(profiles) ? profiles[0]?.email ?? null : profiles.email;
 }
 
 async function requireWorkspaceWithRole(
@@ -580,7 +595,7 @@ export async function sendWorkspaceMemberPasswordResetForAuthorizationHeader(
   }
 
   const targetRole = typedMembership.role;
-  const targetEmail = typedMembership.profiles?.email;
+  const targetEmail = getMembershipEmail(typedMembership.profiles);
 
   if (!targetEmail) {
     throw new AppError(404, "That user does not have a sign-in email on file.");

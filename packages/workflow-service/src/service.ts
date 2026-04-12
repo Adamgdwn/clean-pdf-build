@@ -607,8 +607,12 @@ function describeChangeImpact(impact: DocumentChangeImpact) {
   return impact.replaceAll("_", " ");
 }
 
+function isFieldRow(field: Field | FieldRow): field is FieldRow {
+  return "assignee_signer_id" in field;
+}
+
 function normalizeFieldForImpact(field: Field | FieldRow): NormalizedFieldForImpact {
-  if ("assigneeSignerId" in field) {
+  if (!isFieldRow(field)) {
     return {
       id: field.id,
       kind: field.kind,
