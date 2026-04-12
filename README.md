@@ -15,6 +15,7 @@ A production-ready, minimal-change PDF workflow platform. Teams upload existing 
 - Free-placement resizable signature for signers (no pre-placed field required)
 - External signers via one-time token link — no account needed
 - Full audit trail, version history, lock/reopen, and completion certificate with SHA-256 hash
+- Temporary-by-default document storage with opt-in retained storage and scheduled purge metadata
 - Individual and corporate account signup paths
 - Corporate accounts with shared billing, member administration, and pooled external signer tokens
 - Team invitations with organization and workspace membership management
@@ -185,10 +186,11 @@ The latest application pass closed the most important product-surface gaps for s
    - use the operator runbook and smoke checks on every deploy
 
 9. **Deploy the processor on a durable schedule**
-   The document processor (`services/document-processor`) handles OCR jobs and queued notification retries. For the pilot it can be triggered manually:
+   The document processor (`services/document-processor`) handles OCR jobs, queued notification retries, and due retention purges. For the pilot it can be triggered manually:
    ```bash
    npm run processor:run-queued
    npm run processor:run-notifications
+   npm run processor:run-purges
    ```
    For sustained usage, deploy it as a container or cron-triggered worker.
 
@@ -212,6 +214,7 @@ To run pending jobs manually:
 ```bash
 npm run processor:run-queued
 npm run processor:run-notifications
+npm run processor:run-purges
 ```
 
 ---

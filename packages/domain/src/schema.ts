@@ -19,6 +19,7 @@ export const documentChangeImpactSchema = z.enum([
   "review_required",
   "resign_required",
 ]);
+export const documentRetentionModeSchema = z.enum(["temporary", "retained"]);
 
 export const accessRoleSchema = z.enum(["owner", "editor", "signer", "viewer"]);
 export const routingStrategySchema = z.enum(["sequential", "parallel"]);
@@ -53,6 +54,8 @@ export const auditEventTypeSchema = z.enum([
   "document.due_date.updated",
   "document.renamed",
   "document.exported",
+  "document.retention.updated",
+  "document.purged",
   "field.created",
   "field.assigned",
   "field.completed",
@@ -170,6 +173,12 @@ export const documentSchema = z.object({
   lockPolicy: lockPolicySchema.default("owner_only"),
   notifyOriginatorOnEachSignature: z.boolean().default(true),
   dueAt: z.string().datetime().nullable().default(null),
+  retentionMode: documentRetentionModeSchema.default("temporary"),
+  retentionDays: z.number().int().positive().default(30),
+  purgeScheduledAt: z.string().datetime().nullable().default(null),
+  purgedAt: z.string().datetime().nullable().default(null),
+  purgedByUserId: z.string().nullable().default(null),
+  purgeReason: z.string().nullable().default(null),
   workflowStatus: workflowOperationalStatusSchema.default("active"),
   workflowStatusReason: z.string().nullable().default(null),
   workflowStatusUpdatedAt: z.string().datetime().nullable().default(null),
@@ -188,6 +197,8 @@ export const documentSchema = z.object({
   isScanned: z.boolean().default(false),
   isOcrComplete: z.boolean().default(false),
   isFieldDetectionComplete: z.boolean().default(false),
+  sourceStorageBytes: z.number().int().nonnegative().default(0),
+  exportStorageBytes: z.number().int().nonnegative().default(0),
   exportSha256: z.string().nullable().default(null),
   latestChangeImpact: documentChangeImpactSchema.nullable().default(null),
   latestChangeImpactSummary: z.string().nullable().default(null),
@@ -203,6 +214,7 @@ export const documentSchema = z.object({
 export type WorkflowState = z.infer<typeof workflowStateSchema>;
 export type WorkflowOperationalStatus = z.infer<typeof workflowOperationalStatusSchema>;
 export type DocumentChangeImpact = z.infer<typeof documentChangeImpactSchema>;
+export type DocumentRetentionMode = z.infer<typeof documentRetentionModeSchema>;
 export type AccessRole = z.infer<typeof accessRoleSchema>;
 export type RoutingStrategy = z.infer<typeof routingStrategySchema>;
 export type ParticipantType = z.infer<typeof participantTypeSchema>;

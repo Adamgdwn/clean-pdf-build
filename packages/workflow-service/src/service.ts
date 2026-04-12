@@ -11,6 +11,7 @@ import {
   type DocumentChangeImpact,
   type DocumentRecord,
   type DocumentNotification,
+  type DocumentRetentionMode,
   type DocumentVersion,
   type Field,
   type LockPolicy,
@@ -51,6 +52,12 @@ type DocumentRow = {
   lock_policy: LockPolicy;
   notify_originator_on_each_signature: boolean;
   due_at: string | null;
+  retention_mode: DocumentRetentionMode;
+  retention_days: number;
+  purge_scheduled_at: string | null;
+  purged_at: string | null;
+  purged_by_user_id: string | null;
+  purge_reason: string | null;
   workflow_status: WorkflowOperationalStatus;
   workflow_status_reason: string | null;
   workflow_status_updated_at: string | null;
@@ -71,6 +78,8 @@ type DocumentRow = {
   is_scanned: boolean;
   is_ocr_complete: boolean;
   is_field_detection_complete: boolean;
+  source_storage_bytes: number;
+  export_storage_bytes: number;
   export_sha256: string | null;
   latest_change_impact: DocumentChangeImpact | null;
   latest_change_impact_summary: string | null;
@@ -367,11 +376,140 @@ export type AuthenticatedUser = User & {
   workspaceName?: string;
 };
 
+const DEFAULT_TEMPORARY_RETENTION_DAYS = 30;
+const COMPLETED_DOCUMENT_PURGE_GRACE_DAYS = 7;
+const CLOSED_WORKFLOW_PURGE_GRACE_DAYS = 7;
+const STORAGE_PREFIX_QUERY_CHUNK_SIZE = 20;
+
+type DocumentStorageObjectRow = {
+  name: string;
+  metadata: Record<string, unknown> | null;
+};
+
+function addDaysToTimestamp(timestamp: string, days: number) {
+  const date = new Date(timestamp);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString();
+}
+
+function getDocumentStoragePrefix(uploadedByUserId: string, documentId: string) {
+  return `${uploadedByUserId}/${documentId}/`;
+}
+
+function getDocumentExportPath(uploadedByUserId: string, documentId: string) {
+  return `${uploadedByUserId}/${documentId}/exports/latest.pdf`;
+}
+
+function chunkArray<T>(items: T[], chunkSize: number) {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize));
+  }
+
+  return chunks;
+}
+
+function getDocumentStorageObjectBytes(row: DocumentStorageObjectRow) {
+  const size = row.metadata?.size;
+  const parsed = typeof size === "number" ? size : Number(size ?? 0);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function getRetentionScheduleForDocumentState(document: {
+  retentionMode: DocumentRetentionMode;
+  retentionDays: number;
+  uploadedAt: string;
+  sentAt: string | null;
+  completedAt: string | null;
+  workflowStatus: WorkflowOperationalStatus;
+  workflowStatusUpdatedAt: string | null;
+}) {
+  if (document.retentionMode !== "temporary") {
+    return null;
+  }
+
+  if (document.completedAt) {
+    return addDaysToTimestamp(document.completedAt, COMPLETED_DOCUMENT_PURGE_GRACE_DAYS);
+  }
+
+  if (document.workflowStatus === "canceled" || document.workflowStatus === "rejected") {
+    return addDaysToTimestamp(
+      document.workflowStatusUpdatedAt ?? document.uploadedAt,
+      CLOSED_WORKFLOW_PURGE_GRACE_DAYS,
+    );
+  }
+
+  if (document.sentAt) {
+    return null;
+  }
+
+  return addDaysToTimestamp(document.uploadedAt, document.retentionDays);
+}
+
+async function listDocumentStorageObjectsForPrefixes(prefixes: string[]) {
+  const uniquePrefixes = [...new Set(prefixes.filter(Boolean))];
+
+  if (uniquePrefixes.length === 0) {
+    return [] as DocumentStorageObjectRow[];
+  }
+
+  const adminClient = createServiceRoleClient();
+  const env = readServerEnv();
+  const objectsByName = new Map<string, DocumentStorageObjectRow>();
+
+  for (const prefixChunk of chunkArray(uniquePrefixes, STORAGE_PREFIX_QUERY_CHUNK_SIZE)) {
+    const orFilter = prefixChunk.map((prefix) => `name.like.${prefix}*`).join(",");
+    const { data, error } = await adminClient
+      .schema("storage")
+      .from("objects")
+      .select("name, metadata")
+      .eq("bucket_id", env.SUPABASE_DOCUMENT_BUCKET)
+      .or(orFilter);
+
+    if (error) {
+      throw new AppError(500, `Unable to inspect document storage: ${error.message}`);
+    }
+
+    for (const row of (data ?? []) as DocumentStorageObjectRow[]) {
+      objectsByName.set(row.name, row);
+    }
+  }
+
+  return [...objectsByName.values()];
+}
+
+async function purgeDocumentStorageArtifactsForPrefixes(prefixes: string[]) {
+  const objectRows = await listDocumentStorageObjectsForPrefixes(prefixes);
+
+  if (objectRows.length === 0) {
+    return {
+      removedBytes: 0,
+      removedPaths: [] as string[],
+    };
+  }
+
+  const env = readServerEnv();
+  const adminClient = createServiceRoleClient();
+  const objectNames = objectRows.map((row) => row.name);
+  const { error } = await adminClient.storage.from(env.SUPABASE_DOCUMENT_BUCKET).remove(objectNames);
+
+  if (error) {
+    throw new AppError(500, `Unable to remove document storage artifacts: ${error.message}`);
+  }
+
+  return {
+    removedBytes: objectRows.reduce((sum, row) => sum + getDocumentStorageObjectBytes(row), 0),
+    removedPaths: objectNames,
+  };
+}
+
 const createDocumentInputSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(200),
   fileName: z.string().min(1).max(200),
   storagePath: z.string().min(1),
+  fileSize: z.number().int().nonnegative().default(0),
   deliveryMode: z.enum(["self_managed", "internal_use_only", "platform_managed"]).default("self_managed"),
   distributionTarget: z.string().trim().max(200).nullable().default(null),
   lockPolicy: z
@@ -399,6 +537,10 @@ const updateDocumentRoutingInputSchema = z.object({
 
 const updateDocumentWorkflowSettingsInputSchema = z.object({
   dueAt: z.string().datetime().nullable().default(null),
+});
+
+const updateDocumentRetentionInputSchema = z.object({
+  retentionMode: z.enum(["temporary", "retained"]),
 });
 
 const addFieldInputSchema = z.object({
@@ -1218,6 +1360,12 @@ function mapDocumentRecord(
     lockPolicy: row.lock_policy,
     notifyOriginatorOnEachSignature: row.notify_originator_on_each_signature,
     dueAt: row.due_at,
+    retentionMode: row.retention_mode,
+    retentionDays: row.retention_days,
+    purgeScheduledAt: row.purge_scheduled_at,
+    purgedAt: row.purged_at,
+    purgedByUserId: row.purged_by_user_id,
+    purgeReason: row.purge_reason,
     workflowStatus: row.workflow_status,
     workflowStatusReason: row.workflow_status_reason,
     workflowStatusUpdatedAt: row.workflow_status_updated_at,
@@ -1236,6 +1384,8 @@ function mapDocumentRecord(
     isScanned: row.is_scanned,
     isOcrComplete: row.is_ocr_complete,
     isFieldDetectionComplete: row.is_field_detection_complete,
+    sourceStorageBytes: row.source_storage_bytes ?? 0,
+    exportStorageBytes: row.export_storage_bytes ?? 0,
     exportSha256: row.export_sha256 ?? null,
     latestChangeImpact: row.latest_change_impact ?? null,
     latestChangeImpactSummary: row.latest_change_impact_summary ?? null,
@@ -2605,11 +2755,12 @@ async function renderDocumentExportToStorage(document: DocumentRecord) {
 
   const exportBytes = await pdfDocument.save();
   const exportSha256 = createHash("sha256").update(Buffer.from(exportBytes)).digest("hex");
-  const exportPath = `${document.uploadedByUserId}/${document.id}/exports/latest.pdf`;
+  const exportPath = getDocumentExportPath(document.uploadedByUserId, document.id);
+  const exportBuffer = Buffer.from(exportBytes);
 
   const { error: uploadError } = await adminClient.storage
     .from(env.SUPABASE_DOCUMENT_BUCKET)
-    .upload(exportPath, Buffer.from(exportBytes), {
+    .upload(exportPath, exportBuffer, {
       contentType: "application/pdf",
       upsert: true,
     });
@@ -2621,7 +2772,7 @@ async function renderDocumentExportToStorage(document: DocumentRecord) {
   // Persist the hash so it can appear in completion certificates and audit records.
   await adminClient
     .from("documents")
-    .update({ export_sha256: exportSha256 })
+    .update({ export_sha256: exportSha256, export_storage_bytes: exportBuffer.length })
     .eq("id", document.id);
 
   return { exportPath, exportSha256 };
@@ -3656,16 +3807,21 @@ export async function deleteOwnAccountForAuthorizationHeader(
   // Document files
   const { data: documents } = await adminClient
     .from("documents")
-    .select("storage_path")
+    .select("id, uploaded_by_user_id")
     .eq("uploaded_by_user_id", user.id)
-    .not("storage_path", "is", null);
+    .not("id", "is", null);
 
-  const documentPaths = (documents ?? [])
-    .map((d: { storage_path: string }) => d.storage_path)
+  const documentPrefixes = (documents ?? [])
+    .map((document) =>
+      getDocumentStoragePrefix(
+        (document as { uploaded_by_user_id: string }).uploaded_by_user_id,
+        (document as { id: string }).id,
+      ),
+    )
     .filter(Boolean);
 
-  if (documentPaths.length > 0) {
-    await adminClient.storage.from(env.SUPABASE_DOCUMENT_BUCKET).remove(documentPaths);
+  if (documentPrefixes.length > 0) {
+    await purgeDocumentStorageArtifactsForPrefixes(documentPrefixes);
   }
 
   // Saved signature images
@@ -3809,6 +3965,7 @@ export async function createDocumentForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const parsed = createDocumentInputSchema.parse(input);
   const workspace = await resolveWorkspaceForUser(user, preferredWorkspaceId);
+  const now = new Date().toISOString();
 
   if (!parsed.storagePath.startsWith(`${user.id}/`)) {
     throw new AppError(400, "Storage paths must begin with the signed-in user's folder.");
@@ -3826,11 +3983,18 @@ export async function createDocumentForAuthorizationHeader(
     lock_policy: parsed.lockPolicy,
     notify_originator_on_each_signature: parsed.notifyOriginatorOnEachSignature,
     due_at: parsed.dueAt,
+    retention_mode: "temporary" as const,
+    retention_days: DEFAULT_TEMPORARY_RETENTION_DAYS,
+    purge_scheduled_at: addDaysToTimestamp(now, DEFAULT_TEMPORARY_RETENTION_DAYS),
+    purged_at: null,
+    purged_by_user_id: null,
+    purge_reason: null,
     workflow_status: "active" as const,
     workflow_status_reason: null,
     workflow_status_updated_at: null,
     workflow_status_updated_by_user_id: null,
     page_count: parsed.pageCount,
+    uploaded_at: now,
     uploaded_by_user_id: user.id,
     prepared_at: null,
     sent_at: null,
@@ -3843,6 +4007,8 @@ export async function createDocumentForAuthorizationHeader(
     is_scanned: parsed.isScanned,
     is_ocr_complete: !parsed.isScanned,
     is_field_detection_complete: false,
+    source_storage_bytes: parsed.fileSize,
+    export_storage_bytes: 0,
   };
 
   const { error } = await adminClient.from("documents").insert(insertPayload);
@@ -4305,6 +4471,7 @@ export async function sendDocumentForAuthorizationHeader(
       prepared_at: now,
       sent_at: now,
       completed_at: null,
+      purge_scheduled_at: null,
       reopened_at: null,
       reopened_by_user_id: null,
       workflow_status: "active",
@@ -4445,6 +4612,7 @@ export async function reopenDocumentForAuthorizationHeader(
       reopened_at: now,
       reopened_by_user_id: user.id,
       completed_at: null,
+      purge_scheduled_at: null,
     })
     .eq("id", documentId);
 
@@ -4508,10 +4676,24 @@ export async function rejectDocumentForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   await assertPermission(documentId, user, "reject_workflow");
   const parsed = workflowResponseInputSchema.parse(input);
+  const adminClient = createServiceRoleClient();
   const document = await requireDocumentBundle(documentId);
   const signer = ensureSignerCanRespondToWorkflow(document, user);
+  const now = new Date().toISOString();
 
   await updateDocumentWorkflowStatus(documentId, user.id, "rejected", parsed.note);
+  if (document.retentionMode === "temporary") {
+    const { error: retentionError } = await adminClient
+      .from("documents")
+      .update({
+        purge_scheduled_at: addDaysToTimestamp(now, CLOSED_WORKFLOW_PURGE_GRACE_DAYS),
+      })
+      .eq("id", documentId);
+
+    if (retentionError) {
+      throw new AppError(500, retentionError.message);
+    }
+  }
   await appendVersion(documentId, user.id, "Rejected workflow", parsed.note);
   await appendAuditEvent(
     documentId,
@@ -4548,8 +4730,22 @@ export async function cancelDocumentWorkflowForAuthorizationHeader(
   await assertPermission(documentId, user, "manage_workflow");
   const parsed = workflowResponseInputSchema.parse(input);
   const document = await requireDocumentBundle(documentId);
+  const adminClient = createServiceRoleClient();
+  const now = new Date().toISOString();
 
   await updateDocumentWorkflowStatus(documentId, user.id, "canceled", parsed.note);
+  if (document.retentionMode === "temporary") {
+    const { error: retentionError } = await adminClient
+      .from("documents")
+      .update({
+        purge_scheduled_at: addDaysToTimestamp(now, CLOSED_WORKFLOW_PURGE_GRACE_DAYS),
+      })
+      .eq("id", documentId);
+
+    if (retentionError) {
+      throw new AppError(500, retentionError.message);
+    }
+  }
   await appendVersion(documentId, user.id, "Canceled workflow", parsed.note);
   await appendAuditEvent(documentId, user.id, "document.canceled", "Canceled the current workflow", {
     previouslySent: Boolean(document.sentAt),
@@ -4686,6 +4882,10 @@ export async function completeFieldForAuthorizationHeader(
       .from("documents")
       .update({
         completed_at: completionTimestamp,
+        purge_scheduled_at:
+          updatedDocument.retentionMode === "temporary"
+            ? addDaysToTimestamp(completionTimestamp, COMPLETED_DOCUMENT_PURGE_GRACE_DAYS)
+            : null,
         locked_at: null,
         locked_by_user_id: null,
       })
@@ -4895,6 +5095,7 @@ export async function duplicateDocumentForAuthorizationHeader(
   }
 
   const buffer = Buffer.from(await fileBlob.arrayBuffer());
+  const now = new Date().toISOString();
   const { error: uploadError } = await adminClient.storage
     .from(env.SUPABASE_DOCUMENT_BUCKET)
     .upload(nextStoragePath, buffer, {
@@ -4918,11 +5119,21 @@ export async function duplicateDocumentForAuthorizationHeader(
     lock_policy: sourceDocument.lockPolicy,
     notify_originator_on_each_signature: sourceDocument.notifyOriginatorOnEachSignature,
     due_at: sourceDocument.dueAt,
+    retention_mode: sourceDocument.retentionMode,
+    retention_days: sourceDocument.retentionDays,
+    purge_scheduled_at:
+      sourceDocument.retentionMode === "temporary"
+        ? addDaysToTimestamp(now, sourceDocument.retentionDays)
+        : null,
+    purged_at: null,
+    purged_by_user_id: null,
+    purge_reason: null,
     workflow_status: "active" as const,
     workflow_status_reason: null,
     workflow_status_updated_at: null,
     workflow_status_updated_by_user_id: null,
     page_count: sourceDocument.pageCount,
+    uploaded_at: now,
     uploaded_by_user_id: user.id,
     prepared_at: sourceDocument.preparedAt,
     sent_at: null,
@@ -4937,6 +5148,8 @@ export async function duplicateDocumentForAuthorizationHeader(
     is_scanned: sourceDocument.isScanned,
     is_ocr_complete: sourceDocument.isOcrComplete,
     is_field_detection_complete: sourceDocument.isFieldDetectionComplete,
+    source_storage_bytes: buffer.length,
+    export_storage_bytes: 0,
   };
 
   const { error: insertDocumentError } = await adminClient.from("documents").insert(insertedDocument);
@@ -5036,14 +5249,33 @@ export async function deleteDocumentForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   await assertPermission(documentId, user, "delete_document");
   const adminClient = createServiceRoleClient();
-  await appendAuditEvent(documentId, user.id, "document.exported", "Document soft deleted from workspace");
-  await appendVersion(documentId, user.id, "Deleted document", "Document removed from active workspace view");
+  const document = await requireDocumentBundle(documentId);
+  const { removedBytes, removedPaths } = await purgeDocumentStorageArtifactsForPrefixes([
+    getDocumentStoragePrefix(document.uploadedByUserId, document.id),
+  ]);
+
+  await appendVersion(
+    documentId,
+    user.id,
+    "Deleted document",
+    "Purged stored document files and removed document from the active workspace view",
+  );
+  await appendAuditEvent(documentId, user.id, "document.purged", "Purged stored document files", {
+    removedBytes,
+    removedFiles: removedPaths.length,
+  });
 
   const { error } = await adminClient
     .from("documents")
     .update({
       deleted_at: new Date().toISOString(),
       deleted_by_user_id: user.id,
+      purged_at: new Date().toISOString(),
+      purged_by_user_id: user.id,
+      purge_reason: "deleted_by_user",
+      purge_scheduled_at: null,
+      source_storage_bytes: 0,
+      export_storage_bytes: 0,
     })
     .eq("id", documentId);
 
@@ -5053,6 +5285,68 @@ export async function deleteDocumentForAuthorizationHeader(
 
   return {
     deleted: true,
+    purged: true,
+    removedBytes,
+  };
+}
+
+export async function updateDocumentRetentionForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user, "manage_workflow");
+  const parsed = updateDocumentRetentionInputSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+  const document = await requireDocumentBundle(documentId);
+  const purgeScheduledAt = getRetentionScheduleForDocumentState({
+    retentionMode: parsed.retentionMode,
+    retentionDays: document.retentionDays,
+    uploadedAt: document.uploadedAt,
+    sentAt: document.sentAt,
+    completedAt: document.completedAt,
+    workflowStatus: document.workflowStatus,
+    workflowStatusUpdatedAt: document.workflowStatusUpdatedAt,
+  });
+
+  const { error } = await adminClient
+    .from("documents")
+    .update({
+      retention_mode: parsed.retentionMode,
+      purge_scheduled_at: purgeScheduledAt,
+      purge_reason: null,
+    })
+    .eq("id", documentId);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  await appendVersion(
+    documentId,
+    user.id,
+    "Updated retention",
+    parsed.retentionMode === "retained"
+      ? "Document will stay stored in EasyDraft until manually deleted."
+      : "Document uses temporary storage and will be purged automatically when eligible.",
+  );
+  await appendAuditEvent(
+    documentId,
+    user.id,
+    "document.retention.updated",
+    parsed.retentionMode === "retained"
+      ? "Changed document retention to retained storage"
+      : "Changed document retention to temporary storage",
+    {
+      retentionMode: parsed.retentionMode,
+      hasScheduledPurge: Boolean(purgeScheduledAt),
+    },
+  );
+
+  const updatedDocument = await requireDocumentBundle(documentId);
+  return {
+    document: toWorkflowDocumentResponse(updatedDocument, user.id),
   };
 }
 
@@ -5241,6 +5535,72 @@ export async function processQueuedJobs(limit = 5) {
 
   return {
     processedJobs,
+  };
+}
+
+export async function processDueDocumentPurges(limit = 10) {
+  const adminClient = createServiceRoleClient();
+  const now = new Date().toISOString();
+  const { data, error } = await adminClient
+    .from("documents")
+    .select("id, name, uploaded_by_user_id")
+    .eq("retention_mode", "temporary")
+    .is("deleted_at", null)
+    .is("purged_at", null)
+    .not("purge_scheduled_at", "is", null)
+    .lte("purge_scheduled_at", now)
+    .order("purge_scheduled_at", { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  const dueDocuments = (data ?? []) as Array<{
+    id: string;
+    name: string;
+    uploaded_by_user_id: string;
+  }>;
+  const purgedDocumentIds: string[] = [];
+
+  for (const document of dueDocuments) {
+    const { removedBytes, removedPaths } = await purgeDocumentStorageArtifactsForPrefixes([
+      getDocumentStoragePrefix(document.uploaded_by_user_id, document.id),
+    ]);
+    const purgedAt = new Date().toISOString();
+    const { error: updateError } = await adminClient
+      .from("documents")
+      .update({
+        deleted_at: purgedAt,
+        deleted_by_user_id: null,
+        purged_at: purgedAt,
+        purged_by_user_id: null,
+        purge_reason: "scheduled_retention_expired",
+        purge_scheduled_at: null,
+        source_storage_bytes: 0,
+        export_storage_bytes: 0,
+      })
+      .eq("id", document.id);
+
+    if (updateError) {
+      throw new AppError(500, updateError.message);
+    }
+
+    await appendAuditEvent(
+      document.id,
+      "system",
+      "document.purged",
+      `Purged stored document files after the temporary retention window expired for ${document.name}`,
+      {
+        removedBytes,
+        removedFiles: removedPaths.length,
+      },
+    );
+    purgedDocumentIds.push(document.id);
+  }
+
+  return {
+    purgedDocumentIds,
   };
 }
 
@@ -5499,6 +5859,10 @@ export async function completeFieldForSigningToken(
       .from("documents")
       .update({
         completed_at: completionTimestamp,
+        purge_scheduled_at:
+          updatedDocument.retentionMode === "temporary"
+            ? addDaysToTimestamp(completionTimestamp, COMPLETED_DOCUMENT_PURGE_GRACE_DAYS)
+            : null,
         locked_at: null,
         locked_by_user_id: null,
       })

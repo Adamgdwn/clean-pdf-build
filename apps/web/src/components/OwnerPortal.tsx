@@ -28,6 +28,22 @@ function formatShortDate(timestamp: string | null) {
   });
 }
 
+function formatStorageAmount(bytes: number) {
+  if (bytes >= 1024 ** 3) {
+    return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+  }
+
+  if (bytes >= 1024 ** 2) {
+    return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  }
+
+  if (bytes >= 1024) {
+    return `${Math.round(bytes / 1024)} KB`;
+  }
+
+  return `${bytes} B`;
+}
+
 function formatStatusLabel(status: string) {
   return status.replaceAll("_", " ");
 }
@@ -144,6 +160,11 @@ export function OwnerPortal({
   const subscriptionStatus = subscriptionStatusLabel(subscription?.status ?? null);
   const renewsOn = subscription?.currentPeriodEnd ? formatShortDate(subscription.currentPeriodEnd) : null;
   const trialEndsOn = subscription?.trialEndsAt ? formatShortDate(subscription.trialEndsAt) : null;
+  const includedStorageGb = currentPlan?.includedStorageGb ?? null;
+  const usedStorageBytes = billingOverview?.storage.usedBytes ?? 0;
+  const usedStorageGb = usedStorageBytes / 1024 ** 3;
+  const storageUtilization =
+    includedStorageGb && includedStorageGb > 0 ? Math.min(999, Math.round((usedStorageGb / includedStorageGb) * 100)) : null;
   const queuePressure = adminOverview
     ? adminOverview.metrics.pendingNotifications +
       adminOverview.metrics.failedNotifications +
@@ -328,6 +349,15 @@ export function OwnerPortal({
             <strong>{subscriptionStatus}</strong>
             <p>{trialEndsOn ? `Trial ends ${trialEndsOn}.` : renewsOn ? `Renews ${renewsOn}.` : "No renewal date scheduled yet."}</p>
           </div>
+          <div className="metric">
+            <span>Document storage</span>
+            <strong>{formatStorageAmount(usedStorageBytes)}</strong>
+            <p>
+              {storageUtilization !== null && includedStorageGb
+                ? `${storageUtilization}% of ${includedStorageGb} GB included on the current plan.`
+                : "Storage usage is based on source PDFs plus rendered exports in this workspace."}
+            </p>
+          </div>
         </div>
 
         <div className="owner-summary-grid">
@@ -412,6 +442,35 @@ export function OwnerPortal({
                   </p>
                 </div>
                 <span>{ownerWatchlist.length} flagged</span>
+              </div>
+            </div>
+          </section>
+
+          <section className="toolbar-card owner-summary-card">
+            <div className="section-heading compact">
+              <p className="eyebrow">Storage snapshot</p>
+              <span>{formatStorageAmount(usedStorageBytes)}</span>
+            </div>
+            <div className="stack">
+              <div className="row-card">
+                <div>
+                  <strong>Retention posture</strong>
+                  <p className="muted">
+                    {billingOverview?.storage.temporaryDocumentCount ?? 0} temporary document{(billingOverview?.storage.temporaryDocumentCount ?? 0) === 1 ? "" : "s"} and {billingOverview?.storage.retainedDocumentCount ?? 0} retained document{(billingOverview?.storage.retainedDocumentCount ?? 0) === 1 ? "" : "s"} currently occupy storage.
+                  </p>
+                </div>
+                <span>{billingOverview?.storage.purgeScheduledCount ?? 0} scheduled</span>
+              </div>
+              <div className="row-card">
+                <div>
+                  <strong>Capacity view</strong>
+                  <p className="muted">
+                    {storageUtilization !== null && includedStorageGb
+                      ? `${formatStorageAmount(usedStorageBytes)} used against ${includedStorageGb} GB included.`
+                      : "Select or start a paid plan to compare current storage against the included allowance."}
+                  </p>
+                </div>
+                <span>{billingOverview?.storage.purgedDocumentCount ?? 0} purged</span>
               </div>
             </div>
           </section>

@@ -71,6 +71,8 @@ const AUDIT_EVENT_LABELS: Record<string, string> = {
   "document.signer_reassigned": "Participant reassigned",
   "document.due_date.updated": "Due date updated",
   "document.exported": "Exported",
+  "document.retention.updated": "Retention updated",
+  "document.purged": "Stored files purged",
   "document.delivery_mode.updated": "Delivery mode updated",
   "field.created": "Field added",
   "field.assigned": "Field assigned",
@@ -1288,7 +1290,7 @@ export default function App() {
       return;
     }
 
-    if (!window.confirm(`Delete "${selectedDocument.name}"? This cannot be undone.`)) {
+    if (!window.confirm(`Delete "${selectedDocument.name}"? Stored files will be purged from EasyDraft and this cannot be undone.`)) {
       return;
     }
 
@@ -1303,8 +1305,42 @@ export default function App() {
       });
       setPreviewUrl(null);
       setLocalPreviewUrl(null);
+      await refreshBilling(session);
       await refreshDocuments(session);
-      setNoticeMessage("Document removed from the active workspace list.");
+      setNoticeMessage("Document files were purged from EasyDraft and removed from the active workspace list.");
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleUpdateDocumentRetention(retentionMode: "temporary" | "retained") {
+    if (!session || !selectedDocument) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      await apiFetch("/document-retention", session, {
+        method: "POST",
+        body: JSON.stringify({
+          documentId: selectedDocument.id,
+          retentionMode,
+        }),
+      });
+      await refreshDocument(selectedDocument.id, session);
+      await refreshDocuments(session);
+      await refreshBilling(session);
+      await loadPreview(selectedDocument.id, session);
+      setNoticeMessage(
+        retentionMode === "retained"
+          ? "Document storage is now kept until you delete it."
+          : "Document storage is now temporary and will purge automatically when eligible.",
+      );
     } catch (error) {
       setErrorMessage((error as Error).message);
     } finally {
@@ -1665,6 +1701,7 @@ export default function App() {
           name: filenameToTitle(file.name),
           fileName: file.name,
           storagePath,
+          fileSize: file.size,
           pageCount: null,
           routingStrategy: uploadRouting,
           deliveryMode,
@@ -3473,6 +3510,18 @@ export default function App() {
                     </button>
                     <button
                       className="secondary-button"
+                      disabled={isLoading}
+                      onClick={() =>
+                        handleUpdateDocumentRetention(
+                          selectedDocument.retentionMode === "temporary" ? "retained" : "temporary",
+                        )
+                      }
+                      type="button"
+                    >
+                      {selectedDocument.retentionMode === "temporary" ? "Keep stored" : "Make temporary"}
+                    </button>
+                    <button
+                      className="secondary-button"
                       disabled={isLoading || !sendReadiness?.ready}
                       onClick={() => runDocumentAction("/document-send", { documentId: selectedDocument.id })}
                     >
@@ -3511,6 +3560,13 @@ export default function App() {
                         : selectedDocument.deliveryMode === "internal_use_only"
                           ? "Opening this for internal actions keeps the document inside EasyDraft. Participants can complete their assigned fields after they log in."
                         : "Marking this ready does not send emails. It simply records that the file is ready for self-managed distribution."}
+                  </p>
+                  <p className="muted action-note">
+                    {selectedDocument.retentionMode === "retained"
+                      ? "Storage is retained until someone deletes this document from EasyDraft."
+                      : selectedDocument.purgeScheduledAt
+                        ? `Temporary storage is enabled. EasyDraft is scheduled to purge stored files on ${formatTimestamp(selectedDocument.purgeScheduledAt)} unless you keep them stored.`
+                        : "Temporary storage is enabled. EasyDraft keeps active workflows stored only while they are needed, then schedules purge automatically when the workflow becomes eligible."}
                   </p>
                   {selectedDocument.deliveryMode === "platform_managed" &&
                   selectedDocument.signers.some((s) => s.participantType === "external") ? (

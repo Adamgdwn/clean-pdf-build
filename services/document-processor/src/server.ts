@@ -6,6 +6,7 @@ import {
   AppError,
   captureServerException,
   markProcessingJobCompleted,
+  processDueDocumentPurges,
   processQueuedJobs,
   processQueuedNotifications,
   readServerEnv,
@@ -87,6 +88,14 @@ export function buildDocumentProcessorServer() {
   app.post("/notifications/run-queued", async (_, reply) => {
     try {
       return await processQueuedNotifications();
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/retention/run-due", async (_, reply) => {
+    try {
+      return await processDueDocumentPurges();
     } catch (error) {
       return sendError(reply, error);
     }

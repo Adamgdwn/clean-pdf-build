@@ -22,7 +22,8 @@
     "supabase:db:reset": "npx supabase db reset",
     "smoke:public-routes": "node scripts/smoke-public-routes.mjs",
     "processor:run-queued": "curl -s -X POST http://localhost:4010/jobs/run-queued",
-    "processor:run-notifications": "curl -s -X POST http://localhost:4010/notifications/run-queued"
+    "processor:run-notifications": "curl -s -X POST http://localhost:4010/notifications/run-queued",
+    "processor:run-purges": "curl -s -X POST http://localhost:4010/retention/run-due"
   },
   "devDependencies": {
     "@types/node": "^22.13.14",

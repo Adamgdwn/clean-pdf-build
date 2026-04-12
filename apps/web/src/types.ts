@@ -78,6 +78,14 @@ export type BillingOverview = {
     used: number;
     purchased: number;
   };
+  storage: {
+    usedBytes: number;
+    activeDocumentCount: number;
+    temporaryDocumentCount: number;
+    retainedDocumentCount: number;
+    purgeScheduledCount: number;
+    purgedDocumentCount: number;
+  };
   plans: Array<{
     key: string;
     name: string;

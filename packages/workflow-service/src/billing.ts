@@ -76,6 +76,15 @@ type WorkspaceSubscriptionRow = {
   updated_at: string;
 };
 
+type WorkspaceDocumentStorageRow = {
+  retention_mode: "temporary" | "retained";
+  purge_scheduled_at: string | null;
+  purged_at: string | null;
+  deleted_at: string | null;
+  source_storage_bytes: number;
+  export_storage_bytes: number;
+};
+
 function getPlanMonthlyEquivalentCad(plan: Pick<BillingPlanRow, "monthly_price_usd" | "billing_interval">) {
   return plan.billing_interval === "year" ? plan.monthly_price_usd / 12 : plan.monthly_price_usd;
 }
@@ -242,6 +251,35 @@ async function countOrganizationMembers(organizationId: string) {
   }
 
   return count ?? 0;
+}
+
+async function summarizeWorkspaceDocumentStorage(workspaceId: string) {
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("documents")
+    .select(
+      "retention_mode, purge_scheduled_at, purged_at, deleted_at, source_storage_bytes, export_storage_bytes",
+    )
+    .eq("workspace_id", workspaceId);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  const rows = (data ?? []) as WorkspaceDocumentStorageRow[];
+  const activeRows = rows.filter((row) => row.deleted_at === null);
+
+  return {
+    usedBytes: activeRows.reduce(
+      (sum, row) => sum + Number(row.source_storage_bytes ?? 0) + Number(row.export_storage_bytes ?? 0),
+      0,
+    ),
+    activeDocumentCount: activeRows.length,
+    temporaryDocumentCount: activeRows.filter((row) => row.retention_mode === "temporary").length,
+    retainedDocumentCount: activeRows.filter((row) => row.retention_mode === "retained").length,
+    purgeScheduledCount: activeRows.filter((row) => Boolean(row.purge_scheduled_at)).length,
+    purgedDocumentCount: rows.filter((row) => row.purged_at !== null).length,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -478,7 +516,10 @@ export async function getBillingOverviewForAuthorizationHeader(
       : countWorkspaceMembers(workspace.id),
   ]);
 
-  const tokenBalance = await computeExternalTokenBalance(workspace.id);
+  const [tokenBalance, storageSummary] = await Promise.all([
+    computeExternalTokenBalance(workspace.id),
+    summarizeWorkspaceDocumentStorage(workspace.id),
+  ]);
 
   return {
     billingMode: stripeReady ? ("live" as const) : ("placeholder" as const),
@@ -518,6 +559,7 @@ export async function getBillingOverviewForAuthorizationHeader(
       used: tokenBalance.used,
       purchased: tokenBalance.purchased,
     },
+    storage: storageSummary,
     plans: plans.map((plan) => ({
       key: plan.key,
       name: plan.name,

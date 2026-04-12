@@ -12,7 +12,11 @@ Use this runbook during private beta and paid-pilot operations to keep trust-sen
    - queued or running processing jobs
    - oldest pending notification timestamp
    - oldest queued processing job timestamp
-2. Review the admin feedback queue:
+2. Review temporary-storage posture:
+   - documents scheduled for purge soon
+   - any retained documents that should no longer stay in EasyDraft
+   - any unexpected growth in document storage
+3. Review the admin feedback queue:
    - new reports
    - high-priority items
    - anything unassigned
@@ -31,10 +35,12 @@ Direct public links to `/pricing`, `/privacy`, `/terms`, and `/security` must re
 - If the oldest queued notification or processing job is older than 15 minutes in production, treat it as an operator issue rather than waiting for user reports.
 - If the processor is deployed separately, verify the worker runtime and shared `EASYDRAFT_PROCESSOR_SECRET` first.
 - If needed, run the local/manual queue commands while investigating:
+- If retention cleanup needs to run manually, trigger:
 
 ```bash
 npm run processor:run-queued
 npm run processor:run-notifications
+npm run processor:run-purges
 ```
 
 ## Feedback triage loop
