@@ -4,6 +4,10 @@ A production-ready, minimal-change PDF workflow platform. Teams upload existing 
 
 **Live:** [easydraftdocs.app](https://easydraftdocs.app) · **User guide:** [easydraftdocs.app/guide.html](https://easydraftdocs.app/guide.html)
 
+## Slogan
+
+Refine. Share. Sign.
+
 ---
 
 ## What it does

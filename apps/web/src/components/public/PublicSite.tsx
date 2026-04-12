@@ -90,7 +90,7 @@ export function PublicSite({
             <span className="brand-mark">ED</span>
             <div>
               <h1>EasyDraft</h1>
-              <p>Private document workflows, reusable signatures, and clean handoffs.</p>
+              <p>Refine. Share. Sign.</p>
             </div>
           </div>
           <nav className="landing-nav">
@@ -107,7 +107,7 @@ export function PublicSite({
         <div className="landing-value">
           {publicPage === "home" ? (
             <>
-              <p className="eyebrow">Built for operations, finance, HR, legal, and real-estate teams</p>
+              <p className="eyebrow">Refine. Share. Sign.</p>
               <h2>Private document workflows for teams that need routing, signing, and an audit trail</h2>
               <p className="landing-sub">
                 EasyDraftDocs gives your team one place to upload PDFs, route approvals, collect signatures,

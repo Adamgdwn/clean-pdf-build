@@ -4,6 +4,7 @@ This project uses a lightweight changelog. Update this file for each release or 
 
 ## Unreleased
 
+- Introduced `Refine. Share. Sign.` as the product slogan across the public site and app shell.
 - Fixed direct public-route deployment support for `/pricing`, `/privacy`, `/terms`, and `/security`.
 - Added a public-route smoke script for post-deploy verification.
 - Tightened documentation around env requirements, trust posture, and operator workflows.

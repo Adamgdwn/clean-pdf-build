@@ -2167,7 +2167,7 @@ export default function App() {
             <span className="brand-mark">ED</span>
             <div>
               <h1>EasyDraft</h1>
-              <p>Secure signing for invited participants.</p>
+              <p>Refine. Share. Sign.</p>
             </div>
           </div>
           <a className="hero-guide-link" href="/guide.html" rel="noopener noreferrer" target="_blank">
@@ -2373,7 +2373,7 @@ export default function App() {
           <span className="brand-mark">ED</span>
           <div>
             <h1>EasyDraft</h1>
-            <p>Private document workflows, reusable signatures, and clean handoffs.</p>
+            <p>Refine. Share. Sign.</p>
           </div>
         </div>
 
@@ -3085,7 +3085,7 @@ export default function App() {
             {workspaceTeam.members.length === 1 ? (
               <div className="stack">
                 <p className="muted">
-                  You&apos;re the owner of <strong>{currentWorkspaceName}</strong>. Start with one complete solo workflow so you can see the full send, sign, and export path.
+                  You&apos;re the owner of <strong>{currentWorkspaceName}</strong>. Refine. Share. Sign. Start with one complete solo workflow so you can see the full send, sign, and export path.
                 </p>
                 <div className="checklist-grid">
                   <div className="checklist-step checklist-step-active">
@@ -3114,7 +3114,7 @@ export default function App() {
             ) : (
               <div className="stack">
                 <p className="muted">
-                  Your workspace is ready for team use. Invite collaborators, upload your first document, and review the guide so everyone starts from the same operating model.
+                  Your workspace is ready for team use. Refine. Share. Sign. Invite collaborators, upload your first document, and review the guide so everyone starts from the same operating model.
                 </p>
                 <div className="action-row action-wrap">
                   <button className="secondary-button" onClick={() => updatePortalView("org_admin")} type="button">
