@@ -30,6 +30,7 @@ import type {
   SessionUser,
   WorkflowDocument,
   WorkspaceDirectory,
+  WorkspaceInviteDetails,
   WorkspaceOption,
   WorkspaceTeam,
 } from "./types";
@@ -77,6 +78,7 @@ const AUDIT_EVENT_LABELS: Record<string, string> = {
   "field.created": "Field added",
   "field.assigned": "Field assigned",
   "field.completed": "Field completed",
+  "signing.verified": "Email verified",
   "processing.ocr.requested": "OCR requested",
   "processing.ocr.completed": "OCR completed",
   "processing.field_detection.requested": "Field detection requested",
@@ -461,6 +463,7 @@ export default function App() {
   );
   const [portalView, setPortalView] = useState<PortalView>("workspace");
   const [pendingInviteToken, setPendingInviteToken] = useState<string | null>(null);
+  const [pendingInviteDetails, setPendingInviteDetails] = useState<WorkspaceInviteDetails["invitation"] | null>(null);
   const [joinedWorkspaceBanner, setJoinedWorkspaceBanner] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -533,6 +536,7 @@ export default function App() {
   const [reassignSignerName, setReassignSignerName] = useState("");
   const [reassignSignerEmail, setReassignSignerEmail] = useState("");
   const [guestSigningSession, setGuestSigningSession] = useState<GuestSigningSession | null>(null);
+  const [guestVerificationCode, setGuestVerificationCode] = useState("");
   const [renamingDocumentId, setRenamingDocumentId] = useState<string | null>(null);
   const [renameDocName, setRenameDocName] = useState("");
   const [deleteAccountConfirmEmail, setDeleteAccountConfirmEmail] = useState("");
@@ -900,6 +904,82 @@ export default function App() {
     }
   }
 
+  async function sendGuestVerificationCode() {
+    if (!guestSigningSession) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      const res = await fetch("/api/signing-token-verification-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: guestSigningSession.signerToken,
+          documentId: guestSigningSession.documentId,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { message?: string } | null;
+        throw new Error(data?.message ?? "Failed to send verification code.");
+      }
+
+      const payload = await res.json() as {
+        verification: GuestSigningSession["verification"];
+      };
+
+      setGuestSigningSession((prev) => prev ? { ...prev, verification: payload.verification } : prev);
+      setNoticeMessage(`Verification code sent to ${payload.verification.emailHint}.`);
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function verifyGuestSigningCode() {
+    if (!guestSigningSession) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      const res = await fetch("/api/signing-token-verification-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: guestSigningSession.signerToken,
+          documentId: guestSigningSession.documentId,
+          code: guestVerificationCode,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { message?: string } | null;
+        throw new Error(data?.message ?? "Failed to verify code.");
+      }
+
+      const payload = await res.json() as {
+        verification: GuestSigningSession["verification"];
+      };
+
+      setGuestSigningSession((prev) => prev ? { ...prev, verification: payload.verification } : prev);
+      setGuestVerificationCode("");
+      setNoticeMessage("Email verified. You can complete your assigned signing actions now.");
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function runGuestFieldComplete(
     fieldId: string,
     signingReason?: string | null,
@@ -933,9 +1013,20 @@ export default function App() {
         throw new Error((data as { message?: string }).message ?? "Failed to complete field.");
       }
 
-      const payload = await res.json() as { document: WorkflowDocument };
+      const payload = await res.json() as {
+        document: WorkflowDocument;
+        verification?: GuestSigningSession["verification"];
+      };
       setDocuments([payload.document]);
-      setGuestSigningSession((prev) => prev ? { ...prev, document: payload.document } : prev);
+      setGuestSigningSession((prev) =>
+        prev
+          ? {
+              ...prev,
+              document: payload.document,
+              verification: payload.verification ?? prev.verification,
+            }
+          : prev,
+      );
     } catch (error) {
       setErrorMessage((error as Error).message);
     } finally {
@@ -1855,6 +1946,7 @@ export default function App() {
         })
         .then((data) => {
           setGuestSigningSession(data as GuestSigningSession);
+          setGuestVerificationCode("");
           setDocuments([data.document as WorkflowDocument]);
           setSelectedDocumentId(data.documentId as string);
           if (data.previewUrl) setPreviewUrl(data.previewUrl as string);
@@ -1871,6 +1963,35 @@ export default function App() {
     const query = params.toString();
     window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
   }, []);
+
+  useEffect(() => {
+    if (!pendingInviteToken) {
+      setPendingInviteDetails(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    apiFetch<WorkspaceInviteDetails>("/workspace-invite-details", null, {
+      method: "POST",
+      body: JSON.stringify({ token: pendingInviteToken }),
+    })
+      .then((payload) => {
+        if (!cancelled) {
+          setPendingInviteDetails(payload.invitation);
+        }
+      })
+      .catch((error: Error) => {
+        if (!cancelled) {
+          setPendingInviteDetails(null);
+          setErrorMessage(error.message);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingInviteToken]);
 
   useEffect(() => {
     const storedSession = loadStoredSession();
@@ -1916,6 +2037,7 @@ export default function App() {
               setActiveWorkspaceId(payload.workspace.id);
             }
             setPendingInviteToken(null);
+            setPendingInviteDetails(null);
             setJoinedWorkspaceBanner(workspaceName);
             setNoticeMessage(
               payload.alreadyMember
@@ -2128,6 +2250,7 @@ export default function App() {
       <PublicSite
         publicPage={publicPage}
         pendingInviteToken={pendingInviteToken}
+        pendingInviteDetails={pendingInviteDetails}
         errorMessage={errorMessage}
         noticeMessage={noticeMessage}
         onNavigatePublicPage={navigatePublicPage}
@@ -2237,6 +2360,54 @@ export default function App() {
                 Review the document, then complete the highlighted fields assigned to you. No account is required for this signing link.
               </p>
 
+              {guestSigningSession.verification.required && !guestSigningSession.verification.verified ? (
+                <div className="row-card" style={{ flexDirection: "column", alignItems: "stretch", gap: "0.75rem" }}>
+                  <div>
+                    <strong>Verify your email before signing</strong>
+                    <p className="muted" style={{ marginTop: "0.35rem" }}>
+                      EasyDraft sends a one-time code to {guestSigningSession.verification.emailHint} before any signature, initial, or approval can be completed.
+                    </p>
+                    <p className="muted" style={{ marginTop: "0.35rem" }}>
+                      {guestSigningSession.verification.codeSentAt
+                        ? `Last code sent ${formatTimestamp(guestSigningSession.verification.codeSentAt)}.`
+                        : "Request a code to continue."}
+                    </p>
+                  </div>
+                  <div className="row-card" style={{ margin: 0 }}>
+                    <label className="form-field" style={{ flex: 1, margin: 0 }}>
+                      <span>Verification code</span>
+                      <input
+                        inputMode="numeric"
+                        maxLength={6}
+                        placeholder="123456"
+                        value={guestVerificationCode}
+                        onChange={(event) => setGuestVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                      />
+                    </label>
+                    <button
+                      className="ghost-button"
+                      disabled={isLoading}
+                      onClick={sendGuestVerificationCode}
+                      type="button"
+                    >
+                      {guestSigningSession.verification.codeSentAt ? "Resend code" : "Send code"}
+                    </button>
+                  </div>
+                  <button
+                    className="primary-button"
+                    disabled={isLoading || guestVerificationCode.trim().length !== 6}
+                    onClick={verifyGuestSigningCode}
+                    type="button"
+                  >
+                    {isLoading ? "Verifying…" : "Verify email"}
+                  </button>
+                </div>
+              ) : guestSigningSession.verification.verified ? (
+                <div className="alert success">
+                  Email verified for this signing session.
+                </div>
+              ) : null}
+
               {guestAssignedFields.length > 0 ? (
                 <>
                   <div className="row-card">
@@ -2273,7 +2444,10 @@ export default function App() {
                         </div>
                         <button
                           className="primary-button"
-                          disabled={isLoading}
+                          disabled={
+                            isLoading ||
+                            (guestSigningSession.verification.required && !guestSigningSession.verification.verified)
+                          }
                           onClick={() =>
                             runGuestFieldComplete(
                               field.id,
@@ -2449,6 +2623,7 @@ export default function App() {
           sessionUser={sessionUser}
           guestSigningSession={guestSigningSession}
           hasPendingInvite={pendingInviteToken !== null}
+          pendingInviteDetails={pendingInviteDetails}
           onSessionCreated={(nextSession) => {
             refreshSession(nextSession).catch((error) => setErrorMessage((error as Error).message));
           }}
@@ -4034,7 +4209,13 @@ export default function App() {
                             selectedDocument.currentUserSignerId === field.assigneeSignerId ? (
                               <button
                                 className="ghost-button"
-                                disabled={isLoading}
+                                disabled={
+                                  isLoading ||
+                                  Boolean(
+                                    guestSigningSession?.verification.required &&
+                                      !guestSigningSession.verification.verified,
+                                  )
+                                }
                                 onClick={() =>
                                   guestSigningSession
                                     ? runGuestFieldComplete(

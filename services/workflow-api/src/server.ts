@@ -20,7 +20,12 @@ function resolveRateLimitPolicy(method: string, path: string): RateLimitPolicy |
     return { key: "workflow-api:session", limit: 60, windowMs: 60_000 };
   }
 
-  if (path === "/signing-token-session" || /\/field-complete-token$/.test(path)) {
+  if (
+    path === "/signing-token-session" ||
+    path === "/signing-token-verification-send" ||
+    path === "/signing-token-verification-check" ||
+    /\/field-complete-token$/.test(path)
+  ) {
     return { key: "workflow-api:signing", limit: 10, windowMs: 5 * 60_000 };
   }
 

@@ -1,6 +1,6 @@
 # Current Priority Handoff
 
-Date: `2026-04-11`
+Date: `2026-04-17`
 
 ## What just completed
 
@@ -16,6 +16,14 @@ Date: `2026-04-11`
   - deployment and env documentation updated
   - proprietary license posture documented
   - workflow/change-impact/operator docs reconciled with the current codebase
+- Invite and external signer trust hardening landed:
+  - workspace invite acceptance now requires the invited email address
+  - pre-auth invite details now show workspace, role, and recipient email clearly
+  - external signer actions now require an emailed one-time verification code
+  - superseded and completed signing links are invalidated more aggressively
+- Billing safety tightened:
+  - Stripe free-trial checkout now defines invoice behavior explicitly when no payment method is on file
+  - webhook dedupe now records Stripe object IDs in addition to event IDs
 - The product was re-audited against the latest core-workflow brief.
 
 ## Current judgment
@@ -37,9 +45,9 @@ It should **not** drift into a general PDF editor.
 ### Immediate next engineering priorities
 
 1. Harden external signer verification
-   - add email OTP verification before final external signature/initial/approval submit
-   - record verification method as part of the completion evidence
-   - tighten token replay, resend invalidation, and submit idempotency
+   - validate the live email-code flow against real delivery and reminder behavior
+   - confirm operators can diagnose expired, completed, and mismatched-link states quickly
+   - keep the verification evidence narrow and truthful in customer-facing language
 
 2. Strengthen executed-record durability
    - prevent ordinary deletion of completed executed records
@@ -60,7 +68,7 @@ It should **not** drift into a general PDF editor.
 
 - Verify the live app still feels like a workflow tool, not an editor.
 - Run real-user tests through all three delivery modes.
-- Confirm the signer experience is simple, trustworthy, and unsurprising.
+- Confirm the signer experience remains simple, trustworthy, and unsurprising with the added verification step.
 
 ## Verification status
 

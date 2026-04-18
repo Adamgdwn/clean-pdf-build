@@ -83,6 +83,18 @@ function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+function mapInvitationStatus(invitation: Pick<WorkspaceInvitationRow, "accepted_at" | "expires_at">) {
+  if (invitation.accepted_at) {
+    return "accepted" as const;
+  }
+
+  if (new Date(invitation.expires_at) < new Date()) {
+    return "expired" as const;
+  }
+
+  return "pending" as const;
+}
+
 function getMembershipEmail(
   profiles: WorkspaceMemberResetRow["profiles"],
 ): string | null {
@@ -440,6 +452,16 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
     throw new AppError(404, "Invitation not found or has expired.");
   }
 
+  const invitedEmail = normalizeEmail(invitation.email);
+  const currentUserEmail = normalizeEmail(user.rawEmail);
+
+  if (invitedEmail !== currentUserEmail) {
+    throw new AppError(
+      409,
+      `This invitation was sent to ${invitation.email}, but you're signed in as ${user.email}. Sign in with the invited address to join this workspace.`,
+    );
+  }
+
   if (invitation.accepted_at) {
     // Already accepted — just make sure they're in the workspace and return success
     const { data: existingMembership } = await adminClient
@@ -524,6 +546,46 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
       ? { id: workspace.id, name: workspace.name, slug: workspace.slug }
       : null,
     role: invitation.role,
+  };
+}
+
+export async function getWorkspaceInvitationDetails(token: string) {
+  const adminClient = createServiceRoleClient();
+  const { data: invitation, error } = await adminClient
+    .from("workspace_invitations")
+    .select("id, workspace_id, email, role, accepted_at, expires_at")
+    .eq("token", token)
+    .maybeSingle();
+
+  if (error || !invitation) {
+    throw new AppError(404, "Invitation not found.");
+  }
+
+  const { data: workspace, error: workspaceError } = await adminClient
+    .from("workspaces")
+    .select("id, name, slug")
+    .eq("id", invitation.workspace_id)
+    .maybeSingle();
+
+  if (workspaceError) {
+    throw new AppError(500, workspaceError.message);
+  }
+
+  return {
+    invitation: {
+      email: invitation.email,
+      role: invitation.role,
+      expiresAt: invitation.expires_at,
+      acceptedAt: invitation.accepted_at,
+      status: mapInvitationStatus(invitation),
+      workspace: workspace
+        ? {
+            id: workspace.id,
+            name: workspace.name,
+            slug: workspace.slug,
+          }
+        : null,
+    },
   };
 }
 

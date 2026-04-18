@@ -85,9 +85,10 @@ Current recommended tester onboarding flow:
 1. Use the admin console `Invite testers` form.
 2. Supabase Auth sends the invite email.
 3. The tester follows the invite, creates their account if needed, and lands back in EasyDraft.
-4. The tester is attached to the invited workspace and should see a clear joined-workspace confirmation.
-5. The tester fills in profile details inside the app.
-6. Any pending document collaborator or signer access for that same email attaches automatically after sign-in.
+4. The tester must sign in with the same email address that received the invite; EasyDraft now blocks wrong-account workspace attachment.
+5. The tester is attached to the invited workspace and should see a clear joined-workspace confirmation.
+6. The tester fills in profile details inside the app.
+7. Any pending document collaborator or signer access for that same email attaches automatically after sign-in.
 
 Important distinction:
 
@@ -279,8 +280,9 @@ After the Gmail SMTP values are saved in both Vercel and Supabase:
 6. Send a `platform_managed` workflow.
 7. Confirm the workflow email arrives.
 8. Open the document from the email link.
-9. Complete the action and confirm the workflow advances.
-10. Confirm the notification record shows as sent in EasyDraft.
+9. Request the one-time verification code and confirm the email arrives.
+10. Enter the verification code, complete the action, and confirm the workflow advances.
+11. Confirm the notification record shows as sent in EasyDraft.
 
 ## Test-user and pilot management
 

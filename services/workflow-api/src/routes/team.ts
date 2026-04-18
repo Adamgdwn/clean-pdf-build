@@ -4,6 +4,7 @@ import {
   AppError,
   acceptWorkspaceInvitationForAuthorizationHeader,
   createWorkspaceInvitationForAuthorizationHeader,
+  getWorkspaceInvitationDetails,
   getWorkspaceTeamForAuthorizationHeader,
   resendWorkspaceInvitationForAuthorizationHeader,
   revokeWorkspaceInvitationForAuthorizationHeader,
@@ -83,6 +84,20 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
         request.headers.authorization,
         body.token,
       );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/workspace-invite-details", async (request, reply) => {
+    try {
+      const body = request.body as { token?: string };
+
+      if (!body?.token) {
+        return reply.code(400).send({ message: "Missing invite token." });
+      }
+
+      return await getWorkspaceInvitationDetails(body.token);
     } catch (error) {
       return sendError(reply, error);
     }

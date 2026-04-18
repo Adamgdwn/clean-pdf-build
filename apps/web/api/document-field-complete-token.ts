@@ -21,6 +21,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
       documentId: string;
       fieldId: string;
       value?: string | null;
+      signingReason?: string | null;
+      signingLocation?: string | null;
     };
 
     if (!token || !documentId || !fieldId) {
@@ -34,7 +36,13 @@ export default async function handler(request: VercelRequest, response: VercelRe
           token,
           documentId,
           fieldId,
-          { value: value ?? null },
+          {
+            value: value ?? null,
+            signingReason:
+              typeof request.body?.signingReason === "string" ? request.body.signingReason : null,
+            signingLocation:
+              typeof request.body?.signingLocation === "string" ? request.body.signingLocation : null,
+          },
           getRequestOrigin(request),
         ),
       );

@@ -124,7 +124,6 @@ For the full current workflow reference (states, routing, delivery modes, field 
 ## Next steps for workflow coverage
 
 - keep the product boundary narrow: workflow-safe overlays and routing first, broad editing never by accident
-- harden external signer verification with an OTP-style final submit check for higher-confidence external signatures
 - make completed/executed records harder to mutate or delete through ordinary user actions
 - formalize staged routing as a first-class workflow concept rather than an emergent pattern
 - verify every post-sign mutation path routes through the existing change-impact system

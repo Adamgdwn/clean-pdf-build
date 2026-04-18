@@ -54,6 +54,7 @@ Current scope reminder:
    - `20260406223000_annual_billing_plan.sql`
    - `20260407033000_digital_signature_identity_fields.sql`
    - `20260407120000_onboarding_flag.sql`
+   - `20260417120000_invite_and_signing_verification.sql`
 
 ## Stripe
 
@@ -78,6 +79,7 @@ Current scope reminder:
    - `Settings → Branding` → upload logo, set brand colour, set business name
      Applies to all Stripe-generated emails and the Customer Portal.
 6. Run one checkout test and one billing-portal test after the keys are added.
+7. Replay at least one Stripe test webhook event to confirm duplicate delivery does not duplicate billing state changes.
 
 ## Notification Email
 
@@ -138,7 +140,9 @@ Store the future values in your secret manager or Vercel using these names for c
    - per-signer Resend button sends reminder only to that signer
    - Completion certificate opens as printable HTML on completed documents
    - external signer opens a dedicated signer page rather than the internal workspace shell
+   - external signer must request and enter the emailed verification code before completing a signature, initial, or approval action
    - signing flow prompts for `Reason for signing` and optional `Signing location`
+   - wrong-account workspace invite acceptance is blocked with a clear recovery message
    - the product still feels like field placement + routing + completion, not arbitrary document editing
 
 ## Final release gate
@@ -152,7 +156,7 @@ Only claim production readiness after all of these are true:
 - managed signing flow passes with real users
 - workspace switching stays correctly scoped for multi-workspace users
 - pricing and trial language are understandable to a first-time visitor
-- you have chosen and integrated the real signature vendor path
+- certificate-backed signing remains clearly out of scope unless a real provider integration has been completed and verified
 
 ## Next steps after go-live
 
@@ -168,6 +172,5 @@ Once the above is complete, the next operational/product tasks should be:
 3. Keep deployment docs aligned with live runtime requirements and env vars.
 4. Deploy the processor as a durable scheduled or containerized worker.
 5. Harden the core workflow before adding broader feature surface:
-   - external signer OTP verification
    - stronger executed-record retention / reopen behavior
    - extraction of workflow core panels from `App.tsx`

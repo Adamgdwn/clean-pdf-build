@@ -18,6 +18,7 @@ Refine. Share. Sign.
 - Field types: signature, initial, approval, date, text
 - Free-placement resizable signature for signers (no pre-placed field required)
 - External signers via one-time token link — no account needed
+- External signer email verification code required before signature, initial, or approval completion
 - Full audit trail, version history, lock/reopen, and completion certificate with SHA-256 hash
 - Temporary-by-default document storage with opt-in retained storage and scheduled purge metadata
 - Individual and corporate account signup paths
@@ -52,6 +53,7 @@ Refine. Share. Sign.
 - All three delivery modes: self-managed, internal-only, and platform-managed
 - Sequential and parallel routing with internal and external participants
 - External signer token links with no account required
+- External signer email verification before signature, initial, or approval completion
 - Dedicated external signer surface with completion confirmation
 - Free-placement signature canvas for signers
 - Full audit trail, version history, lock/reopen, and completion certificate with SHA-256 export hash
@@ -78,7 +80,7 @@ Refine. Share. Sign.
 ### Current product boundary
 - EasyDraft is a workflow-safe PDF execution layer, not a full PDF editor.
 - After upload, the intended scope is still minimal workflow changes only: place fields, assign participants, route, sign, review, lock, reopen, and complete.
-- The next hardening pass should strengthen signer verification and executed-record durability before adding broader editing power.
+- The next hardening pass should strengthen executed-record durability before adding broader editing power.
 
 ---
 
@@ -95,6 +97,9 @@ The latest application pass closed the most important product-surface gaps for s
 - `/pricing` is now a first-class public route with clearer subscription/token explanation
 - invitation emails now explain inviter, organization, role, and expected outcome
 - invite acceptance now activates the joined organization and confirms membership clearly
+- invite acceptance now fails closed when the signed-in account email does not match the invited email
+- external signer OTP verification now gates signature, initial, and approval completion
+- signing token replay is tighter: superseded and completed links are invalidated more aggressively
 - active workspace is explicit and persistent for multi-workspace users
 - loading/skeleton states now cover workspace hydration and switching
 
@@ -105,6 +110,9 @@ The latest application pass closed the most important product-surface gaps for s
 - Admin feedback intake moved from raw storage toward a triage-ready operator workflow.
 - Rate limiting, observability, and queue/admin visibility were hardened for private beta operations.
 - Workflow change-impact handling and the operator loop were documented more clearly across the repo.
+- External signer verification moved from bearer-link-only completion to email-code-gated completion.
+- Invite acceptance now protects against wrong-account workspace attachment.
+- Stripe trial creation now explicitly creates an invoice flow when the free trial ends without a saved payment method, and webhook dedupe is tighter.
 - The product direction was re-audited against the latest brief to re-center EasyDraft on its core: upload, place fields, assign, verify, complete, preserve evidence.
 
 ---
@@ -132,12 +140,7 @@ The latest application pass closed the most important product-surface gaps for s
    - avoid expanding into arbitrary content/layout editing
    - keep the workflow core extraction focused on field placement, signer actions, and workflow state
 
-2. **Harden external signer verification**
-   - add email OTP verification before final external signature/initial/approval submit
-   - bind verification method to the completion event
-   - tighten token replay, resend invalidation, and completion idempotency
-
-3. **Strengthen executed-record durability**
+2. **Strengthen executed-record durability**
    - prevent ordinary deletion of completed executed records
    - make reopen/create-next-workflow behavior preserve completed history cleanly
    - keep final PDF hash, certificate, and audit chain attached to the executed artifact
@@ -164,20 +167,20 @@ The latest application pass closed the most important product-surface gaps for s
 
 ### Short-term product improvements
 
-4. **Close remaining change-impact coverage gaps**
+3. **Close remaining change-impact coverage gaps**
    - verify every post-sign document mutation path maps to `non_material`, `review_required`, or `resign_required`
    - keep the current classification model and tighten endpoint coverage rather than redesigning it
 
-5. **Keep deployment truth aligned with production controls**
+4. **Keep deployment truth aligned with production controls**
    - document Upstash-backed rate limiting and Sentry DSNs in `.env.example` and deployment docs
    - keep the strictest limits on signing token validation, uploads, and notification dispatch
 
-6. **Improve billing clarity in-product**
+5. **Improve billing clarity in-product**
    - surface recent token ledger activity from `billing_usage_events`
    - add stronger trial-end messaging with specific date and expected charge
    - keep “change seats or plan” prominent for owners
 
-7. **Wire certificate-backed PDF signing when demand is proven**
+6. **Wire certificate-backed PDF signing when demand is proven**
    - pick a provider: `easy_draft_remote`, `qualified_remote`, or `organization_hsm`
    - use `node-signpdf` or provider SDK to embed a PKCS#7 `/Sig` annotation
    - keep signer identity in reusable profiles and capture reason/location at signing time
@@ -260,6 +263,8 @@ See `.env.example`. Required for a working deployment:
 
 **Tokens are consumed per external workflow send.** Internal participants on platform-managed workflows don't consume tokens. 1 token = 1 workflow sent to at least one external participant. For corporate accounts, token balance is shared across the organization and tracked as all-time credits minus all-time usage.
 
+**External signer verification is email-code-based.** Managed external signers still enter through a one-time link, but they must also verify a one-time email code before completing any signature, initial, or approval action. This is stronger than link-only completion, but it is not certificate-backed signing.
+
 **Corporate accounts are parent accounts.** A user can operate alone with an individual account or belong to a corporate account that owns billing, member administration, and the shared token bucket. Workspaces remain the operational container for documents.
 
 **Account deletion is irreversible.** It cancels Stripe, removes all storage files, and cascade-deletes the entire DB record tree. Users must type their email address to confirm.
@@ -311,7 +316,7 @@ Use this order to validate each delivery path before showing the product externa
 Upload → add internal signer → add required signature field → open for signing → sign in as that user → complete field → verify `completed` state and audit trail.
 
 ### 2. Platform-managed single external signer
-Upload → add external signer → add required field → send → open token link in private window → complete field → download PDF → verify SHA-256 hash in certificate.
+Upload → add external signer → add required field → send → open token link in private window → request verification code → verify email code → complete field → download PDF → verify SHA-256 hash in certificate.
 
 ### 3. Sequential two-signer
 Add signer A (stage 1) and signer B (stage 2) → send → complete A → verify B becomes eligible → complete B → verify completion.

@@ -3,6 +3,7 @@ import type { MouseEvent } from "react";
 
 import { AuthPanel } from "../AuthPanel";
 import { FeedbackPanel } from "../FeedbackPanel";
+import type { WorkspaceInviteDetails } from "../../types";
 
 export type PublicPage = "home" | "pricing" | "privacy" | "terms" | "security";
 
@@ -18,6 +19,7 @@ const MARKETING_PRICING = {
 type Props = {
   publicPage: PublicPage;
   pendingInviteToken: string | null;
+  pendingInviteDetails?: WorkspaceInviteDetails["invitation"] | null;
   errorMessage: string | null;
   noticeMessage: string | null;
   onNavigatePublicPage: (nextPage: PublicPage) => void;
@@ -67,6 +69,7 @@ function renderLegalPage(page: PublicPage) {
 export function PublicSite({
   publicPage,
   pendingInviteToken,
+  pendingInviteDetails,
   errorMessage,
   noticeMessage,
   onNavigatePublicPage,
@@ -197,6 +200,7 @@ export function PublicSite({
             sessionUser={null}
             guestSigningSession={null}
             hasPendingInvite={pendingInviteToken !== null}
+            pendingInviteDetails={pendingInviteDetails}
             onSessionCreated={onSessionCreated}
             onRegistered={onRegistered}
           />

@@ -107,6 +107,7 @@ All of `/pricing`, `/privacy`, `/terms`, and `/security` must return `200`.
    - `20260406223000_annual_billing_plan.sql` — annual billing plan
    - `20260407033000_digital_signature_identity_fields.sql` — digital-signature profile fields
    - `20260407120000_onboarding_flag.sql` — server-side onboarding flag on profiles
+   - `20260417120000_invite_and_signing_verification.sql` — guest email-code verification state plus Stripe object-level webhook dedupe
 3. Confirm the private `documents` bucket exists.
 4. Enable Email auth.
 5. Set your site URL and allowed redirect URLs to your Vercel domains.
@@ -137,6 +138,7 @@ Recommended production auth values:
 - `document_processing_jobs`
 - `document_signing_tokens` (token-based guest signing for external participants)
 - `billing_plans`, `workspace_subscriptions`, `billing_usage_events` (billing and token quota tracking)
+- `stripe_processed_events` (webhook idempotency, now including Stripe object IDs)
 
 It also creates:
 
@@ -181,6 +183,8 @@ Use Vercel's GitHub integration so each pull request gets a preview deployment a
 
 The current implementation creates recurring Checkout prices inline from the seeded billing plans, so you do not need to pre-create Stripe Price IDs just to get the first subscription flow working.
 
+The subscription checkout now sets Stripe `trial_settings.end_behavior.missing_payment_method=create_invoice`. That keeps the no-card trial posture explicit instead of depending only on dashboard defaults.
+
 ## Future signing vendor
 
 The Dropbox Sign integration is not wired yet, but you can prepare the production account now. Collect:
@@ -198,6 +202,13 @@ Until that integration is wired, `internal_use_only` is the built-in low-cost si
 ## Notifications and processor service
 
 Managed signature emails are attempted inline when notifications are queued and a supported email provider is configured. In production runtime, platform-managed sends now fail closed if email delivery is not configured. Resend is the recommended provider. The separate processor is still useful for retries and for OCR / field-detection workloads.
+
+External managed signers now complete a two-step flow:
+
+- open the one-time signing link
+- request and enter a 6-digit email verification code before completing any signature, initial, or approval action
+
+This improves trust over bearer-link-only completion, but it is still not certificate-backed signing.
 
 ## Processor service
 

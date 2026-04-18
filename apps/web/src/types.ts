@@ -109,6 +109,31 @@ export type GuestSigningSession = {
   documentId: string;
   document: WorkflowDocument;
   previewUrl: string | null;
+  verification: {
+    required: boolean;
+    verified: boolean;
+    verifiedAt: string | null;
+    codeSentAt: string | null;
+    codeExpiresAt: string | null;
+    retryAvailableAt: string | null;
+    attemptsRemaining: number;
+    emailHint: string;
+  };
+};
+
+export type WorkspaceInviteDetails = {
+  invitation: {
+    email: string;
+    role: string;
+    expiresAt: string;
+    acceptedAt: string | null;
+    status: "pending" | "accepted" | "expired";
+    workspace: {
+      id: string;
+      name: string;
+      slug: string;
+    } | null;
+  };
 };
 
 export type SavedSignature = {

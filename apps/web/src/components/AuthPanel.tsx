@@ -1,13 +1,14 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 
 import { apiFetch } from "../lib/api";
-import type { GuestSigningSession, SessionUser } from "../types";
+import type { GuestSigningSession, SessionUser, WorkspaceInviteDetails } from "../types";
 
 type Props = {
   sessionUser: SessionUser | null;
   guestSigningSession: GuestSigningSession | null;
   hasPendingInvite: boolean;
+  pendingInviteDetails?: WorkspaceInviteDetails["invitation"] | null;
   onSessionCreated: (session: Session) => void;
   onRegistered: () => void;
 };
@@ -16,6 +17,7 @@ export function AuthPanel({
   sessionUser,
   guestSigningSession,
   hasPendingInvite,
+  pendingInviteDetails,
   onSessionCreated,
   onRegistered,
 }: Props) {
@@ -28,6 +30,15 @@ export function AuthPanel({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pendingInviteDetails?.email) {
+      return;
+    }
+
+    setEmail((currentValue) => currentValue || pendingInviteDetails.email);
+    setAuthMode("sign_up");
+  }, [pendingInviteDetails?.email]);
 
   function fallbackToBrowserFormSignIn(nextEmail: string, nextPassword: string) {
     const form = document.createElement("form");
@@ -152,7 +163,13 @@ export function AuthPanel({
 
           {hasPendingInvite ? (
             <div className="alert success">
-              You have a pending invitation. Sign up or sign in to join the workspace.
+              {pendingInviteDetails?.status === "expired"
+                ? `This invitation for ${pendingInviteDetails.email} has expired. Ask the workspace owner to send a new invite.`
+                : pendingInviteDetails?.status === "accepted"
+                  ? `This invitation for ${pendingInviteDetails.email} was already accepted. Sign in with that address to continue.`
+                  : pendingInviteDetails?.workspace?.name
+                    ? `You're invited to ${pendingInviteDetails.workspace.name} as ${pendingInviteDetails.role.replaceAll("_", " ")}. Use ${pendingInviteDetails.email} to accept this invite.`
+                : "You have a pending invitation. Sign up or sign in to join the workspace."}
             </div>
           ) : null}
 
@@ -177,7 +194,7 @@ export function AuthPanel({
             <>
               <p className="muted">
                 {hasPendingInvite
-                  ? "Create your account to join the invited workspace. Your organization access will attach automatically after sign-up."
+                  ? "Create your account with the invited email address so the workspace attaches to the right identity."
                   : "Start a 30-day free trial with no card up front. Create your workspace, invite your team, and send your first workflow from the same account."}
               </p>
               <label className="form-field">
@@ -239,6 +256,7 @@ export function AuthPanel({
               required
               type="email"
               autoComplete={authMode === "sign_in" ? "username" : "email"}
+              placeholder={pendingInviteDetails?.email ?? undefined}
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
@@ -273,7 +291,11 @@ export function AuthPanel({
               If you were invited, sign in with the same email from your invite and the workspace
               will attach automatically.
             </p>
-          ) : null}
+          ) : (
+            <p className="muted">
+              If you use a different email, EasyDraft will block the invite so the workspace cannot attach to the wrong account.
+            </p>
+          )}
       </form>
     </section>
   );

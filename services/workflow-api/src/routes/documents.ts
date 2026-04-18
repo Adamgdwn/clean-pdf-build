@@ -12,25 +12,27 @@ import {
   duplicateDocumentForAuthorizationHeader,
   getDocumentDownloadUrlForAuthorizationHeader,
   getDocumentForAuthorizationHeader,
+  getCanonicalAppOrigin,
   inviteCollaboratorForAuthorizationHeader,
   listDocumentsForAuthorizationHeader,
   lockDocumentForAuthorizationHeader,
   reassignDocumentSignerForAuthorizationHeader,
   rejectDocumentForAuthorizationHeader,
   remindDocumentSignersForAuthorizationHeader,
-  resolveSigningTokenSession,
   completeFieldForSigningToken,
+  resolveSigningTokenSession,
   requestProcessingJobForAuthorizationHeader,
   requestDocumentChangesForAuthorizationHeader,
   reopenDocumentForAuthorizationHeader,
   redoDocumentEditorForAuthorizationHeader,
   completeFieldForAuthorizationHeader,
   placeAndCompleteSignatureFieldForAuthorizationHeader,
+  sendSigningTokenVerificationCode,
   sendDocumentForAuthorizationHeader,
   updateDocumentWorkflowSettingsForAuthorizationHeader,
   updateDocumentRoutingStrategyForAuthorizationHeader,
   undoDocumentEditorForAuthorizationHeader,
-  getCanonicalAppOrigin,
+  verifySigningTokenCode,
 } from "@clean-pdf/workflow-service";
 
 function sendError(reply: FastifyReply, error: unknown) {
@@ -361,14 +363,58 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
         token: string;
         fieldId: string;
         value?: string | null;
+        signingReason?: string | null;
+        signingLocation?: string | null;
       };
       return await completeFieldForSigningToken(
         token,
         documentId,
         fieldId,
-        { value: value ?? null },
+        {
+          value: value ?? null,
+          signingReason:
+            typeof request.body === "object" && request.body && "signingReason" in request.body
+              ? ((request.body as { signingReason?: string | null }).signingReason ?? null)
+              : null,
+          signingLocation:
+            typeof request.body === "object" && request.body && "signingLocation" in request.body
+              ? ((request.body as { signingLocation?: string | null }).signingLocation ?? null)
+              : null,
+        },
         getCanonicalAppOrigin(),
       );
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/signing-token-verification-send", async (request, reply) => {
+    try {
+      const { token, documentId } = request.body as { token?: string; documentId?: string };
+
+      if (!token || !documentId) {
+        return reply.code(400).send({ message: "token and documentId are required." });
+      }
+
+      return await sendSigningTokenVerificationCode(token, documentId);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/signing-token-verification-check", async (request, reply) => {
+    try {
+      const { token, documentId, code } = request.body as {
+        token?: string;
+        documentId?: string;
+        code?: string;
+      };
+
+      if (!token || !documentId || !code) {
+        return reply.code(400).send({ message: "token, documentId, and code are required." });
+      }
+
+      return await verifySigningTokenCode(token, documentId, code);
     } catch (error) {
       return sendError(reply, error);
     }

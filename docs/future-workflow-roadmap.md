@@ -83,7 +83,9 @@ flowchart TD
         S6 --> S5
 
         S3 --> S7[Guest signing session\nno account created\ntoken validated server-side]
-        S7 --> S8[Complete assigned field\ndraw or type directly]
+        S7 --> S7A[Request email verification code\n6-digit code delivered to signer email]
+        S7A --> S7B[Verify email code]
+        S7B --> S8[Complete assigned field\ndraw or type directly]
 
         S5 & S8 --> S9[Field complete\naudit event recorded\noriginator notified if enabled]
     end
@@ -143,7 +145,7 @@ Operational pauses overlay any state: `changes_requested`, `rejected`, `canceled
 |---|---|---|---|
 | Self-managed | Nobody | Internal users sign in; owner distributes links manually | None |
 | Internal-only | Internal signers only | Authenticated EasyDraft users only | None |
-| Platform-managed | All eligible signers | Internal users sign in; external signers use token link | 1 token per external workflow sent |
+| Platform-managed | All eligible signers | Internal users sign in; external signers use token link plus email verification code | 1 token per external workflow sent |
 
 ---
 
@@ -189,7 +191,6 @@ Owners and editors cannot sign their own fields. Signers cannot lock, reopen, or
 
 These are not yet implemented. Add them when there is proven demand:
 
-- **External signer OTP verification** — require a one-time email code before final external signature/initial/approval submission so the completion event is meaningfully email-verified.
 - **Executed-record durability** — make completed workflows harder to delete or silently mutate, and ensure reopen/revision flows preserve completed history cleanly.
 - **Certificate-backed PDF signing** — PAdES/CAdES embedding via `easy_draft_remote`, `qualified_remote`, or `organization_hsm` provider. The `DigitalSignatureProfile` model and UI already exist; only the provider wiring is missing.
 - **Change-impact expansion** — extend test and endpoint coverage so every post-sign mutation path produces the right `non_material`, `review_required`, or `resign_required` consequence.

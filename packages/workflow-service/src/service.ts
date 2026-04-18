@@ -21,7 +21,7 @@ import {
   type User,
   type WorkflowOperationalStatus,
 } from "../../domain/src/index.js";
-import { createHash } from "crypto";
+import { createHash, randomInt, timingSafeEqual } from "crypto";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { z } from "zod";
 
@@ -33,7 +33,11 @@ import {
   shouldRequireStripe,
 } from "./env.js";
 import { AppError } from "./errors.js";
-import { deliverNotificationEmail, getConfiguredNotificationEmailProvider } from "./notifications.js";
+import {
+  buildSigningVerificationEmail,
+  deliverNotificationEmail,
+  getConfiguredNotificationEmailProvider,
+} from "./notifications.js";
 import { createAuthClient, createServiceRoleClient } from "./supabase.js";
 import { getWorkspaceSigningTokenBalance } from "./billing.js";
 
@@ -285,6 +289,24 @@ type ProcessingJobRow = {
   status: ProcessingJobStatus;
 };
 
+type SigningTokenRow = {
+  id: string;
+  document_id: string;
+  signer_id: string;
+  signer_email: string;
+  token: string;
+  expires_at: string;
+  voided_at: string | null;
+  verification_code_hash: string | null;
+  verification_code_sent_at: string | null;
+  verification_code_expires_at: string | null;
+  verification_attempt_count: number;
+  verified_at: string | null;
+  last_viewed_at: string | null;
+  last_completed_at: string | null;
+  void_reason: string | null;
+};
+
 type WorkflowDocumentResponse = DocumentRecord & {
   currentUserRole: AccessRole | null;
   currentUserIsSigner: boolean;
@@ -380,6 +402,9 @@ const DEFAULT_TEMPORARY_RETENTION_DAYS = 30;
 const COMPLETED_DOCUMENT_PURGE_GRACE_DAYS = 7;
 const CLOSED_WORKFLOW_PURGE_GRACE_DAYS = 7;
 const STORAGE_PREFIX_QUERY_CHUNK_SIZE = 20;
+const SIGNING_VERIFICATION_CODE_EXPIRY_MINUTES = 10;
+const SIGNING_VERIFICATION_RESEND_COOLDOWN_SECONDS = 60;
+const SIGNING_VERIFICATION_MAX_ATTEMPTS = 5;
 
 type DocumentStorageObjectRow = {
   name: string;
@@ -389,6 +414,18 @@ type DocumentStorageObjectRow = {
 function addDaysToTimestamp(timestamp: string, days: number) {
   const date = new Date(timestamp);
   date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString();
+}
+
+function addMinutesToTimestamp(timestamp: string, minutes: number) {
+  const date = new Date(timestamp);
+  date.setUTCMinutes(date.getUTCMinutes() + minutes);
+  return date.toISOString();
+}
+
+function addSecondsToTimestamp(timestamp: string, seconds: number) {
+  const date = new Date(timestamp);
+  date.setUTCSeconds(date.getUTCSeconds() + seconds);
   return date.toISOString();
 }
 
@@ -2438,12 +2475,33 @@ async function generateSigningToken(
   const adminClient = createServiceRoleClient();
   const token = crypto.randomUUID();
 
+  await adminClient
+    .from("document_signing_tokens")
+    .update({
+      voided_at: new Date().toISOString(),
+      void_reason: "superseded",
+      verification_code_hash: null,
+      verification_code_sent_at: null,
+      verification_code_expires_at: null,
+      verification_attempt_count: 0,
+      verified_at: null,
+    })
+    .eq("document_id", documentId)
+    .eq("signer_id", signerId)
+    .is("voided_at", null);
+
   const { error } = await adminClient.from("document_signing_tokens").insert({
     document_id: documentId,
     signer_id: signerId,
     signer_email: signerEmail,
     token,
     expires_at: expiresAt,
+    verification_code_hash: null,
+    verification_code_sent_at: null,
+    verification_code_expires_at: null,
+    verification_attempt_count: 0,
+    verified_at: null,
+    void_reason: null,
   });
 
   if (error) {
@@ -2482,7 +2540,9 @@ async function requireValidSigningToken(token: string, documentId: string) {
   const adminClient = createServiceRoleClient();
   const { data, error } = await adminClient
     .from("document_signing_tokens")
-    .select("id, document_id, signer_id, signer_email, expires_at, voided_at")
+    .select(
+      "id, document_id, signer_id, signer_email, token, expires_at, voided_at, verification_code_hash, verification_code_sent_at, verification_code_expires_at, verification_attempt_count, verified_at, last_viewed_at, last_completed_at, void_reason",
+    )
     .eq("token", token)
     .maybeSingle();
 
@@ -2491,7 +2551,14 @@ async function requireValidSigningToken(token: string, documentId: string) {
   }
 
   if (data.voided_at) {
-    throw new AppError(410, "This signing link has already been used.");
+    throw new AppError(
+      410,
+      data.void_reason === "completed"
+        ? "This signing link has already been completed."
+        : data.void_reason === "revoked"
+          ? "This signing link is no longer active. Ask the sender to send a new reminder."
+          : "This signing link is no longer active. Ask the sender to send a new reminder.",
+    );
   }
 
   if (new Date(data.expires_at) < new Date()) {
@@ -2502,14 +2569,95 @@ async function requireValidSigningToken(token: string, documentId: string) {
     throw new AppError(403, "Signing link does not match this document.");
   }
 
-  return data as {
-    id: string;
-    document_id: string;
-    signer_id: string;
-    signer_email: string;
-    expires_at: string;
-    voided_at: string | null;
+  return data as SigningTokenRow;
+}
+
+function hashSigningVerificationCode(token: string, code: string) {
+  return createHash("sha256").update(`${token}:${code}`).digest("hex");
+}
+
+function createSigningVerificationCode() {
+  return String(randomInt(0, 1_000_000)).padStart(6, "0");
+}
+
+function maskEmailAddress(email: string) {
+  const [localPart, domainPart] = email.split("@");
+
+  if (!localPart || !domainPart) {
+    return email;
+  }
+
+  const visibleLocal = localPart.length <= 2
+    ? `${localPart[0] ?? ""}*`
+    : `${localPart.slice(0, 2)}${"*".repeat(Math.max(1, Math.min(localPart.length - 2, 4)))}`;
+
+  return `${visibleLocal}@${domainPart}`;
+}
+
+function hasVerifiedSigningToken(tokenRow: SigningTokenRow) {
+  return Boolean(tokenRow.verified_at);
+}
+
+function toSigningVerificationState(tokenRow: SigningTokenRow) {
+  const sentAt = tokenRow.verification_code_sent_at ?? null;
+
+  return {
+    required: true,
+    verified: hasVerifiedSigningToken(tokenRow),
+    verifiedAt: tokenRow.verified_at ?? null,
+    codeSentAt: sentAt,
+    codeExpiresAt: tokenRow.verification_code_expires_at ?? null,
+    retryAvailableAt: sentAt ? addSecondsToTimestamp(sentAt, SIGNING_VERIFICATION_RESEND_COOLDOWN_SECONDS) : null,
+    attemptsRemaining: Math.max(0, SIGNING_VERIFICATION_MAX_ATTEMPTS - Number(tokenRow.verification_attempt_count ?? 0)),
+    emailHint: maskEmailAddress(tokenRow.signer_email),
   };
+}
+
+async function invalidateSigningTokensForSigner(
+  documentId: string,
+  signerId: string,
+  reason: "completed" | "revoked" | "superseded",
+) {
+  const adminClient = createServiceRoleClient();
+  const now = new Date().toISOString();
+  const { error } = await adminClient
+    .from("document_signing_tokens")
+    .update({
+      voided_at: now,
+      void_reason: reason,
+      verification_code_hash: null,
+      verification_code_sent_at: null,
+      verification_code_expires_at: null,
+      verification_attempt_count: 0,
+    })
+    .eq("document_id", documentId)
+    .eq("signer_id", signerId)
+    .is("voided_at", null);
+
+  if (error) {
+    throw new AppError(500, `Failed to invalidate signing links: ${error.message}`);
+  }
+}
+
+async function markSigningTokenViewed(tokenRow: SigningTokenRow) {
+  const adminClient = createServiceRoleClient();
+  await adminClient
+    .from("document_signing_tokens")
+    .update({ last_viewed_at: new Date().toISOString() })
+    .eq("id", tokenRow.id);
+}
+
+async function ensureSigningVerificationForAction(tokenRow: SigningTokenRow, fieldKind: Field["kind"]) {
+  if (!isActionFieldKind(fieldKind)) {
+    return;
+  }
+
+  if (!hasVerifiedSigningToken(tokenRow)) {
+    throw new AppError(
+      403,
+      `Enter the verification code sent to ${maskEmailAddress(tokenRow.signer_email)} before completing this signing action.`,
+    );
+  }
 }
 
 function getEligibleSignerIdsForNotifications(document: DocumentRecord) {
@@ -5604,6 +5752,178 @@ export async function processDueDocumentPurges(limit = 10) {
   };
 }
 
+export async function sendSigningTokenVerificationCode(token: string, documentId: string) {
+  const tokenRow = await requireValidSigningToken(token, documentId);
+  const env = readServerEnv();
+  const document = await requireDocumentBundle(documentId);
+  const signer = document.signers.find((candidate) => candidate.id === tokenRow.signer_id);
+
+  if (!signer) {
+    throw new AppError(403, "The signer associated with this link is no longer on this document.");
+  }
+
+  if (document.workflowStatus !== "active") {
+    throw new AppError(409, "This workflow is paused or closed. Ask the sender to resume it before continuing.");
+  }
+
+  assertNotificationEmailReady();
+
+  if (tokenRow.verification_code_sent_at) {
+    const resendAvailableAt = addSecondsToTimestamp(
+      tokenRow.verification_code_sent_at,
+      SIGNING_VERIFICATION_RESEND_COOLDOWN_SECONDS,
+    );
+
+    if (new Date(resendAvailableAt) > new Date()) {
+      throw new AppError(
+        429,
+        `A verification code was sent recently. Try again after ${resendAvailableAt}.`,
+      );
+    }
+  }
+
+  const verificationCode = createSigningVerificationCode();
+  const now = new Date().toISOString();
+  const expiresAt = addMinutesToTimestamp(now, SIGNING_VERIFICATION_CODE_EXPIRY_MINUTES);
+  const adminClient = createServiceRoleClient();
+
+  const { error: updateError } = await adminClient
+    .from("document_signing_tokens")
+    .update({
+      verification_code_hash: hashSigningVerificationCode(tokenRow.token, verificationCode),
+      verification_code_sent_at: now,
+      verification_code_expires_at: expiresAt,
+      verification_attempt_count: 0,
+      verified_at: null,
+    })
+    .eq("id", tokenRow.id);
+
+  if (updateError) {
+    throw new AppError(500, updateError.message);
+  }
+
+  const deliveryResult = await deliverNotificationEmail(env, {
+    to: signer.email,
+    subject: `Verification code for ${document.name}`,
+    html: buildSigningVerificationEmail(signer.name, document.name, verificationCode),
+  });
+
+  if (!deliveryResult) {
+    throw new AppError(503, "Verification email delivery is not configured for this environment.");
+  }
+
+  await appendAuditEvent(
+    documentId,
+    `guest:${signer.email}`,
+    "notification.sent",
+    `Sent signing verification code to ${signer.email}`,
+    {
+      signerId: signer.id,
+      verificationCodeSent: true,
+    },
+  );
+
+  const refreshedTokenRow = await requireValidSigningToken(token, documentId);
+  return {
+    verification: toSigningVerificationState(refreshedTokenRow),
+  };
+}
+
+export async function verifySigningTokenCode(
+  token: string,
+  documentId: string,
+  code: string,
+) {
+  const tokenRow = await requireValidSigningToken(token, documentId);
+  const adminClient = createServiceRoleClient();
+  const normalizedCode = code.trim();
+
+  if (!/^\d{6}$/.test(normalizedCode)) {
+    throw new AppError(400, "Enter the 6-digit verification code from the email.");
+  }
+
+  if (!tokenRow.verification_code_hash || !tokenRow.verification_code_expires_at) {
+    throw new AppError(409, "Request a verification code before trying to continue.");
+  }
+
+  if (new Date(tokenRow.verification_code_expires_at) < new Date()) {
+    throw new AppError(410, "That verification code expired. Request a new code and try again.");
+  }
+
+  const expectedHash = hashSigningVerificationCode(tokenRow.token, normalizedCode);
+  const expectedBuffer = Buffer.from(expectedHash, "hex");
+  const actualBuffer = Buffer.from(tokenRow.verification_code_hash, "hex");
+  const codeMatches =
+    expectedBuffer.length === actualBuffer.length && timingSafeEqual(expectedBuffer, actualBuffer);
+
+  if (!codeMatches) {
+    const nextAttemptCount = Number(tokenRow.verification_attempt_count ?? 0) + 1;
+    const exhausted = nextAttemptCount >= SIGNING_VERIFICATION_MAX_ATTEMPTS;
+
+    const { error: attemptError } = await adminClient
+      .from("document_signing_tokens")
+      .update({
+        verification_attempt_count: nextAttemptCount,
+        ...(exhausted
+          ? {
+              verification_code_hash: null,
+              verification_code_sent_at: null,
+              verification_code_expires_at: null,
+            }
+          : {}),
+      })
+      .eq("id", tokenRow.id);
+
+    if (attemptError) {
+      throw new AppError(500, attemptError.message);
+    }
+
+    if (exhausted) {
+      throw new AppError(429, "Too many incorrect codes. Request a new verification code to continue.");
+    }
+
+    throw new AppError(
+      401,
+      `Incorrect verification code. ${SIGNING_VERIFICATION_MAX_ATTEMPTS - nextAttemptCount} attempt${nextAttemptCount === SIGNING_VERIFICATION_MAX_ATTEMPTS - 1 ? "" : "s"} remaining.`,
+    );
+  }
+
+  const verifiedAt = new Date().toISOString();
+  const { error: verifyError } = await adminClient
+    .from("document_signing_tokens")
+    .update({
+      verification_code_hash: null,
+      verification_code_sent_at: null,
+      verification_code_expires_at: null,
+      verification_attempt_count: 0,
+      verified_at: verifiedAt,
+    })
+    .eq("id", tokenRow.id);
+
+  if (verifyError) {
+    throw new AppError(500, verifyError.message);
+  }
+
+  const document = await requireDocumentBundle(documentId);
+  const signer = document.signers.find((candidate) => candidate.id === tokenRow.signer_id);
+
+  await appendAuditEvent(
+    documentId,
+    signer ? `guest:${signer.email}` : "system",
+    "field.completed",
+    "Verified guest signing session by email code",
+    {
+      verificationOnly: true,
+      signerId: tokenRow.signer_id,
+    },
+  );
+
+  const refreshedTokenRow = await requireValidSigningToken(token, documentId);
+  return {
+    verification: toSigningVerificationState(refreshedTokenRow),
+  };
+}
+
 export async function resolveSigningTokenSession(token: string, documentId: string) {
   const tokenRow = await requireValidSigningToken(token, documentId);
   const adminClient = createServiceRoleClient();
@@ -5616,6 +5936,8 @@ export async function resolveSigningTokenSession(token: string, documentId: stri
   if (!signer) {
     throw new AppError(403, "The signer associated with this link is no longer on this document.");
   }
+
+  await markSigningTokenViewed(tokenRow);
 
   // Build a document response with the guest signer's context
   const baseResponse = toWorkflowDocumentResponse(document, "");
@@ -5641,6 +5963,7 @@ export async function resolveSigningTokenSession(token: string, documentId: stri
     documentId,
     document: signerResponse,
     previewUrl: previewData?.signedUrl ?? null,
+    verification: toSigningVerificationState(tokenRow),
   };
 }
 
@@ -5775,6 +6098,8 @@ export async function completeFieldForSigningToken(
     throw new AppError(403, "This field is assigned to another signer.");
   }
 
+  await ensureSigningVerificationForAction(tokenRow, field.kind);
+
   // Guest signers do not have saved signatures — value defaults to field value or "completed"
   const completionValue = parsedInput.value ?? field.value ?? "completed";
   const completedAt = new Date().toISOString();
@@ -5792,6 +6117,11 @@ export async function completeFieldForSigningToken(
   if (error) {
     throw new AppError(500, error.message);
   }
+
+  await adminClient
+    .from("document_signing_tokens")
+    .update({ last_completed_at: completedAt })
+    .eq("id", tokenRow.id);
 
   await appendAuditEvent(documentId, `guest:${signer.email}`, "field.completed", `Completed field ${field.label} (guest signer)`, {
     page: field.page,
@@ -5877,6 +6207,27 @@ export async function completeFieldForSigningToken(
   }
 
   const finalDocument = await requireDocumentBundle(documentId);
+  const signerStillPending = getPendingRequiredAssignedFields(finalDocument).some(
+    (candidate) => candidate.assigneeSignerId === signer.id,
+  );
+
+  if (!signerStillPending) {
+    await invalidateSigningTokensForSigner(documentId, signer.id, "completed");
+  }
+
+  const verificationState = signerStillPending
+    ? toSigningVerificationState(await requireValidSigningToken(token, documentId))
+    : {
+        required: true,
+        verified: true,
+        verifiedAt: completedAt,
+        codeSentAt: null,
+        codeExpiresAt: null,
+        retryAvailableAt: null,
+        attemptsRemaining: SIGNING_VERIFICATION_MAX_ATTEMPTS,
+        emailHint: maskEmailAddress(signer.email),
+      };
+
   const baseResponse = toWorkflowDocumentResponse(finalDocument, "");
   return {
     document: {
@@ -5885,6 +6236,7 @@ export async function completeFieldForSigningToken(
       currentUserIsSigner: true,
       currentUserSignerId: signer.id,
     },
+    verification: verificationState,
   };
 }
 

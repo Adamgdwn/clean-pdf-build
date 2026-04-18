@@ -162,7 +162,7 @@ State that remains in App.tsx intentionally:
 ## Next implementation steps
 
 1. Extract the document workspace sidebar and checklist/editor panels into focused components.
-2. Harden external signer verification and executed-record durability before broadening any prep/editing surface.
+2. Strengthen executed-record durability before broadening any prep/editing surface.
 3. Keep workflow-service domain seams shrinking where they reduce change-risk the most.
 4. Deploy OCR and notification processing on a scheduled/container runtime.
 5. Keep docs and deployment truth aligned with the code after each hardening pass.

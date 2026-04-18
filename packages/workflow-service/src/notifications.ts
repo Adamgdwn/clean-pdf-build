@@ -274,3 +274,38 @@ export function buildWelcomeEmail(fullName: string, appOrigin: string): string {
 </body>
 </html>`;
 }
+
+export function buildSigningVerificationEmail(
+  signerName: string,
+  documentName: string,
+  verificationCode: string,
+): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verify your signing session</title></head>
+<body style="margin:0;padding:0;background:#f4f4f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;padding:40px 0;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        <tr><td style="background:#1d7a5c;padding:28px 40px;">
+          <p style="margin:0;color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.3px;">EasyDraftDocs</p>
+        </td></tr>
+        <tr><td style="padding:40px;">
+          <p style="margin:0 0 16px;font-size:24px;font-weight:700;color:#18241d;">Verify your signing session</p>
+          <p style="margin:0 0 16px;font-size:16px;color:#444;line-height:1.6;">
+            ${signerName}, enter this code in EasyDraftDocs before completing your signing action for <strong>${documentName}</strong>.
+          </p>
+          <div style="margin:24px 0;padding:20px;border-radius:12px;background:#f7fbf9;border:1px solid #dcebe4;text-align:center;">
+            <p style="margin:0 0 8px;font-size:13px;letter-spacing:0.08em;color:#5b6c63;text-transform:uppercase;">Verification code</p>
+            <p style="margin:0;font-size:32px;letter-spacing:0.24em;font-weight:700;color:#18241d;">${verificationCode}</p>
+          </div>
+          <p style="margin:0;font-size:14px;color:#666;line-height:1.6;">
+            This code expires in 10 minutes. If you did not request it, you can ignore this email.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}

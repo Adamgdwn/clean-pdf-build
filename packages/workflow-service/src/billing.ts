@@ -475,12 +475,14 @@ async function markStripeEventProcessed(
   eventId: string,
   eventType: string,
   workspaceId: string | null,
+  stripeObjectId?: string | null,
 ): Promise<boolean> {
   const adminClient = createServiceRoleClient();
   const { error } = await adminClient.from("stripe_processed_events").insert({
     stripe_event_id: eventId,
     event_type: eventType,
     workspace_id: workspaceId,
+    stripe_object_id: stripeObjectId ?? null,
   });
 
   // Unique constraint violation = already processed
@@ -640,6 +642,11 @@ export async function createCheckoutSessionForAuthorizationHeader(
     },
     subscription_data: {
       trial_period_days: 30,
+      trial_settings: {
+        end_behavior: {
+          missing_payment_method: "create_invoice",
+        },
+      },
       metadata: {
         workspace_id: workspace.id,
         organization_name: organization.name,
@@ -826,7 +833,7 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string | u
     }
 
     // Idempotency check
-    const isNew = await markStripeEventProcessed(event.id, event.type, workspaceId);
+    const isNew = await markStripeEventProcessed(event.id, event.type, workspaceId, session.id);
 
     if (!isNew) {
       return { received: true, skipped: true };
@@ -910,7 +917,7 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string | u
     }
 
     // Idempotency check
-    const isNew = await markStripeEventProcessed(event.id, event.type, workspaceId);
+    const isNew = await markStripeEventProcessed(event.id, event.type, workspaceId, subscription.id);
 
     if (!isNew) {
       return { received: true, skipped: true };
@@ -941,7 +948,7 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string | u
       return { received: true };
     }
 
-    const isNew = await markStripeEventProcessed(event.id, event.type, workspaceId);
+    const isNew = await markStripeEventProcessed(event.id, event.type, workspaceId, invoice.id);
 
     if (!isNew) {
       return { received: true, skipped: true };
@@ -978,7 +985,7 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string | u
       return { received: true };
     }
 
-    const isNew = await markStripeEventProcessed(event.id, event.type, workspaceId);
+    const isNew = await markStripeEventProcessed(event.id, event.type, workspaceId, invoice.id);
 
     if (!isNew) {
       return { received: true, skipped: true };
