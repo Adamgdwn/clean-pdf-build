@@ -5,12 +5,11 @@ import type { Session } from "@supabase/supabase-js";
 import { getDocumentSendReadiness } from "@clean-pdf/domain";
 
 import { apiFetch } from "./lib/api";
+import { browserSupabase } from "./lib/supabase";
 import {
-  clearStoredSession,
   clearStoredWorkspaceId,
-  loadStoredSession,
+  consumeHandoffSession,
   loadStoredWorkspaceId,
-  persistSession,
   persistWorkspaceId,
 } from "./lib/session-storage";
 import { AuthPanel } from "./components/AuthPanel";
@@ -717,7 +716,6 @@ export default function App() {
     setSession(currentSession);
 
     if (!currentSession) {
-      clearStoredSession();
       clearStoredWorkspaceId();
       setSessionUser(null);
       setDocuments([]);
@@ -735,7 +733,6 @@ export default function App() {
       return;
     }
 
-    persistSession(currentSession);
     const fallbackUser = getFallbackSessionUser(currentSession);
     if (fallbackUser) {
       setSessionUser(fallbackUser);
@@ -1704,7 +1701,7 @@ export default function App() {
   }
 
   function handleSignOut() {
-    clearStoredSession();
+    void browserSupabase.auth.signOut();
     clearStoredWorkspaceId();
     showToast("You've been signed out.");
     setPreviewUrl(null);
@@ -1909,11 +1906,7 @@ export default function App() {
 
     if (checkoutStatus === "success") {
       setNoticeMessage("Billing updated. Stripe redirected back successfully.");
-      // Refresh billing data when Stripe returns so the UI reflects the new subscription
-      const storedSession = loadStoredSession();
-      if (storedSession) {
-        refreshBilling(storedSession).catch(() => null);
-      }
+      // Billing reloads as part of the normal workspace load once the session is ready.
     }
 
     if (checkoutStatus === "cancelled") {
@@ -1994,19 +1987,44 @@ export default function App() {
   }, [pendingInviteToken]);
 
   useEffect(() => {
-    const storedSession = loadStoredSession();
-    refreshSession(storedSession)
-      .then((user) => {
-        // Show toast only on an explicit sign-in redirect, not on every page load
+    const { data: { subscription } } = browserSupabase.auth.onAuthStateChange(async (event, supabaseSession) => {
+      if (event === "INITIAL_SESSION") {
+        if (supabaseSession) {
+          // Returning user — Supabase already has a valid session in its own storage.
+          const user = await refreshSession(supabaseSession).catch(() => null);
+          if (shouldRestoreSessionFromRedirect && user) {
+            showToast(`Welcome back, ${user.name.split(" ")[0]}.`);
+          }
+        } else {
+          // No Supabase session. Check for a session written by the server-side login
+          // handler (auth-password-form). If found, hydrate the browser client so
+          // autoRefreshToken takes over from here on.
+          const handoff = consumeHandoffSession();
+          if (handoff) {
+            await browserSupabase.auth
+              .setSession({ access_token: handoff.access_token, refresh_token: handoff.refresh_token })
+              .catch(() => refreshSession(null));
+            // The SIGNED_IN event fired by setSession() will call refreshSession().
+          } else {
+            await refreshSession(null).catch(() => null);
+          }
+        }
+      } else if (event === "SIGNED_IN" && supabaseSession) {
+        // Fires after setSession() (handoff sign-in) and after registration via onSessionCreated.
+        const user = await refreshSession(supabaseSession).catch(() => null);
         if (shouldRestoreSessionFromRedirect && user) {
           showToast(`Welcome back, ${user.name.split(" ")[0]}.`);
         }
-      })
-      .catch(() => {
-        clearStoredSession();
-        return refreshSession(null);
-      })
-      .catch(() => null);
+      } else if (event === "TOKEN_REFRESHED" && supabaseSession) {
+        // Supabase silently refreshed the access token. Update state so the next
+        // API call uses the new token without reloading all workspace data.
+        setSession(supabaseSession);
+      } else if (event === "SIGNED_OUT") {
+        await refreshSession(null).catch(() => null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -2255,6 +2273,11 @@ export default function App() {
         noticeMessage={noticeMessage}
         onNavigatePublicPage={navigatePublicPage}
         onSessionCreated={(nextSession) => {
+          // Hydrate the browser Supabase client so autoRefreshToken takes over from here.
+          void browserSupabase.auth.setSession({
+            access_token: nextSession.access_token,
+            refresh_token: nextSession.refresh_token,
+          });
           refreshSession(nextSession).catch((error) => setErrorMessage((error as Error).message));
         }}
         onRegistered={() => updatePortalView("org_admin")}
@@ -2625,6 +2648,11 @@ export default function App() {
           hasPendingInvite={pendingInviteToken !== null}
           pendingInviteDetails={pendingInviteDetails}
           onSessionCreated={(nextSession) => {
+            // Hydrate the browser Supabase client so autoRefreshToken takes over from here.
+            void browserSupabase.auth.setSession({
+              access_token: nextSession.access_token,
+              refresh_token: nextSession.refresh_token,
+            });
             refreshSession(nextSession).catch((error) => setErrorMessage((error as Error).message));
           }}
           onRegistered={() => updatePortalView("org_admin")}

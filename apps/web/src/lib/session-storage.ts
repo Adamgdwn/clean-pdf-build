@@ -1,26 +1,22 @@
 import type { Session } from "@supabase/supabase-js";
 
-const SESSION_STORAGE_KEY = "easydraft_session";
+const SESSION_HANDOFF_KEY = "easydraft_session";
 const WORKSPACE_STORAGE_KEY = "easydraft_active_workspace";
 
-export function loadStoredSession() {
-  const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+/**
+ * Reads the session written by the server-side login handler, clears it, and
+ * returns it. Called exactly once per sign-in cycle to hydrate the browser
+ * Supabase client via auth.setSession(). Returns null if no handoff is present.
+ */
+export function consumeHandoffSession(): Session | null {
+  const raw = window.localStorage.getItem(SESSION_HANDOFF_KEY);
   if (!raw) return null;
-
+  window.localStorage.removeItem(SESSION_HANDOFF_KEY);
   try {
     return JSON.parse(raw) as Session;
   } catch {
-    window.localStorage.removeItem(SESSION_STORAGE_KEY);
     return null;
   }
-}
-
-export function persistSession(session: Session) {
-  window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-}
-
-export function clearStoredSession() {
-  window.localStorage.removeItem(SESSION_STORAGE_KEY);
 }
 
 export function loadStoredWorkspaceId() {

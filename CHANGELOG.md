@@ -4,6 +4,11 @@ This project uses a lightweight changelog. Update this file for each release or 
 
 ## Unreleased
 
+- Fixed browser session token auto-refresh: browser-side Supabase client is now properly hydrated on sign-in so tokens refresh silently before expiry. Previously tokens expired after one hour with no recovery path.
+- Sign-out now invalidates the refresh token server-side.
+- Wired durable processor runtime: `POST /api/processor-run` Vercel function replaces the manual-only processor trigger. GitHub Actions cron fires every 30 minutes and alerts on failure.
+- Removed live credentials from local `.env`; Stripe live key and Supabase management token must be stored in Vercel only.
+
 - Added external signer email-code verification before guest signature, initial, and approval completion.
 - Tightened signing-token invalidation for superseded and completed guest links.
 - Blocked workspace invite acceptance when the signed-in account email does not match the invited email.

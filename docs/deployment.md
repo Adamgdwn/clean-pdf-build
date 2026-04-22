@@ -212,15 +212,48 @@ This improves trust over bearer-link-only completion, but it is still not certif
 
 ## Processor service
 
-The local processor service is still a separate boundary by design. It currently advances queued jobs with mocked OCR and field-detection outputs. In production runtime it now requires `EASYDRAFT_PROCESSOR_SECRET`.
+All processing logic is exposed through a single secured Vercel endpoint: `POST /api/processor-run`. The endpoint runs notifications, OCR jobs, and document purges in sequence and returns a JSON summary. It requires `x-processor-secret: <EASYDRAFT_PROCESSOR_SECRET>` or `Authorization: Bearer <EASYDRAFT_PROCESSOR_SECRET>`.
 
-Near-term production options:
+### Option A — GitHub Actions cron (pilot default, zero new accounts)
 
-- deploy it as a small container on Fly.io, Railway, or Render
-- point it at the same Supabase project
-- trigger it on a schedule or by webhook
+A scheduled GitHub Actions workflow (`.github/workflows/processor-cron.yml`) calls the Vercel endpoint every 30 minutes. This is the right choice for a controlled pilot because:
 
-This keeps OCR, field detection, and notification retries off Vercel while preserving the same workflow state and audit history.
+- no new hosting accounts required
+- Vercel functions are already warm (no cold-start overhead)
+- GitHub sends alert emails when a cron run fails
+- 2 runs/hour × 1 min/run × 30 days = 1440 min/month, inside the 2000 min free tier
+
+**Setup — one-time:**
+1. In GitHub → repository → Settings → Secrets and variables → Actions, add `PROCESSOR_SECRET` with the same value as `EASYDRAFT_PROCESSOR_SECRET` in Vercel.
+2. Push to `main`. The cron workflow activates automatically.
+3. Trigger it manually from the Actions UI to verify the first run succeeds.
+
+**Trade-off:** GitHub's cron scheduler adds up to 15 minutes of jitter. A failed notification will be retried within 30–45 minutes. For the pilot this is acceptable because most notifications are sent inline on the primary delivery path; the queue is a retry safety net.
+
+### Option B — Fly.io supercronic (upgrade when SLO tightens)
+
+A tiny Alpine + supercronic container (`services/document-processor/Dockerfile`) calls the same Vercel endpoint every 2 minutes with second-level precision. No Node.js or monorepo build required — the image is ~15 MB.
+
+**Setup — one-time:**
+```bash
+fly apps create easydraft-processor
+fly secrets set EASYDRAFT_PROCESSOR_SECRET=<same-value-as-vercel>
+fly deploy --config services/document-processor/fly.toml
+```
+
+**Ongoing deploys** (after crontab or Dockerfile changes):
+```bash
+fly deploy --config services/document-processor/fly.toml
+```
+
+**Trade-off:** requires a Fly account and CLI install. The machine costs ~$1.94/month if it exceeds the 3-machine free tier. Migrate to this option when a customer deal requires tighter notification delivery guarantees.
+
+### Upgrade path for real OCR
+
+When real OCR or field detection needs to run (CPU-bound, large PDFs):
+1. Replace the Alpine cron-caller image with a Node.js image that runs `services/document-processor/src/index.ts` directly.
+2. The `processQueuedJobs` function already calls `markProcessingJobCompleted` — swap the mock results for a real provider call.
+3. The `/jobs/complete` HTTP endpoint is already wired for external OCR workers that call back asynchronously.
 
 ## Local-to-hosted mapping
 

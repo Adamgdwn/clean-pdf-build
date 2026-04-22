@@ -1,0 +1,47 @@
+name: Processor cron
+
+# Runs all three job types every 30 minutes.
+# GitHub cron adds up to 15 minutes of jitter, so actual cadence is 30-45 min.
+# This is acceptable because:
+#   - Notifications are attempted inline on the primary send path; the queue
+#     is a retry safety net, not the first-attempt delivery path.
+#   - OCR jobs use mocked results and are not blocking for users.
+#   - Purges are idempotent and low-urgency.
+#
+# Upgrade path: when notification retry latency matters, migrate to Fly.io
+# (see services/document-processor/Dockerfile and fly.toml).
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  # Allow manual triggering from the Actions UI for smoke testing.
+  workflow_dispatch:
+
+jobs:
+  run-processor:
+    name: Run processor jobs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger processor
+        env:
+          PROCESSOR_SECRET: ${{ secrets.PROCESSOR_SECRET }}
+          APP_ORIGIN: https://easydraftdocs.app
+        run: |
+          response=$(curl --silent --fail-with-body \
+            --max-time 55 \
+            --retry 2 \
+            --retry-delay 5 \
+            -X POST "${APP_ORIGIN}/api/processor-run" \
+            -H "x-processor-secret: ${PROCESSOR_SECRET}" \
+            -H "Content-Type: application/json")
+
+          echo "Response: ${response}"
+
+          # A 207 means at least one job type errored. Surface this as a
+          # workflow failure so GitHub sends the alert email.
+          ok=$(echo "${response}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ok','false'))" 2>/dev/null || echo "false")
+          if [ "${ok}" != "True" ] && [ "${ok}" != "true" ]; then
+            echo "One or more processor job types reported an error. See response above."
+            exit 1
+          fi

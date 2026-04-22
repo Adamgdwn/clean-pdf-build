@@ -12,7 +12,7 @@ This is the owner checklist for a credible controlled launch, not the full produ
 ### Database and deploy state
 - [ ] Apply the latest hosted Supabase migration:
   - `20260417120000_invite_and_signing_verification.sql`
-- [ ] Confirm production is running the current `main` build after the launch-hardening push.
+- [ ] Confirm production is running the current `main` build after this push.
 
 ### Stripe
 - [ ] Stripe Dashboard → Billing → enable `Send an invoice for free trials`
@@ -22,6 +22,17 @@ This is the owner checklist for a credible controlled launch, not the full produ
 - [ ] Confirm the subscription appears correctly inside the app after checkout
 - [ ] Open the billing portal and confirm it loads correctly
 - [ ] Replay at least one Stripe test webhook event and confirm duplicate delivery does not duplicate billing state changes
+- [ ] **Rotate the Stripe live key** — the old `sk_live_...` was in `.env`; roll it in the Stripe dashboard and update Vercel with the new one
+
+### Supabase
+- [ ] **Rotate the Supabase management API token** — the old `sbp_v0_...` was in `.env`; revoke it at supabase.com → account → Access Tokens and generate a fresh one only when needed for a migration task
+
+### Processor cron
+- [ ] Set `EASYDRAFT_PROCESSOR_SECRET` in Vercel (Production + Preview) — any random string, e.g. `openssl rand -hex 32`
+- [ ] Add the same value as a GitHub repo secret named `PROCESSOR_SECRET`:
+  - GitHub → repository → Settings → Secrets and variables → Actions → New secret
+- [ ] Push `main` — the processor cron workflow activates automatically
+- [ ] Trigger manually from the Actions UI (Actions → Processor cron → Run workflow) and confirm the response is `ok: true`
 
 ### Email and external signer flow
 - [ ] Send one real `platform_managed` workflow to an external email address
@@ -44,6 +55,11 @@ npm run smoke:public-routes -- https://easydraftdocs.app
 
 - [ ] Confirm `/pricing`, `/privacy`, `/terms`, and `/security` all return `200`
 
+### Alert routing (B4)
+- [ ] In Sentry: add alert rule — any new error → email `admin@agoperations.ca`
+- [ ] In Sentry: add alert rule — error rate spike (> 5 events / 5 min) → same email
+- [ ] Assign named owners in `docs/operator-runbook.md` for: failed notifications, stuck jobs, deploy smoke checks
+
 ### Full owner smoke test
 - [ ] Sign up as a brand-new owner account and confirm landing in the owner/admin experience
 - [ ] Visit `/pricing` while signed out and confirm pricing + CTA behavior is clear
@@ -62,17 +78,6 @@ npm run smoke:public-routes -- https://easydraftdocs.app
 - [ ] Purchase tokens and confirm the balance updates correctly
 - [ ] Delete a test account and confirm deletion completes cleanly
 
-### Ops and ownership
-- [ ] Decide the production processor runtime:
-  - durable scheduled/container deployment
-  - or explicitly limited manual controlled-launch operation
-- [ ] If shipping beyond very light pilot usage, deploy the processor on a durable schedule/container
-- [ ] Assign an owner for:
-  - failed notifications
-  - stuck processing jobs
-  - deploy smoke checks
-- [ ] Run the operator daily checks once from the current production environment and confirm the response path is clear
-
 ---
 
 ## Fix Before Broader Launch
@@ -80,9 +85,9 @@ npm run smoke:public-routes -- https://easydraftdocs.app
 - [ ] Strengthen executed-record durability for completed workflows
 - [ ] Review privacy, terms, and security copy with founder/legal eyes before broader selling
 - [ ] Add automated integration or E2E coverage for:
-  - invite acceptance
-  - external signer verification
-  - billing checkout and webhook update flow
+  - invite acceptance (happy path + wrong-email + expired-token)
+  - external signer verification (OTP gate, superseded link, replayed link)
+  - billing checkout and webhook idempotency
 
 ---
 

@@ -74,8 +74,8 @@ Refine. Share. Sign.
 
 ### Still intentionally unfinished
 - **Certificate-backed PDF signing**: the `DigitalSignatureProfile` model and UI exist, but actual PAdES/CAdES embedding is still a TODO in `renderDocumentExportToStorage`.
-- **Background processing runtime**: OCR and queued notification retries still need a durable scheduled/container deployment.
 - **External alert routing**: error capture and queue visibility exist, but production alert delivery and escalation ownership still need final operational setup.
+- **Integration test coverage**: invite acceptance, external signer verification, and billing webhook paths are smoke-tested manually but not covered by automated integration tests.
 
 ### Current product boundary
 - EasyDraft is a workflow-safe PDF execution layer, not a full PDF editor.
@@ -105,6 +105,9 @@ The latest application pass closed the most important product-surface gaps for s
 
 ## What Just Completed
 
+- **Session security hardening**: removed redundant custom session layer; browser-side Supabase client is now hydrated via `onAuthStateChange` so token auto-refresh actually works. Previously the access token expired after one hour with no recovery path. Sign-out now invalidates the refresh token server-side via `auth.signOut()`.
+- **Processor runtime wired**: `POST /api/processor-run` Vercel function runs all three job types (notifications, OCR jobs, document purges) behind `EASYDRAFT_PROCESSOR_SECRET`. GitHub Actions cron (`.github/workflows/processor-cron.yml`) triggers it every 30 minutes and fails loudly on errors — no new hosting platform required.
+- **Credentials cleaned from `.env`**: live Stripe key and Supabase management API token removed; both must live in Vercel only. Local dev uses test/placeholder values.
 - Public trust/legal pages now exist as first-class routes and have deployment smoke coverage.
 - Certificate-backed signing claims were corrected so public copy reflects the current live assurance level.
 - Admin feedback intake moved from raw storage toward a triage-ready operator workflow.

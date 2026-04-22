@@ -43,6 +43,7 @@ import savedSignaturesHandler from "../apps/web/api/saved-signatures.js";
 import sessionHandler from "../apps/web/api/session.js";
 import storageUploadHandler from "../apps/web/api/storage-upload.js";
 import stripeWebhookHandler from "../apps/web/api/stripe-webhook.js";
+import processorRunHandler from "../apps/web/api/processor-run.js";
 import workspaceInviteAcceptHandler from "../apps/web/api/workspace-invite-accept.js";
 import workspaceInviteResendHandler from "../apps/web/api/workspace-invite-resend.js";
 import workspaceInviteHandler from "../apps/web/api/workspace-invite.js";
@@ -91,6 +92,7 @@ const routeHandlers: Record<string, RouteHandler> = {
   documents: documentsHandler,
   feedback: feedbackHandler,
   health: healthHandler,
+  "processor-run": processorRunHandler,
   profile: profileHandler,
   "saved-signatures": savedSignaturesHandler,
   session: sessionHandler,
