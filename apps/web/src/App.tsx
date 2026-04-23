@@ -27,6 +27,7 @@ import type {
   GuestSigningSession,
   SavedSignature,
   SessionUser,
+  SignatureEvent,
   WorkflowDocument,
   WorkspaceDirectory,
   WorkspaceInviteDetails,
@@ -40,7 +41,8 @@ const shouldRestoreSessionFromRedirect =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get("signedIn") === "1";
 
-const documentBucket = import.meta.env.VITE_SUPABASE_DOCUMENT_BUCKET ?? "documents";
+const unsignedDocumentBucket =
+  import.meta.env.VITE_SUPABASE_UNSIGNED_DOCUMENT_BUCKET ?? "documents-unsigned";
 const signatureBucket = import.meta.env.VITE_SUPABASE_SIGNATURE_BUCKET ?? "signatures";
 const isCertificateSigningEnabled = import.meta.env.VITE_EASYDRAFT_ENABLE_CERTIFICATE_SIGNING === "true";
 
@@ -171,6 +173,18 @@ function getDeliveryModeLabel(deliveryMode: WorkflowDocument["deliveryMode"]) {
   }
 
   return "Self-managed distribution";
+}
+
+function getSignaturePathLabel(signaturePath: WorkflowDocument["signaturePath"]) {
+  if (signaturePath === 2) {
+    return "Path 2 · Documenso";
+  }
+
+  if (signaturePath === 3) {
+    return "Path 3 · Coming soon";
+  }
+
+  return "Path 1 · Internal PDF signature";
 }
 
 function getLockPolicyLabel(lockPolicy: WorkflowDocument["lockPolicy"]) {
@@ -478,6 +492,7 @@ export default function App() {
   const [uploadName, setUploadName] = useState<string | null>(null);
   const [isScannedUpload, setIsScannedUpload] = useState(false);
   const [uploadRouting, setUploadRouting] = useState<"sequential" | "parallel">("sequential");
+  const [signaturePathSelection, setSignaturePathSelection] = useState<1 | 2 | 3>(1);
   const [deliveryMode, setDeliveryMode] =
     useState<"self_managed" | "internal_use_only" | "platform_managed">("self_managed");
   const [distributionTarget, setDistributionTarget] = useState("");
@@ -507,6 +522,15 @@ export default function App() {
   const [savedSignatureType, setSavedSignatureType] = useState<"typed" | "uploaded">("typed");
   const [savedSignatureTypedText, setSavedSignatureTypedText] = useState("");
   const [selectedSavedSignatureId, setSelectedSavedSignatureId] = useState("");
+  const [internalSignatureFieldId, setInternalSignatureFieldId] = useState("");
+  const [internalSignatureSignerName, setInternalSignatureSignerName] = useState("");
+  const [internalSignatureSignerEmail, setInternalSignatureSignerEmail] = useState("");
+  const [internalSignedPdfUrl, setInternalSignedPdfUrl] = useState<string | null>(null);
+  const [documensoEnvelopeId, setDocumensoEnvelopeId] = useState<string | null>(null);
+  const [documensoEnvelopeStatus, setDocumensoEnvelopeStatus] = useState<string | null>(null);
+  const [documensoSigningUrl, setDocumensoSigningUrl] = useState<string | null>(null);
+  const [documensoHost, setDocumensoHost] = useState<string | null>(null);
+  const [signatureEvents, setSignatureEvents] = useState<SignatureEvent[]>([]);
   const [profileDisplayName, setProfileDisplayName] = useState("");
   const [profileCompanyName, setProfileCompanyName] = useState("");
   const [profileJobTitle, setProfileJobTitle] = useState("");
@@ -575,6 +599,12 @@ export default function App() {
   const sendReadiness = selectedDocument ? getDocumentSendReadiness(selectedDocument) : null;
   const requiredActionFields =
     selectedDocument?.fields.filter((field) => field.required && isActionFieldKind(field.kind)) ?? [];
+  const internalSignatureFields =
+    selectedDocument?.fields.filter((field) => field.kind === "signature") ?? [];
+  const selectedInternalSignatureField =
+    internalSignatureFields.find((field) => field.id === internalSignatureFieldId) ??
+    internalSignatureFields[0] ??
+    null;
   const signerLabelById = new Map(
     (selectedDocument?.signers ?? []).map((signer) => [
       signer.id,
@@ -1291,6 +1321,119 @@ export default function App() {
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
 
+  async function handlePrepareInternalSignature() {
+    if (!session || !selectedDocument) {
+      return;
+    }
+
+    if (!selectedInternalSignatureField) {
+      setErrorMessage("Add at least one signature field before preparing the internal PDF signature.");
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+    setInternalSignedPdfUrl(null);
+
+    try {
+      await apiFetch<{ preparedPath: string }>("/signatures-internal-prepare", session, {
+        method: "POST",
+        body: JSON.stringify({
+          documentId: selectedDocument.id,
+          page: selectedInternalSignatureField.page,
+          x: selectedInternalSignatureField.x,
+          y: selectedInternalSignatureField.y,
+          width: selectedInternalSignatureField.width,
+          height: selectedInternalSignatureField.height,
+        }),
+      });
+      await refreshDocument(selectedDocument.id, session);
+      await refreshDocuments(session);
+      await loadPreview(selectedDocument.id, session);
+      setNoticeMessage("Internal PDF signature placeholder prepared.");
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleCreateInternalSignedPdf() {
+    if (!session || !selectedDocument) {
+      return;
+    }
+
+    if (!internalSignatureSignerName.trim() || !internalSignatureSignerEmail.trim()) {
+      setErrorMessage("Signer name and email are required before generating the signed PDF.");
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      const payload = await apiFetch<{ signedUrl: string }>("/signatures-internal-sign", session, {
+        method: "POST",
+        body: JSON.stringify({
+          documentId: selectedDocument.id,
+          signerName: internalSignatureSignerName.trim(),
+          signerEmail: internalSignatureSignerEmail.trim(),
+        }),
+      });
+      setInternalSignedPdfUrl(payload.signedUrl);
+      await refreshDocument(selectedDocument.id, session);
+      await refreshDocuments(session);
+      await loadPreview(selectedDocument.id, session);
+      setNoticeMessage("Internal signed PDF generated.");
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleStartDocumensoEnvelope() {
+    if (!session || !selectedDocument) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      const payload = await apiFetch<{
+        envelopeId: string;
+        envelopeStatus: string;
+        currentUserSigningUrl: string | null;
+        documensoHost: string;
+      }>("/documenso-envelope", session, {
+        method: "POST",
+        body: JSON.stringify({
+          documentId: selectedDocument.id,
+        }),
+      });
+
+      setDocumensoEnvelopeId(payload.envelopeId);
+      setDocumensoEnvelopeStatus(payload.envelopeStatus);
+      setDocumensoSigningUrl(payload.currentUserSigningUrl);
+      setDocumensoHost(payload.documensoHost);
+      await refreshDocument(selectedDocument.id, session);
+      await refreshDocuments(session);
+      setNoticeMessage(
+        payload.currentUserSigningUrl
+          ? "Documenso envelope is ready. Your embedded signing session is available below."
+          : "Documenso envelope created. External recipients can complete the document from their email invite.",
+      );
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function handleShareDocument() {
     if (!session || !selectedDocument) {
       return;
@@ -1766,7 +1909,7 @@ export default function App() {
       setUploadName(file.name);
 
       const uploadResponse = await fetch(
-        `/api/storage-upload?bucket=${encodeURIComponent(documentBucket)}&path=${encodeURIComponent(storagePath)}`,
+        `/api/storage-upload?bucket=${encodeURIComponent(unsignedDocumentBucket)}&path=${encodeURIComponent(storagePath)}`,
         {
           method: "POST",
           headers: {
@@ -1792,6 +1935,7 @@ export default function App() {
           fileSize: file.size,
           pageCount: null,
           routingStrategy: uploadRouting,
+          signaturePath: signaturePathSelection,
           deliveryMode,
           distributionTarget: distributionTarget.trim() || null,
           lockPolicy,
@@ -2118,7 +2262,28 @@ export default function App() {
     setFieldAssigneeSignerId((currentValue) => currentValue || selectedDocument.signers[0]?.id || "");
     setReassignSignerId((currentValue) => currentValue || selectedDocument.signers[0]?.id || "");
     loadPreview(selectedDocument.id, session).catch((error) => setErrorMessage((error as Error).message));
+    apiFetch<{ events: SignatureEvent[] }>(
+      `/signature-events?documentId=${encodeURIComponent(selectedDocument.id)}`,
+      session,
+    )
+      .then((payload) => setSignatureEvents(payload.events))
+      .catch((error) => setErrorMessage((error as Error).message));
   }, [selectedDocument?.id, session]);
+
+  useEffect(() => {
+    setInternalSignatureFieldId((currentValue) => currentValue || selectedDocument?.fields.find((field) => field.kind === "signature")?.id || "");
+    setInternalSignedPdfUrl(null);
+    setDocumensoEnvelopeId(null);
+    setDocumensoEnvelopeStatus(null);
+    setDocumensoSigningUrl(null);
+    setDocumensoHost(null);
+    setSignatureEvents([]);
+  }, [selectedDocument?.id]);
+
+  useEffect(() => {
+    setInternalSignatureSignerName(sessionUser?.name ?? "");
+    setInternalSignatureSignerEmail(sessionUser?.email ?? "");
+  }, [sessionUser?.id]);
 
   useEffect(() => {
     setDueAt(toDateTimeLocalValue(selectedDocument?.dueAt ?? null));
@@ -3443,6 +3608,19 @@ export default function App() {
 
             <div className="form-grid">
               <label className="form-field">
+                <span>Signature path</span>
+                <select
+                  value={String(signaturePathSelection)}
+                  onChange={(event) => setSignaturePathSelection(Number(event.target.value) as 1 | 2 | 3)}
+                >
+                  <option value="1">Path 1 · Internal PDF signature</option>
+                  <option value="2">Path 2 · Documenso embedded + email signing</option>
+                  <option value="3" disabled>
+                    Path 3 · Coming soon
+                  </option>
+                </select>
+              </label>
+              <label className="form-field">
                 <span>Workflow path</span>
                 <select
                   value={deliveryMode}
@@ -3514,6 +3692,14 @@ export default function App() {
               )}
             </div>
 
+            <div className="row-card">
+              <strong>Path 3 preview</strong>
+              <p className="muted">
+                Blockchain-backed signatures are intentionally stubbed in this build. The API currently returns
+                `503`, and the upload selector keeps Path 3 disabled until that path is implemented.
+              </p>
+            </div>
+
             <input
               ref={fileInputRef}
               accept="application/pdf"
@@ -3572,8 +3758,12 @@ export default function App() {
                     <strong>{getOperationalStatusLabel(selectedDocument.operationalStatus)}</strong>
                   </div>
                   <div className="meta-item">
-                    <span>Path</span>
+                    <span>Workflow path</span>
                     <strong>{getDeliveryModeLabel(selectedDocument.deliveryMode)}</strong>
+                  </div>
+                  <div className="meta-item">
+                    <span>Signature path</span>
+                    <strong>{getSignaturePathLabel(selectedDocument.signaturePath)}</strong>
                   </div>
                   <div className="meta-item">
                     <span>Routing</span>
@@ -3726,9 +3916,17 @@ export default function App() {
                     <button
                       className="secondary-button"
                       disabled={isLoading || !sendReadiness?.ready}
-                      onClick={() => runDocumentAction("/document-send", { documentId: selectedDocument.id })}
+                      onClick={() =>
+                        selectedDocument.signaturePath === 2
+                          ? handleStartDocumensoEnvelope()
+                          : runDocumentAction("/document-send", { documentId: selectedDocument.id })
+                      }
                     >
-                      {sendActionLabel}
+                      {selectedDocument.signaturePath === 2
+                        ? selectedDocument.sentAt
+                          ? "Refresh Documenso session"
+                          : "Create Documenso envelope"
+                        : sendActionLabel}
                     </button>
                     <button
                       className="secondary-button"
@@ -3758,6 +3956,8 @@ export default function App() {
                   <p className="muted action-note">
                     {!sendReadiness?.ready
                       ? sendReadiness?.blockers[0]
+                      : selectedDocument.signaturePath === 2
+                        ? "Creating the envelope uploads the current PDF to Documenso, returns an embedded signing session for assigned internal signers, and emails external recipients."
                       : selectedDocument.deliveryMode === "platform_managed"
                         ? "Sending keeps the current field map and routing, then notifies the next eligible participant."
                         : selectedDocument.deliveryMode === "internal_use_only"
@@ -3783,6 +3983,190 @@ export default function App() {
                       })()}
                     </p>
                   ) : null}
+                </div>
+
+                {selectedDocument.signaturePath === 1 ? (
+                  <div className="toolbar-card">
+                    <div className="section-heading compact">
+                      <p className="eyebrow">Internal PDF signature</p>
+                      <span>{selectedDocument.status}</span>
+                    </div>
+                    <p className="muted action-note">
+                      Path 1 uses an EasyDraft-managed PDF signature placeholder plus your configured P12 certificate
+                      to generate a private signed PDF for internal or trusted-organization use.
+                    </p>
+                    <div className="form-grid compact-grid">
+                      <label className="form-field">
+                        <span>Signature field</span>
+                        <select
+                          value={selectedInternalSignatureField?.id ?? ""}
+                          onChange={(event) => setInternalSignatureFieldId(event.target.value)}
+                        >
+                          {internalSignatureFields.length === 0 ? (
+                            <option value="">No signature fields available</option>
+                          ) : (
+                            internalSignatureFields.map((field) => (
+                              <option key={field.id} value={field.id}>
+                                {field.label} · page {field.page}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      </label>
+                      <label className="form-field">
+                        <span>Signer name</span>
+                        <input
+                          value={internalSignatureSignerName}
+                          onChange={(event) => setInternalSignatureSignerName(event.target.value)}
+                          placeholder="Signer name"
+                        />
+                      </label>
+                      <label className="form-field">
+                        <span>Signer email</span>
+                        <input
+                          type="email"
+                          value={internalSignatureSignerEmail}
+                          onChange={(event) => setInternalSignatureSignerEmail(event.target.value)}
+                          placeholder="signer@example.com"
+                        />
+                      </label>
+                    </div>
+                    <div className="action-row action-wrap">
+                      <button
+                        className="secondary-button"
+                        disabled={isLoading || !selectedInternalSignatureField}
+                        onClick={handlePrepareInternalSignature}
+                        type="button"
+                      >
+                        Prepare PDF
+                      </button>
+                      <button
+                        className="secondary-button"
+                        disabled={
+                          isLoading ||
+                          !selectedDocument.preparedAt ||
+                          selectedDocument.workflowState !== "completed"
+                        }
+                        onClick={handleCreateInternalSignedPdf}
+                        type="button"
+                      >
+                        {selectedDocument.status === "signed" ? "Refresh signed link" : "Generate signed PDF"}
+                      </button>
+                      {internalSignedPdfUrl ? (
+                        <button
+                          className="secondary-button"
+                          onClick={() => window.open(internalSignedPdfUrl, "_blank", "noopener,noreferrer")}
+                          type="button"
+                        >
+                          Download signed PDF
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className="muted action-note">
+                      {selectedDocument.preparedAt
+                        ? `Prepared ${formatTimestamp(selectedDocument.preparedAt)}.`
+                        : "Prepare the PDF once the signature field placement is final."}{" "}
+                      The final signed PDF becomes available after every required assigned action field is complete.
+                    </p>
+                    {selectedDocument.workflowState !== "completed" ? (
+                      <p className="muted action-note">
+                        Complete the workflow first. EasyDraft only generates the final internal signed PDF after the
+                        document reaches the completed state.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {selectedDocument.signaturePath === 2 ? (
+                  <div className="toolbar-card">
+                    <div className="section-heading compact">
+                      <p className="eyebrow">Documenso signing</p>
+                      <span>{documensoEnvelopeStatus ?? selectedDocument.status}</span>
+                    </div>
+                    <p className="muted action-note">
+                      Path 2 sends the document through Documenso. Internal signers can continue in an embedded
+                      session here, while external recipients receive Documenso email invites.
+                    </p>
+                    <div className="action-row action-wrap">
+                      <button
+                        className="secondary-button"
+                        disabled={isLoading || !sendReadiness?.ready}
+                        onClick={handleStartDocumensoEnvelope}
+                        type="button"
+                      >
+                        {selectedDocument.sentAt ? "Refresh Documenso session" : "Create Documenso envelope"}
+                      </button>
+                      {documensoSigningUrl ? (
+                        <button
+                          className="secondary-button"
+                          onClick={() => window.open(documensoSigningUrl, "_blank", "noopener,noreferrer")}
+                          type="button"
+                        >
+                          Open signing link
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="meta-grid">
+                      <div className="meta-item">
+                        <span>Envelope ID</span>
+                        <strong>{documensoEnvelopeId ?? "Not created yet"}</strong>
+                      </div>
+                      <div className="meta-item">
+                        <span>Provider status</span>
+                        <strong>{documensoEnvelopeStatus ?? "Not started"}</strong>
+                      </div>
+                      <div className="meta-item">
+                        <span>Document status</span>
+                        <strong>{selectedDocument.status}</strong>
+                      </div>
+                      <div className="meta-item">
+                        <span>Provider host</span>
+                        <strong>{documensoHost ?? "Pending"}</strong>
+                      </div>
+                    </div>
+                    {documensoSigningUrl ? (
+                      <div className="preview-frame" style={{ minHeight: "42rem" }}>
+                        <iframe
+                          src={documensoSigningUrl}
+                          title="Documenso signing"
+                          style={{ width: "100%", minHeight: "42rem", border: 0, borderRadius: "1rem" }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="row-card">
+                        <strong>Embedded session unavailable</strong>
+                        <p className="muted">
+                          Create the envelope first. If you are not an assigned signer on this document, EasyDraft
+                          will still show the Documenso status here while external recipients sign by email.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+
+                <div className="toolbar-card">
+                  <div className="section-heading compact">
+                    <p className="eyebrow">Signature audit trail</p>
+                    <span>{signatureEvents.length} events</span>
+                  </div>
+                  {signatureEvents.length > 0 ? (
+                    <div className="stack">
+                      {signatureEvents.map((event) => (
+                        <div key={event.id} className="row-card">
+                          <strong>
+                            {formatState(event.eventType)} · {event.signerEmail ?? "Unknown signer"}
+                          </strong>
+                          <p className="muted">
+                            {event.signerType} · {formatTimestamp(event.createdAt)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="muted action-note">
+                      No signature-path events recorded yet for this document.
+                    </p>
+                  )}
                 </div>
 
                 {canManageWorkflow ? (

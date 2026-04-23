@@ -18,6 +18,8 @@ const baseDocument: DocumentRecord = {
   fileName: "demo-agreement.pdf",
   storagePath: "user_owner/doc_1/demo-agreement.pdf",
   workspaceId: null,
+  signaturePath: 1,
+  status: "pending",
   deliveryMode: "self_managed",
   distributionTarget: null,
   lockPolicy: "owner_only",

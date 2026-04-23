@@ -1,0 +1,37 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+
+import { createDocumensoEnvelopeForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
+
+import { enforceRateLimit, getRequestOrigin, readAuthorizationHeader, sendError } from "./_utils.js";
+
+export default async function handler(request: VercelRequest, response: VercelResponse) {
+  if (request.method !== "POST") {
+    return response.status(405).json({ message: "Method not allowed." });
+  }
+
+  const documentId = request.body?.documentId;
+
+  if (typeof documentId !== "string" || documentId.trim().length === 0) {
+    return response.status(400).json({ message: "documentId is required." });
+  }
+
+  try {
+    await enforceRateLimit(request, response, {
+      key: "api:documenso-envelope",
+      limit: 8,
+      windowMs: 60_000,
+    });
+
+    return response
+      .status(200)
+      .json(
+        await createDocumensoEnvelopeForAuthorizationHeader(
+          readAuthorizationHeader(request),
+          documentId,
+          getRequestOrigin(request),
+        ),
+      );
+  } catch (error) {
+    return sendError(response, error);
+  }
+}

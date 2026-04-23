@@ -22,11 +22,17 @@ Current scope reminder:
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
    - `VITE_SUPABASE_DOCUMENT_BUCKET`
+   - `VITE_SUPABASE_UNSIGNED_DOCUMENT_BUCKET`
    - `SUPABASE_URL`
    - `SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `SUPABASE_DOCUMENT_BUCKET`
+   - `SUPABASE_UNSIGNED_DOCUMENT_BUCKET`
+   - `SUPABASE_SIGNED_DOCUMENT_BUCKET`
    - `SUPABASE_SIGNATURE_BUCKET`
+   - `DOCUMENSO_API_BASE_URL`
+   - `DOCUMENSO_API_KEY`
+   - `DOCUMENSO_WEBHOOK_SECRET`
    - `EASYDRAFT_ADMIN_EMAILS`
    - `EASYDRAFT_APP_ORIGIN`
    - `EASYDRAFT_REQUIRE_STRIPE=true`
@@ -48,13 +54,29 @@ Current scope reminder:
    - `https://www.easydraftdocs.com/**`
    - preview `vercel.app` wildcard if you want preview auth testing
 3. Confirm Email auth is enabled.
-4. Confirm the `documents` bucket exists and remains private.
+4. Confirm the `documents-unsigned`, `documents-signed`, and `signatures` buckets exist and remain private.
 5. Confirm all SQL migrations are fully applied, including:
    - `20260405120000_signing_tokens.sql`
    - `20260406223000_annual_billing_plan.sql`
    - `20260407033000_digital_signature_identity_fields.sql`
    - `20260407120000_onboarding_flag.sql`
    - `20260417120000_invite_and_signing_verification.sql`
+   - `20260422100000_pdf_signature_paths.sql`
+
+## PDF signature paths
+
+1. Confirm Path 1 environment is live:
+   - `P12_CERT_BASE64`
+   - `P12_CERT_PASSPHRASE`
+2. Confirm Path 2 environment is live:
+   - `DOCUMENSO_API_BASE_URL`
+   - `DOCUMENSO_API_KEY`
+   - `DOCUMENSO_WEBHOOK_SECRET`
+3. In Documenso, confirm the webhook points to:
+   - `https://easydraftdocs.app/api/documenso-webhook`
+4. Run one Path 1 smoke test from upload through signed PDF download.
+5. Run one Path 2 smoke test from upload through webhook-completed signed PDF copy-back.
+6. Confirm the `Signature audit trail` panel shows signature-path events for the test documents.
 
 ## Stripe
 
@@ -154,6 +176,7 @@ Only claim production readiness after all of these are true:
 - Stripe live checkout works
 - notification delivery works with your chosen provider
 - managed signing flow passes with real users
+- Path 1 and Path 2 PDF signature flows pass with real credentials
 - workspace switching stays correctly scoped for multi-workspace users
 - pricing and trial language are understandable to a first-time visitor
 - certificate-backed signing remains clearly out of scope unless a real provider integration has been completed and verified
@@ -177,3 +200,5 @@ Once the above is complete, the next operational/product tasks should be:
 5. Harden the core workflow before adding broader feature surface:
    - stronger executed-record retention / reopen behavior
    - extraction of workflow core panels from `App.tsx`
+6. Keep the signature rollout notes current:
+   - update [pdf-signature-rollout.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/pdf-signature-rollout.md) after each live credential or workflow change

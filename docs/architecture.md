@@ -64,7 +64,7 @@ Non-core PDF transformations should not drive the product roadmap ahead of workf
 
 Responsibilities:
 
-- object storage for source PDFs, working artifacts, thumbnails, and exports
+- object storage for source PDFs, working artifacts, signed outputs, thumbnails, and exports
 - relational storage for account hierarchy, workflow state, access control, and audit records
 - queue storage for processing jobs
 

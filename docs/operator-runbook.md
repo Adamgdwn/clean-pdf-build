@@ -21,7 +21,12 @@ Use this runbook during private beta and paid-pilot operations to keep trust-sen
    - high-priority items
    - anything unassigned
    - anything closed without a resolution note
-3. If a deploy occurred, run:
+4. Review PDF-signature health:
+   - any Path 1 signing failures
+   - any missing signed PDFs in `documents-signed`
+   - any Documenso webhook delivery gaps
+   - whether `signature_events` entries are appearing for newly signed documents
+5. If a deploy occurred, run:
 
 ```bash
 npm run smoke:public-routes -- https://easydraftdocs.app
@@ -33,6 +38,8 @@ Direct public links to `/pricing`, `/privacy`, `/terms`, and `/security` must re
 
 - If `failedNotifications > 0`, review the most recent failures first and confirm the email provider configuration is still valid.
 - If the oldest queued notification or processing job is older than 15 minutes in production, treat it as an operator issue rather than waiting for user reports.
+- If a signed document is marked `signed` but no object exists in `documents-signed`, treat it as a production incident and verify the signature path and provider logs immediately.
+- If Documenso webhooks stop arriving, first confirm the webhook secret, Documenso endpoint configuration, and Vercel function logs for `/api/documenso-webhook`.
 - If the processor is deployed separately, verify the worker runtime and shared `EASYDRAFT_PROCESSOR_SECRET` first.
 - If needed, run the local/manual queue commands while investigating:
 - If retention cleanup needs to run manually, trigger:
@@ -84,9 +91,14 @@ npm run build
 3. Deploy.
 4. Run the public-route smoke script against the deployed origin.
 5. Check admin queue metrics and feedback queue once after deploy.
+6. Run one PDF-signature smoke test whenever signature-related code changed:
+   - one Path 1 document
+   - one Path 2 document if Documenso credentials are configured
 
 ## Trust posture reminders
 
 - EasyDraft currently provides SHA-256 export integrity plus workflow audit history.
-- Certificate-backed PDF signing is not part of the live beta.
+- Path 1 now provides internal P12-backed PDF signing for controlled/internal workflows.
+- Path 2 now relies on Documenso for managed signing workflows and completion callbacks.
+- Path 3 remains intentionally unavailable beyond the `503` stub.
 - Legal/trust pages exist, but direct-link verification must remain part of release hygiene.

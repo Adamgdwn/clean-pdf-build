@@ -24,10 +24,13 @@ Set these in Vercel for Preview and Production:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_SUPABASE_DOCUMENT_BUCKET`
+- `VITE_SUPABASE_UNSIGNED_DOCUMENT_BUCKET`
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_DOCUMENT_BUCKET`
+- `SUPABASE_UNSIGNED_DOCUMENT_BUCKET`
+- `SUPABASE_SIGNED_DOCUMENT_BUCKET`
 - `SUPABASE_SIGNATURE_BUCKET`
 - `EASYDRAFT_ADMIN_EMAILS`
 - `EASYDRAFT_APP_ORIGIN`
@@ -50,6 +53,9 @@ Set these in Vercel for Preview and Production:
 - `VITE_SENTRY_DSN`
 - `EASYDRAFT_ENABLE_CERTIFICATE_SIGNING`
 - `VITE_EASYDRAFT_ENABLE_CERTIFICATE_SIGNING`
+- `DOCUMENSO_API_BASE_URL`
+- `DOCUMENSO_API_KEY`
+- `DOCUMENSO_WEBHOOK_SECRET`
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 
@@ -61,7 +67,10 @@ Recommended values:
 - `SUPABASE_ANON_KEY` = same publishable or anon key
 - `SUPABASE_SERVICE_ROLE_KEY` = hosted Supabase service-role secret
 - `VITE_SUPABASE_DOCUMENT_BUCKET` = `documents`
+- `VITE_SUPABASE_UNSIGNED_DOCUMENT_BUCKET` = `documents-unsigned`
 - `SUPABASE_DOCUMENT_BUCKET` = `documents`
+- `SUPABASE_UNSIGNED_DOCUMENT_BUCKET` = `documents-unsigned`
+- `SUPABASE_SIGNED_DOCUMENT_BUCKET` = `documents-signed`
 - `SUPABASE_SIGNATURE_BUCKET` = `signatures`
 - `EASYDRAFT_ADMIN_EMAILS` = `admin@agoperations.ca`
 - `EASYDRAFT_APP_ORIGIN` = `https://easydraftdocs.app`
@@ -83,6 +92,9 @@ Recommended values:
 - `VITE_SENTRY_DSN` = browser-side Sentry DSN for the web client
 - `EASYDRAFT_ENABLE_CERTIFICATE_SIGNING` = `false` unless a real provider-backed certificate-signing implementation is live
 - `VITE_EASYDRAFT_ENABLE_CERTIFICATE_SIGNING` = match the server-side certificate-signing flag
+- `DOCUMENSO_API_BASE_URL` = `https://app.documenso.com/api/v2` unless you self-host Documenso
+- `DOCUMENSO_API_KEY` = Documenso API token for the envelope API
+- `DOCUMENSO_WEBHOOK_SECRET` = secret configured on the Documenso webhook endpoint
 - `STRIPE_SECRET_KEY` = your Stripe secret key for the environment
 - `STRIPE_WEBHOOK_SECRET` = the signing secret for the `POST /api/stripe-webhook` endpoint
 
@@ -96,6 +108,27 @@ npm run smoke:public-routes -- https://easydraftdocs.app
 
 All of `/pricing`, `/privacy`, `/terms`, and `/security` must return `200`.
 
+### PDF signature rollout
+
+After the deploy is live, finish the signature-path setup in this order:
+
+1. Apply [20260422100000_pdf_signature_paths.sql](/home/adamgoodwin/code/Applications/Clean_pdf_build/supabase/migrations/20260422100000_pdf_signature_paths.sql) to the hosted Supabase project.
+2. Create private buckets:
+   - `documents-unsigned`
+   - `documents-signed`
+   - `signatures`
+3. Set the Documenso env vars and create a Documenso webhook pointing to:
+   - `https://easydraftdocs.app/api/documenso-webhook`
+4. Set the Path 1 certificate env vars:
+   - `P12_CERT_BASE64`
+   - `P12_CERT_PASSPHRASE`
+5. Run one Path 1 smoke test and one Path 2 smoke test before enabling user-facing messaging.
+
+Reference:
+
+- [pdf-signature-rollout.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/pdf-signature-rollout.md)
+- [pdf-signature-storage.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/pdf-signature-storage.md)
+
 ## Supabase
 
 ### Project setup
@@ -108,7 +141,7 @@ All of `/pricing`, `/privacy`, `/terms`, and `/security` must return `200`.
    - `20260407033000_digital_signature_identity_fields.sql` — digital-signature profile fields
    - `20260407120000_onboarding_flag.sql` — server-side onboarding flag on profiles
    - `20260417120000_invite_and_signing_verification.sql` — guest email-code verification state plus Stripe object-level webhook dedupe
-3. Confirm the private `documents` bucket exists.
+3. Confirm the private `documents-unsigned`, `documents-signed`, and `signatures` buckets exist. The legacy `documents` bucket may remain for compatibility.
 4. Enable Email auth.
 5. Set your site URL and allowed redirect URLs to your Vercel domains.
 6. Set your auth redirect URLs to include both the production Vercel URL and preview domains if you want auth testing on previews.
@@ -145,6 +178,8 @@ It also creates:
 - storage bucket provisioning for `documents`
 - row-level security for collaborator reads
 - private upload policy scoped to the uploader's folder
+
+For the PDF-signature split-bucket setup, also follow [pdf-signature-storage.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/pdf-signature-storage.md).
 
 ## GitHub
 

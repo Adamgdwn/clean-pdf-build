@@ -20,6 +20,8 @@ export const documentChangeImpactSchema = z.enum([
   "resign_required",
 ]);
 export const documentRetentionModeSchema = z.enum(["temporary", "retained"]);
+export const signaturePathSchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
+export const signatureStatusSchema = z.enum(["pending", "sent", "signed", "rejected", "archived"]);
 
 export const accessRoleSchema = z.enum(["owner", "editor", "signer", "viewer"]);
 export const routingStrategySchema = z.enum(["sequential", "parallel"]);
@@ -168,6 +170,8 @@ export const documentSchema = z.object({
   fileName: z.string(),
   storagePath: z.string(),
   workspaceId: z.string().nullable().default(null),
+  signaturePath: signaturePathSchema.default(1),
+  status: signatureStatusSchema.default("pending"),
   deliveryMode: deliveryModeSchema.default("self_managed"),
   distributionTarget: z.string().nullable().default(null),
   lockPolicy: lockPolicySchema.default("owner_only"),
@@ -215,6 +219,8 @@ export type WorkflowState = z.infer<typeof workflowStateSchema>;
 export type WorkflowOperationalStatus = z.infer<typeof workflowOperationalStatusSchema>;
 export type DocumentChangeImpact = z.infer<typeof documentChangeImpactSchema>;
 export type DocumentRetentionMode = z.infer<typeof documentRetentionModeSchema>;
+export type SignaturePath = z.infer<typeof signaturePathSchema>;
+export type SignatureStatus = z.infer<typeof signatureStatusSchema>;
 export type AccessRole = z.infer<typeof accessRoleSchema>;
 export type RoutingStrategy = z.infer<typeof routingStrategySchema>;
 export type ParticipantType = z.infer<typeof participantTypeSchema>;

@@ -17,11 +17,18 @@ import {
   type LockPolicy,
   type ParticipantType,
   type SavedSignature,
+  type SignaturePath,
+  type SignatureStatus,
   type Signer,
   type User,
   type WorkflowOperationalStatus,
 } from "../../domain/src/index.js";
 import { createHash, randomInt, timingSafeEqual } from "crypto";
+import { pdflibAddPlaceholder } from "@signpdf/placeholder-pdf-lib";
+import { P12Signer } from "@signpdf/signer-p12";
+import signpdf from "@signpdf/signpdf";
+import { SUBFILTER_ETSI_CADES_DETACHED } from "@signpdf/utils";
+import forge from "node-forge";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { z } from "zod";
 
@@ -50,6 +57,8 @@ type DocumentRow = {
   file_name: string;
   storage_path: string;
   workspace_id: string | null;
+  signature_path: SignaturePath;
+  status: SignatureStatus;
   editor_history_index: number;
   delivery_mode: DeliveryMode;
   distribution_target: string | null;
@@ -116,6 +125,72 @@ type SignerRow = {
   signing_order: number | null;
 };
 
+type SignatureEventInsert = {
+  document_id: string;
+  signer_type: ParticipantType;
+  signer_email: string | null;
+  signer_user_id: string | null;
+  event_type: "sent" | "viewed" | "signed" | "rejected" | "verified";
+  ip_address: string | null;
+  user_agent: string | null;
+  metadata: Record<string, string | number | boolean | null>;
+};
+
+type DocumensoRecipient = {
+  id: number;
+  email: string;
+  name: string;
+  role: "SIGNER" | "APPROVER" | "VIEWER" | "CC" | "ASSISTANT";
+  token?: string;
+  signingUrl?: string;
+  signingOrder?: number | null;
+  signedAt?: string | null;
+  readStatus?: "NOT_OPENED" | "OPENED";
+  signingStatus?: "NOT_SIGNED" | "SIGNED" | "REJECTED";
+  sendStatus?: "NOT_SENT" | "SENT";
+  rejectionReason?: string | null;
+};
+
+type DocumensoEnvelopeItem = {
+  id: string;
+  title: string;
+  order: number;
+};
+
+type DocumensoEnvelope = {
+  id: string;
+  externalId?: string | null;
+  title: string;
+  status: "DRAFT" | "PENDING" | "COMPLETED" | "REJECTED";
+  completedAt?: string | null;
+  recipients?: DocumensoRecipient[];
+  envelopeItems?: DocumensoEnvelopeItem[];
+};
+
+type DocumensoWebhookPayload = {
+  event:
+    | "DOCUMENT_CREATED"
+    | "DOCUMENT_SENT"
+    | "DOCUMENT_OPENED"
+    | "DOCUMENT_SIGNED"
+    | "DOCUMENT_RECIPIENT_COMPLETED"
+    | "DOCUMENT_COMPLETED"
+    | "DOCUMENT_REJECTED"
+    | "DOCUMENT_CANCELLED"
+    | "DOCUMENT_REMINDER_SENT";
+  payload: {
+    id: string | number;
+    externalId?: string | null;
+    title: string;
+    status: "DRAFT" | "PENDING" | "COMPLETED" | "REJECTED";
+    completedAt?: string | null;
+    recipients?: DocumensoRecipient[];
+    envelopeItems?: DocumensoEnvelopeItem[];
+  };
+  createdAt: string;
+  webhookEndpoint: string;
+};
+
 type FieldRow = {
   id: string;
   document_id: string;
@@ -154,6 +229,19 @@ type AuditEventRow = {
   actor_user_id: string;
   summary: string;
   metadata: Record<string, string | number | boolean | null> | null;
+};
+
+type SignatureEventRow = {
+  id: string;
+  document_id: string;
+  signer_type: ParticipantType;
+  signer_email: string | null;
+  signer_user_id: string | null;
+  event_type: "sent" | "viewed" | "signed" | "rejected" | "verified";
+  ip_address: string | null;
+  user_agent: string | null;
+  metadata: Record<string, string | number | boolean | null> | null;
+  created_at: string;
 };
 
 type NotificationRow = {
@@ -407,6 +495,7 @@ const SIGNING_VERIFICATION_RESEND_COOLDOWN_SECONDS = 60;
 const SIGNING_VERIFICATION_MAX_ATTEMPTS = 5;
 
 type DocumentStorageObjectRow = {
+  bucket_id: string;
   name: string;
   metadata: Record<string, unknown> | null;
 };
@@ -435,6 +524,34 @@ function getDocumentStoragePrefix(uploadedByUserId: string, documentId: string) 
 
 function getDocumentExportPath(uploadedByUserId: string, documentId: string) {
   return `${uploadedByUserId}/${documentId}/exports/latest.pdf`;
+}
+
+function getPreparedInternalSignaturePath(uploadedByUserId: string, documentId: string) {
+  return `${uploadedByUserId}/${documentId}/internal/prepared.pdf`;
+}
+
+function getSignedInternalSignaturePath(uploadedByUserId: string, documentId: string) {
+  return `${uploadedByUserId}/${documentId}/internal/signed.pdf`;
+}
+
+function getSignedDocumensoPath(uploadedByUserId: string, documentId: string) {
+  return `${uploadedByUserId}/${documentId}/documenso/completed.pdf`;
+}
+
+function getSourceDocumentBucketCandidates(env: ReturnType<typeof readServerEnv>) {
+  return Array.from(
+    new Set([env.SUPABASE_UNSIGNED_DOCUMENT_BUCKET, env.SUPABASE_DOCUMENT_BUCKET]),
+  );
+}
+
+function getDocumentArtifactBucketCandidates(env: ReturnType<typeof readServerEnv>) {
+  return Array.from(
+    new Set([
+      env.SUPABASE_UNSIGNED_DOCUMENT_BUCKET,
+      env.SUPABASE_SIGNED_DOCUMENT_BUCKET,
+      env.SUPABASE_DOCUMENT_BUCKET,
+    ]),
+  );
 }
 
 function chunkArray<T>(items: T[], chunkSize: number) {
@@ -494,22 +611,25 @@ async function listDocumentStorageObjectsForPrefixes(prefixes: string[]) {
   const adminClient = createServiceRoleClient();
   const env = readServerEnv();
   const objectsByName = new Map<string, DocumentStorageObjectRow>();
+  const candidateBuckets = getDocumentArtifactBucketCandidates(env);
 
-  for (const prefixChunk of chunkArray(uniquePrefixes, STORAGE_PREFIX_QUERY_CHUNK_SIZE)) {
-    const orFilter = prefixChunk.map((prefix) => `name.like.${prefix}*`).join(",");
-    const { data, error } = await adminClient
-      .schema("storage")
-      .from("objects")
-      .select("name, metadata")
-      .eq("bucket_id", env.SUPABASE_DOCUMENT_BUCKET)
-      .or(orFilter);
+  for (const bucketId of candidateBuckets) {
+    for (const prefixChunk of chunkArray(uniquePrefixes, STORAGE_PREFIX_QUERY_CHUNK_SIZE)) {
+      const orFilter = prefixChunk.map((prefix) => `name.like.${prefix}*`).join(",");
+      const { data, error } = await adminClient
+        .schema("storage")
+        .from("objects")
+        .select("bucket_id, name, metadata")
+        .eq("bucket_id", bucketId)
+        .or(orFilter);
 
-    if (error) {
-      throw new AppError(500, `Unable to inspect document storage: ${error.message}`);
-    }
+      if (error) {
+        throw new AppError(500, `Unable to inspect document storage: ${error.message}`);
+      }
 
-    for (const row of (data ?? []) as DocumentStorageObjectRow[]) {
-      objectsByName.set(row.name, row);
+      for (const row of (data ?? []) as DocumentStorageObjectRow[]) {
+        objectsByName.set(`${row.bucket_id}:${row.name}`, row);
+      }
     }
   }
 
@@ -528,16 +648,25 @@ async function purgeDocumentStorageArtifactsForPrefixes(prefixes: string[]) {
 
   const env = readServerEnv();
   const adminClient = createServiceRoleClient();
-  const objectNames = objectRows.map((row) => row.name);
-  const { error } = await adminClient.storage.from(env.SUPABASE_DOCUMENT_BUCKET).remove(objectNames);
+  const objectNamesByBucket = new Map<string, string[]>();
 
-  if (error) {
-    throw new AppError(500, `Unable to remove document storage artifacts: ${error.message}`);
+  for (const row of objectRows) {
+    const names = objectNamesByBucket.get(row.bucket_id) ?? [];
+    names.push(row.name);
+    objectNamesByBucket.set(row.bucket_id, names);
+  }
+
+  for (const [bucketId, objectNames] of objectNamesByBucket.entries()) {
+    const { error } = await adminClient.storage.from(bucketId).remove(objectNames);
+
+    if (error) {
+      throw new AppError(500, `Unable to remove document storage artifacts: ${error.message}`);
+    }
   }
 
   return {
     removedBytes: objectRows.reduce((sum, row) => sum + getDocumentStorageObjectBytes(row), 0),
-    removedPaths: objectNames,
+    removedPaths: objectRows.map((row) => `${row.bucket_id}/${row.name}`),
   };
 }
 
@@ -547,6 +676,7 @@ const createDocumentInputSchema = z.object({
   fileName: z.string().min(1).max(200),
   storagePath: z.string().min(1),
   fileSize: z.number().int().nonnegative().default(0),
+  signaturePath: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(1),
   deliveryMode: z.enum(["self_managed", "internal_use_only", "platform_managed"]).default("self_managed"),
   distributionTarget: z.string().trim().max(200).nullable().default(null),
   lockPolicy: z
@@ -557,6 +687,23 @@ const createDocumentInputSchema = z.object({
   pageCount: z.number().int().positive().nullable().default(null),
   routingStrategy: z.enum(["sequential", "parallel"]).default("sequential"),
   isScanned: z.boolean().default(false),
+});
+
+const prepareInternalSignatureInputSchema = z.object({
+  page: z.number().int().positive(),
+  x: z.number().min(0),
+  y: z.number().min(0),
+  width: z.number().positive().default(220),
+  height: z.number().positive().default(64),
+  reason: z.string().trim().min(1).max(120).default("Internal document approval"),
+  location: z.string().trim().min(1).max(120).default("EasyDraft"),
+});
+
+const signInternalDocumentInputSchema = z.object({
+  signerName: z.string().trim().min(1).max(120),
+  signerEmail: z.string().trim().email().transform((value) => normalizeEmailAddress(value)),
+  reason: z.string().trim().min(1).max(120).default("Internal document approval"),
+  location: z.string().trim().min(1).max(120).default("EasyDraft"),
 });
 
 const addSignerInputSchema = z.object({
@@ -1392,6 +1539,8 @@ function mapDocumentRecord(
     fileName: row.file_name,
     storagePath: row.storage_path,
     workspaceId: row.workspace_id,
+    signaturePath: row.signature_path,
+    status: row.status,
     deliveryMode: row.delivery_mode,
     distributionTarget: row.distribution_target,
     lockPolicy: row.lock_policy,
@@ -2764,17 +2913,345 @@ async function queueEligibleSignerNotifications(
   );
 }
 
-async function renderDocumentExportToStorage(document: DocumentRecord) {
-  const env = readServerEnv();
+async function appendSignatureEvent(event: SignatureEventInsert) {
   const adminClient = createServiceRoleClient();
-  const { data: sourceBlob, error: sourceDownloadError } = await adminClient.storage
-    .from(env.SUPABASE_DOCUMENT_BUCKET)
-    .download(document.storagePath);
+  const { error } = await adminClient.from("signature_events").insert({
+    document_id: event.document_id,
+    signer_type: event.signer_type,
+    signer_email: event.signer_email,
+    signer_user_id: event.signer_user_id,
+    event_type: event.event_type,
+    ip_address: event.ip_address,
+    user_agent: event.user_agent,
+    metadata: event.metadata,
+  });
 
-  if (sourceDownloadError || !sourceBlob) {
-    throw new AppError(500, sourceDownloadError?.message ?? "Unable to load the source PDF.");
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+}
+
+async function appendSignatureEventOnce(event: SignatureEventInsert, dedupeKey: string) {
+  const adminClient = createServiceRoleClient();
+  const metadata = {
+    ...event.metadata,
+    dedupe_key: dedupeKey,
+  };
+  const { data, error } = await adminClient
+    .from("signature_events")
+    .select("id")
+    .eq("document_id", event.document_id)
+    .eq("event_type", event.event_type)
+    .contains("metadata", { dedupe_key: dedupeKey })
+    .limit(1);
+
+  if (error) {
+    throw new AppError(500, error.message);
   }
 
+  if ((data ?? []).length > 0) {
+    return false;
+  }
+
+  await appendSignatureEvent({
+    ...event,
+    metadata,
+  });
+
+  return true;
+}
+
+function getDocumensoBaseUrl(env: ReturnType<typeof readServerEnv>) {
+  return env.DOCUMENSO_API_BASE_URL.replace(/\/+$/, "");
+}
+
+function getDocumensoHost(env: ReturnType<typeof readServerEnv>) {
+  return getDocumensoBaseUrl(env).replace(/\/api\/v2$/, "");
+}
+
+function assertDocumensoConfiguration() {
+  const env = readServerEnv();
+
+  if (!env.DOCUMENSO_API_KEY) {
+    throw new AppError(500, "DOCUMENSO_API_KEY is required for Documenso signing.");
+  }
+
+  if (!env.DOCUMENSO_WEBHOOK_SECRET) {
+    throw new AppError(500, "DOCUMENSO_WEBHOOK_SECRET is required for Documenso signing webhooks.");
+  }
+
+  return env as ReturnType<typeof readServerEnv> & {
+    DOCUMENSO_API_KEY: string;
+    DOCUMENSO_WEBHOOK_SECRET: string;
+  };
+}
+
+async function callDocumenso<TResponse>(path: string, init?: RequestInit) {
+  const env = assertDocumensoConfiguration();
+  const response = await fetch(`${getDocumensoBaseUrl(env)}${path}`, {
+    ...init,
+    headers: {
+      Authorization: env.DOCUMENSO_API_KEY,
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new AppError(502, `Documenso request failed (${response.status}): ${errorBody || response.statusText}`);
+  }
+
+  return (await response.json()) as TResponse;
+}
+
+async function callDocumensoBinary(path: string) {
+  const env = assertDocumensoConfiguration();
+  const response = await fetch(`${getDocumensoBaseUrl(env)}${path}`, {
+    headers: {
+      Authorization: env.DOCUMENSO_API_KEY,
+    },
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new AppError(502, `Documenso download failed (${response.status}): ${errorBody || response.statusText}`);
+  }
+
+  return Buffer.from(await response.arrayBuffer());
+}
+
+async function createDocumensoEnvelope(
+  document: DocumentRecord,
+  sourceBuffer: Buffer,
+  payload: Record<string, unknown>,
+) {
+  assertDocumensoConfiguration();
+  const formData = new FormData();
+  const sourceBytes = new Uint8Array(sourceBuffer.byteLength);
+  sourceBytes.set(sourceBuffer);
+  formData.append("payload", JSON.stringify(payload));
+  formData.append("files", new Blob([sourceBytes], { type: "application/pdf" }), document.fileName);
+
+  return callDocumenso<{ id: string }>("/envelope/create", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+function getDocumensoRecipientRole(fields: Field[]) {
+  if (fields.length > 0 && fields.every((field) => field.kind === "approval")) {
+    return "APPROVER" as const;
+  }
+
+  return "SIGNER" as const;
+}
+
+function mapFieldKindToDocumensoType(kind: Field["kind"]) {
+  switch (kind) {
+    case "signature":
+      return "SIGNATURE" as const;
+    case "initial":
+      return "INITIALS" as const;
+    case "date":
+      return "DATE" as const;
+    case "text":
+      return "TEXT" as const;
+    case "checkbox":
+      return "CHECKBOX" as const;
+    default:
+      return null;
+  }
+}
+
+function toDocumensoPercentage(value: number, total: number) {
+  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, Number(((value / total) * 100).toFixed(4))));
+}
+
+async function buildDocumensoRecipients(document: DocumentRecord) {
+  const { sourceBlob } = await downloadSourceDocumentBlob(document);
+  const sourceBuffer = Buffer.from(await sourceBlob.arrayBuffer());
+  const pdfDocument = await PDFDocument.load(sourceBuffer);
+  const pages = pdfDocument.getPages();
+
+  const recipients = document.signers.map((signer) => {
+    const assignedFields = document.fields.filter((field) => field.assigneeSignerId === signer.id);
+    const documensoFields = assignedFields.flatMap((field) => {
+      const documensoType = mapFieldKindToDocumensoType(field.kind);
+
+      if (!documensoType || field.kind === "approval") {
+        return [];
+      }
+
+      const page = pages[field.page - 1];
+
+      if (!page) {
+        throw new AppError(400, `Field ${field.label} points to a missing PDF page.`);
+      }
+
+      const { width, height } = page.getSize();
+
+      return [
+        {
+          identifier: 0,
+          type: documensoType,
+          page: field.page,
+          positionX: toDocumensoPercentage(field.x, width),
+          positionY: toDocumensoPercentage(field.y, height),
+          width: toDocumensoPercentage(field.width, width),
+          height: toDocumensoPercentage(field.height, height),
+          ...(field.kind === "text" ? { meta: { type: "text" } } : {}),
+        },
+      ];
+    });
+
+    return {
+      email: signer.email,
+      name: signer.name,
+      role: getDocumensoRecipientRole(assignedFields),
+      signingOrder: document.routingStrategy === "sequential" ? signer.signingOrder ?? undefined : undefined,
+      ...(documensoFields.length > 0 ? { fields: documensoFields } : {}),
+    };
+  });
+
+  return {
+    sourceBuffer,
+    recipients,
+  };
+}
+
+async function getLatestDocumensoEnvelopeMetadata(documentId: string) {
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("signature_events")
+    .select("metadata")
+    .eq("document_id", documentId)
+    .contains("metadata", { provider: "documenso" })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return (data?.metadata ?? null) as Record<string, string | number | boolean | null> | null;
+}
+
+async function getLatestDocumensoRecipientMetadata(documentId: string, signerEmail: string) {
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("signature_events")
+    .select("metadata")
+    .eq("document_id", documentId)
+    .eq("signer_email", signerEmail)
+    .contains("metadata", { provider: "documenso" })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return (data?.metadata ?? null) as Record<string, string | number | boolean | null> | null;
+}
+
+async function downloadSourceDocumentBlob(document: Pick<DocumentRecord, "storagePath">) {
+  const env = readServerEnv();
+  const adminClient = createServiceRoleClient();
+
+  for (const bucket of getSourceDocumentBucketCandidates(env)) {
+    const { data: sourceBlob, error: sourceDownloadError } = await adminClient.storage
+      .from(bucket)
+      .download(document.storagePath);
+
+    if (!sourceDownloadError && sourceBlob) {
+      return {
+        bucket,
+        sourceBlob,
+      };
+    }
+  }
+
+  throw new AppError(500, "Unable to load the source PDF.");
+}
+
+async function createSourceDocumentSignedUrl(path: string, expiresInSeconds: number) {
+  const env = readServerEnv();
+
+  for (const bucket of getSourceDocumentBucketCandidates(env)) {
+    try {
+      const signedUrl = await createSignedStorageUrl(bucket, path, expiresInSeconds);
+      return {
+        bucket,
+        signedUrl,
+      };
+    } catch {
+      // Try the next candidate bucket when the path lives in legacy storage.
+    }
+  }
+
+  throw new AppError(500, "Unable to create a source document URL.");
+}
+
+async function createSignedStorageUrl(bucket: string, path: string, expiresInSeconds: number) {
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient.storage
+    .from(bucket)
+    .createSignedUrl(path, expiresInSeconds);
+
+  if (error || !data?.signedUrl) {
+    throw new AppError(500, error?.message ?? "Unable to create a signed document URL.");
+  }
+
+  return data.signedUrl;
+}
+
+function readInternalSigningCertificate() {
+  const env = readServerEnv();
+
+  if (!env.P12_CERT_BASE64) {
+    throw new AppError(500, "P12_CERT_BASE64 is required for internal PDF signing.");
+  }
+
+  const p12Buffer = Buffer.from(env.P12_CERT_BASE64, "base64");
+
+  if (p12Buffer.length === 0) {
+    throw new AppError(500, "P12_CERT_BASE64 could not be decoded.");
+  }
+
+  const derBytes = p12Buffer.toString("binary");
+  const asn1 = forge.asn1.fromDer(derBytes);
+  const p12 = forge.pkcs12.pkcs12FromAsn1(asn1, env.P12_CERT_PASSPHRASE ?? "");
+  const certBags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] ?? [];
+  const certificate = certBags[0]?.cert;
+
+  if (!certificate) {
+    throw new AppError(500, "No certificate was found in P12_CERT_BASE64.");
+  }
+
+  const certificateDer = forge.asn1
+    .toDer(forge.pki.certificateToAsn1(certificate))
+    .getBytes();
+  const thumbprint = createHash("sha256")
+    .update(Buffer.from(certificateDer, "binary"))
+    .digest("hex");
+
+  return {
+    p12Buffer,
+    passphrase: env.P12_CERT_PASSPHRASE ?? "",
+    thumbprint,
+  };
+}
+
+async function renderDocumentExportBuffer(document: DocumentRecord) {
+  const env = readServerEnv();
+  const adminClient = createServiceRoleClient();
+  const { sourceBlob } = await downloadSourceDocumentBlob(document);
   const sourceBytes = await sourceBlob.arrayBuffer();
   const pdfDocument = await PDFDocument.load(sourceBytes);
   const regularFont = await pdfDocument.embedFont(StandardFonts.Helvetica);
@@ -2879,32 +3356,20 @@ async function renderDocumentExportToStorage(document: DocumentRecord) {
       });
     }
   }
+  const exportBuffer = Buffer.from(await pdfDocument.save());
+  const exportSha256 = createHash("sha256").update(exportBuffer).digest("hex");
 
-  // ─── TODO: Certificate-backed PDF digital signature ──────────────────────
-  // When a verified DigitalSignatureProfile exists for this document's workspace,
-  // embed a cryptographic PAdES/CAdES signature into the PDF bytes here, before
-  // saving, so the signed PDF is self-verifying without needing this audit trail.
-  //
-  // Steps required once a provider is wired in:
-  //   1. Look up a verified profile:
-  //        SELECT * FROM digital_signature_profiles
-  //        WHERE status = 'verified' AND workspace_id = document.workspaceId LIMIT 1
-  //   2. Call the provider's remote signing API with the PDF bytes (or a SHA-256 hash):
-  //        - easy_draft_remote  → EasyDraftDocs managed certificate service
-  //        - qualified_remote   → eIDAS/ETSI-compliant TSP (GlobalSign, DocuSign, etc.)
-  //        - organization_hsm   → Customer's own PKCS#11 HSM
-  //   3. Embed the returned PKCS#7 signature as a /Sig annotation in the PDF.
-  //        Note: pdf-lib does not support /Sig natively.
-  //        Use node-signpdf (https://github.com/vbuch/node-signpdf) or a provider SDK.
-  //   4. Re-assign exportBytes to the signed PDF bytes before the Buffer.from() call below.
-  //
-  // See DigitalSignatureProfileRow in this file for the profile data model.
-  // ─────────────────────────────────────────────────────────────────────────
+  return {
+    exportBuffer,
+    exportSha256,
+  };
+}
 
-  const exportBytes = await pdfDocument.save();
-  const exportSha256 = createHash("sha256").update(Buffer.from(exportBytes)).digest("hex");
+async function renderDocumentExportToStorage(document: DocumentRecord) {
+  const env = readServerEnv();
+  const adminClient = createServiceRoleClient();
+  const { exportBuffer, exportSha256 } = await renderDocumentExportBuffer(document);
   const exportPath = getDocumentExportPath(document.uploadedByUserId, document.id);
-  const exportBuffer = Buffer.from(exportBytes);
 
   const { error: uploadError } = await adminClient.storage
     .from(env.SUPABASE_DOCUMENT_BUCKET)
@@ -2923,23 +3388,38 @@ async function renderDocumentExportToStorage(document: DocumentRecord) {
     .update({ export_sha256: exportSha256, export_storage_bytes: exportBuffer.length })
     .eq("id", document.id);
 
-  return { exportPath, exportSha256 };
+  return { exportPath, exportSha256, bucket: env.SUPABASE_DOCUMENT_BUCKET };
 }
 
 async function createExportSignedUrl(document: DocumentRecord, expiresInSeconds: number) {
   const env = readServerEnv();
-  const adminClient = createServiceRoleClient();
-  const { exportPath } = await renderDocumentExportToStorage(document);
-  const { data, error } = await adminClient.storage
-    .from(env.SUPABASE_DOCUMENT_BUCKET)
-    .createSignedUrl(exportPath, expiresInSeconds);
+  const signedInternalPath = getSignedInternalSignaturePath(document.uploadedByUserId, document.id);
+  const signedDocumensoPath = getSignedDocumensoPath(document.uploadedByUserId, document.id);
 
-  if (error || !data?.signedUrl) {
-    throw new AppError(500, error?.message ?? "Unable to create a signed document URL.");
+  if (document.status === "signed" && (document.signaturePath === 1 || document.signaturePath === 2)) {
+    const signedPath = document.signaturePath === 1 ? signedInternalPath : signedDocumensoPath;
+
+    try {
+      const signedUrl = await createSignedStorageUrl(
+        env.SUPABASE_SIGNED_DOCUMENT_BUCKET,
+        signedPath,
+        expiresInSeconds,
+      );
+
+      return {
+        signedUrl,
+        exportPath: signedPath,
+      };
+    } catch {
+      // Fall back to rendering the unsigned export if the signed object is missing.
+    }
   }
 
+  const { exportPath, bucket } = await renderDocumentExportToStorage(document);
+  const signedUrl = await createSignedStorageUrl(bucket, exportPath, expiresInSeconds);
+
   return {
-    signedUrl: data.signedUrl,
+    signedUrl,
     exportPath,
   };
 }
@@ -4105,6 +4585,41 @@ export async function getDocumentForAuthorizationHeader(
   };
 }
 
+export async function listSignatureEventsForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await requireDocumentRole(documentId, user.id);
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("signature_events")
+    .select(
+      "id, document_id, signer_type, signer_email, signer_user_id, event_type, ip_address, user_agent, metadata, created_at",
+    )
+    .eq("document_id", documentId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return {
+    events: ((data ?? []) as SignatureEventRow[]).map((event) => ({
+      id: event.id,
+      documentId: event.document_id,
+      signerType: event.signer_type,
+      signerEmail: event.signer_email,
+      signerUserId: event.signer_user_id,
+      eventType: event.event_type,
+      ipAddress: event.ip_address,
+      userAgent: event.user_agent,
+      metadata: event.metadata ?? {},
+      createdAt: event.created_at,
+    })),
+  };
+}
+
 export async function createDocumentForAuthorizationHeader(
   authorizationHeader: string | undefined,
   input: unknown,
@@ -4126,6 +4641,8 @@ export async function createDocumentForAuthorizationHeader(
     file_name: parsed.fileName,
     storage_path: parsed.storagePath,
     workspace_id: workspace.id,
+    signature_path: parsed.signaturePath,
+    status: "pending" as const,
     delivery_mode: parsed.deliveryMode,
     distribution_target: parsed.distributionTarget?.trim() ? parsed.distributionTarget.trim() : null,
     lock_policy: parsed.lockPolicy,
@@ -4196,6 +4713,609 @@ export async function createDocumentForAuthorizationHeader(
 
   return {
     document: toWorkflowDocumentResponse(document, user.id),
+  };
+}
+
+export async function prepareDocumentForInternalSignatureForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user, "edit_document");
+  const parsed = prepareInternalSignatureInputSchema.parse(input);
+  const document = await requireDocumentBundle(documentId);
+
+  if (document.signaturePath !== 1) {
+    throw new AppError(409, "This document is not configured for the internal signature path.");
+  }
+
+  const { sourceBlob } = await downloadSourceDocumentBlob(document);
+  const pdfDocument = await PDFDocument.load(await sourceBlob.arrayBuffer());
+  const page = pdfDocument.getPage(parsed.page - 1);
+
+  if (!page) {
+    throw new AppError(400, `Page ${parsed.page} does not exist on this PDF.`);
+  }
+
+  const pageHeight = page.getHeight();
+  const bottom = Math.max(0, pageHeight - parsed.y - parsed.height);
+  const widgetRect = [
+    Math.max(0, parsed.x),
+    bottom,
+    Math.max(0, parsed.x) + parsed.width,
+    bottom + parsed.height,
+  ] as [number, number, number, number];
+
+  pdflibAddPlaceholder({
+    pdfDoc: pdfDocument,
+    pdfPage: page,
+    reason: parsed.reason,
+    contactInfo: user.email,
+    name: user.name,
+    location: parsed.location,
+    subFilter: SUBFILTER_ETSI_CADES_DETACHED,
+    widgetRect,
+  });
+
+  const preparedBuffer = Buffer.from(await pdfDocument.save());
+  const preparedPath = getPreparedInternalSignaturePath(document.uploadedByUserId, document.id);
+  const env = readServerEnv();
+  const adminClient = createServiceRoleClient();
+  const now = new Date().toISOString();
+
+  const { error: uploadError } = await adminClient.storage
+    .from(env.SUPABASE_UNSIGNED_DOCUMENT_BUCKET)
+    .upload(preparedPath, preparedBuffer, {
+      contentType: "application/pdf",
+      upsert: true,
+    });
+
+  if (uploadError) {
+    throw new AppError(500, uploadError.message);
+  }
+
+  const { error: updateError } = await adminClient
+    .from("documents")
+    .update({
+      storage_path: preparedPath,
+      prepared_at: now,
+      source_storage_bytes: preparedBuffer.length,
+      signature_path: 1,
+      status: "pending",
+    })
+    .eq("id", documentId);
+
+  if (updateError) {
+    throw new AppError(500, updateError.message);
+  }
+
+  await appendVersion(
+    documentId,
+    user.id,
+    "Prepared internal signature PDF",
+    `Embedded an internal signature placeholder on page ${parsed.page}`,
+  );
+  await appendAuditEvent(
+    documentId,
+    user.id,
+    "document.prepared",
+    `Prepared an internal signature placeholder on page ${parsed.page}`,
+    {
+      signaturePath: 1,
+      page: parsed.page,
+      x: Math.round(parsed.x),
+      y: Math.round(parsed.y),
+      width: Math.round(parsed.width),
+      height: Math.round(parsed.height),
+    },
+  );
+
+  const updatedDocument = await requireDocumentBundle(documentId);
+
+  return {
+    document: toWorkflowDocumentResponse(updatedDocument, user.id),
+    preparedPath,
+  };
+}
+
+export async function createInternallySignedDocumentForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await requireDocumentRole(documentId, user.id);
+  const parsed = signInternalDocumentInputSchema.parse(input);
+  const document = await requireDocumentBundle(documentId);
+
+  if (document.signaturePath !== 1) {
+    throw new AppError(409, "This document is not configured for the internal signature path.");
+  }
+
+  if (!document.preparedAt) {
+    throw new AppError(409, "Prepare the PDF for internal signing before signing it.");
+  }
+
+  if (deriveWorkflowState(document) !== "completed") {
+    throw new AppError(409, "All required signing and approval fields must be completed before internal signing.");
+  }
+
+  const env = readServerEnv();
+  const signedPath = getSignedInternalSignaturePath(document.uploadedByUserId, document.id);
+
+  if (document.status === "signed") {
+    const signedUrl = await createSignedStorageUrl(
+      env.SUPABASE_SIGNED_DOCUMENT_BUCKET,
+      signedPath,
+      60 * 10,
+    );
+
+    return {
+      document: toWorkflowDocumentResponse(document, user.id),
+      signedUrl,
+      signedPath,
+      exportSha256: document.exportSha256,
+      certificateThumbprint: null,
+    };
+  }
+
+  const { exportBuffer } = await renderDocumentExportBuffer(document);
+  const { p12Buffer, passphrase, thumbprint } = readInternalSigningCertificate();
+  const signer = new P12Signer(p12Buffer, { passphrase });
+  const signingTime = new Date();
+
+  let signedPdfBuffer: Buffer;
+
+  try {
+    signedPdfBuffer = await signpdf.sign(exportBuffer, signer, signingTime);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to sign the prepared PDF.";
+
+    if (message.includes("No ByteRangeStrings found")) {
+      throw new AppError(409, "The PDF is missing its internal signature placeholder. Prepare it again and retry.");
+    }
+
+    throw new AppError(500, message);
+  }
+
+  const adminClient = createServiceRoleClient();
+  const signedSha256 = createHash("sha256").update(signedPdfBuffer).digest("hex");
+  const { error: uploadError } = await adminClient.storage
+    .from(env.SUPABASE_SIGNED_DOCUMENT_BUCKET)
+    .upload(signedPath, signedPdfBuffer, {
+      contentType: "application/pdf",
+      upsert: true,
+    });
+
+  if (uploadError) {
+    throw new AppError(500, uploadError.message);
+  }
+
+  const { error: updateError } = await adminClient
+    .from("documents")
+    .update({
+      status: "signed",
+      export_sha256: signedSha256,
+      export_storage_bytes: signedPdfBuffer.length,
+    })
+    .eq("id", documentId);
+
+  if (updateError) {
+    throw new AppError(500, updateError.message);
+  }
+
+  const matchedSigner =
+    document.signers.find((signerRow) => signerRow.userId === user.id) ??
+    document.signers.find((signerRow) => normalizeEmailAddress(signerRow.email) === parsed.signerEmail);
+
+  await appendSignatureEvent({
+    document_id: documentId,
+    signer_type: matchedSigner?.participantType ?? "internal",
+    signer_email: parsed.signerEmail,
+    signer_user_id: matchedSigner?.userId ?? user.id,
+    event_type: "signed",
+    ip_address: null,
+    user_agent: null,
+    metadata: {
+      certificate_thumbprint: thumbprint,
+      signature_path: 1,
+      signed_bucket: env.SUPABASE_SIGNED_DOCUMENT_BUCKET,
+      signed_path: signedPath,
+      signer_name: parsed.signerName,
+      signer_email: parsed.signerEmail,
+      signing_time: signingTime.toISOString(),
+    },
+  });
+
+  const signedUrl = await createSignedStorageUrl(
+    env.SUPABASE_SIGNED_DOCUMENT_BUCKET,
+    signedPath,
+    60 * 10,
+  );
+  const updatedDocument = await requireDocumentBundle(documentId);
+
+  return {
+    document: toWorkflowDocumentResponse(updatedDocument, user.id),
+    signedUrl,
+    signedPath,
+    exportSha256: signedSha256,
+    certificateThumbprint: thumbprint,
+  };
+}
+
+export async function createDocumensoEnvelopeForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  documentId: string,
+  appOrigin?: string,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  await assertPermission(documentId, user, "send_document");
+  const document = await requireDocumentBundle(documentId);
+
+  if (document.signaturePath !== 2) {
+    throw new AppError(409, "This document is not configured for the Documenso signature path.");
+  }
+
+  const sendReadiness = getDocumentSendReadiness(document);
+
+  if (!sendReadiness.ready) {
+    throw new AppError(400, sendReadiness.blockers.join(" "));
+  }
+
+  const env = assertDocumensoConfiguration();
+  const existingMetadata = await getLatestDocumensoEnvelopeMetadata(documentId);
+  const existingEnvelopeId =
+    typeof existingMetadata?.envelope_id === "string" ? existingMetadata.envelope_id : null;
+
+  if (existingEnvelopeId) {
+    const envelope = await callDocumenso<DocumensoEnvelope>(`/envelope/${existingEnvelopeId}`);
+    const currentUserRecipient = document.signers.find(
+      (signer) => signer.userId === user.id || normalizeEmailAddress(signer.email) === user.email,
+    );
+    const currentUserMetadata = currentUserRecipient
+      ? await getLatestDocumensoRecipientMetadata(documentId, currentUserRecipient.email)
+      : null;
+
+    return {
+      document: toWorkflowDocumentResponse(document, user.id),
+      envelopeId: envelope.id,
+      envelopeStatus: envelope.status,
+      documensoHost: getDocumensoHost(env),
+      currentUserRecipientToken:
+        currentUserRecipient && typeof currentUserMetadata?.recipient_token === "string"
+          ? currentUserMetadata.recipient_token
+          : null,
+      currentUserSigningUrl:
+        currentUserRecipient && typeof currentUserMetadata?.signing_url === "string"
+          ? currentUserMetadata.signing_url
+          : null,
+    };
+  }
+
+  const { sourceBuffer, recipients } = await buildDocumensoRecipients(document);
+  const redirectUrl = `${(appOrigin ?? getCanonicalAppOrigin()).replace(/\/+$/, "")}/`;
+  const createPayload = {
+    type: "DOCUMENT",
+    title: document.name,
+    externalId: document.id,
+    visibility: "EVERYONE",
+    recipients,
+    meta: {
+      subject: `Please sign ${document.name}`,
+      message: `Please review and complete ${document.name} in Documenso.`,
+      timezone: "Etc/UTC",
+      redirectUrl,
+      distributionMethod: "EMAIL",
+      signingOrder: document.routingStrategy === "sequential" ? "SEQUENTIAL" : "PARALLEL",
+    },
+  };
+
+  const { id: envelopeId } = await createDocumensoEnvelope(document, sourceBuffer, createPayload);
+  const distribution = await callDocumenso<{
+    success: boolean;
+    id: string;
+    recipients: DocumensoRecipient[];
+  }>("/envelope/distribute", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      envelopeId,
+    }),
+  });
+
+  const adminClient = createServiceRoleClient();
+  const now = new Date().toISOString();
+  const { error: updateError } = await adminClient
+    .from("documents")
+    .update({
+      signature_path: 2,
+      status: "sent",
+      prepared_at: now,
+      sent_at: now,
+      workflow_status: "active",
+      workflow_status_reason: null,
+      workflow_status_updated_at: now,
+      workflow_status_updated_by_user_id: user.id,
+    })
+    .eq("id", documentId);
+
+  if (updateError) {
+    throw new AppError(500, updateError.message);
+  }
+
+  const signerByEmail = new Map(document.signers.map((signer) => [normalizeEmailAddress(signer.email), signer]));
+  let currentUserRecipientToken: string | null = null;
+  let currentUserSigningUrl: string | null = null;
+
+  for (const recipient of distribution.recipients ?? []) {
+    const matchedSigner = signerByEmail.get(normalizeEmailAddress(recipient.email));
+    const signingUrl =
+      recipient.signingUrl ??
+      (recipient.token ? `${getDocumensoHost(env)}/sign/${recipient.token}` : null);
+    const dedupeKey = `documenso:sent:${envelopeId}:${recipient.id}`;
+    await appendSignatureEventOnce(
+      {
+        document_id: documentId,
+        signer_type: matchedSigner?.participantType ?? "external",
+        signer_email: recipient.email,
+        signer_user_id: matchedSigner?.userId ?? null,
+        event_type: "sent",
+        ip_address: null,
+        user_agent: null,
+        metadata: {
+          provider: "documenso",
+          signature_path: 2,
+          envelope_id: envelopeId,
+          recipient_id: recipient.id,
+          recipient_role: recipient.role,
+          recipient_token: recipient.token ?? null,
+          signing_url: signingUrl,
+        },
+      },
+      dedupeKey,
+    );
+
+    if (matchedSigner && (matchedSigner.userId === user.id || normalizeEmailAddress(matchedSigner.email) === user.email)) {
+      currentUserRecipientToken = recipient.token ?? null;
+      currentUserSigningUrl = signingUrl;
+    }
+  }
+
+  await appendVersion(documentId, user.id, "Sent via Documenso", "Created and distributed a Documenso envelope");
+  await appendAuditEvent(documentId, user.id, "document.sent", "Sent document through Documenso", {
+    signaturePath: 2,
+    envelopeId,
+    recipients: distribution.recipients?.length ?? 0,
+  });
+
+  const updatedDocument = await requireDocumentBundle(documentId);
+
+  return {
+    document: toWorkflowDocumentResponse(updatedDocument, user.id),
+    envelopeId,
+    envelopeStatus: "PENDING" as const,
+    documensoHost: getDocumensoHost(env),
+    currentUserRecipientToken,
+    currentUserSigningUrl,
+  };
+}
+
+export async function handleDocumensoWebhook(rawBody: Buffer, secretHeader: string | undefined) {
+  const env = assertDocumensoConfiguration();
+  const expectedSecret = env.DOCUMENSO_WEBHOOK_SECRET ?? "";
+  const receivedSecret = secretHeader?.trim() ?? "";
+
+  if (
+    Buffer.byteLength(expectedSecret) !== Buffer.byteLength(receivedSecret) ||
+    !timingSafeEqual(Buffer.from(receivedSecret), Buffer.from(expectedSecret))
+  ) {
+    throw new AppError(401, "Unauthorized");
+  }
+
+  const payload = JSON.parse(rawBody.toString("utf8")) as DocumensoWebhookPayload;
+  const documentId = typeof payload.payload.externalId === "string" ? payload.payload.externalId : null;
+
+  if (!documentId) {
+    return {
+      received: true,
+      ignored: true,
+      reason: "missing_external_id",
+    };
+  }
+
+  const adminClient = createServiceRoleClient();
+  const existingDocument = await requireDocumentBundle(documentId);
+  const envelopeId = String(payload.payload.id);
+  const signerByEmail = new Map(
+    existingDocument.signers.map((signer) => [normalizeEmailAddress(signer.email), signer]),
+  );
+
+  if (payload.event === "DOCUMENT_OPENED") {
+    for (const recipient of payload.payload.recipients ?? []) {
+      if (recipient.readStatus !== "OPENED") {
+        continue;
+      }
+
+      const matchedSigner = signerByEmail.get(normalizeEmailAddress(recipient.email));
+      await appendSignatureEventOnce(
+        {
+          document_id: documentId,
+          signer_type: matchedSigner?.participantType ?? "external",
+          signer_email: recipient.email,
+          signer_user_id: matchedSigner?.userId ?? null,
+          event_type: "viewed",
+          ip_address: null,
+          user_agent: null,
+          metadata: {
+            provider: "documenso",
+            signature_path: 2,
+            envelope_id: envelopeId,
+            recipient_id: recipient.id,
+          },
+        },
+        `documenso:viewed:${envelopeId}:${recipient.id}`,
+      );
+    }
+  }
+
+  if (payload.event === "DOCUMENT_SIGNED" || payload.event === "DOCUMENT_RECIPIENT_COMPLETED") {
+    for (const recipient of payload.payload.recipients ?? []) {
+      if (recipient.signingStatus !== "SIGNED") {
+        continue;
+      }
+
+      const matchedSigner = signerByEmail.get(normalizeEmailAddress(recipient.email));
+      const signedAt = recipient.signedAt ?? payload.createdAt;
+      await appendSignatureEventOnce(
+        {
+          document_id: documentId,
+          signer_type: matchedSigner?.participantType ?? "external",
+          signer_email: recipient.email,
+          signer_user_id: matchedSigner?.userId ?? null,
+          event_type: "signed",
+          ip_address: null,
+          user_agent: null,
+          metadata: {
+            provider: "documenso",
+            signature_path: 2,
+            envelope_id: envelopeId,
+            recipient_id: recipient.id,
+            signed_at: signedAt,
+          },
+        },
+        `documenso:signed:${envelopeId}:${recipient.id}:${signedAt}`,
+      );
+    }
+  }
+
+  if (payload.event === "DOCUMENT_REJECTED") {
+    if (existingDocument.status !== "rejected") {
+      const { error } = await adminClient
+        .from("documents")
+        .update({
+          status: "rejected",
+          workflow_status: "rejected",
+          workflow_status_reason: "Rejected in Documenso",
+          workflow_status_updated_at: payload.createdAt,
+          workflow_status_updated_by_user_id: null,
+        })
+        .eq("id", documentId);
+
+      if (error) {
+        throw new AppError(500, error.message);
+      }
+    }
+
+    for (const recipient of payload.payload.recipients ?? []) {
+      if (recipient.signingStatus !== "REJECTED") {
+        continue;
+      }
+
+      const matchedSigner = signerByEmail.get(normalizeEmailAddress(recipient.email));
+      await appendSignatureEventOnce(
+        {
+          document_id: documentId,
+          signer_type: matchedSigner?.participantType ?? "external",
+          signer_email: recipient.email,
+          signer_user_id: matchedSigner?.userId ?? null,
+          event_type: "rejected",
+          ip_address: null,
+          user_agent: null,
+          metadata: {
+            provider: "documenso",
+            signature_path: 2,
+            envelope_id: envelopeId,
+            recipient_id: recipient.id,
+            rejection_reason: recipient.rejectionReason ?? null,
+          },
+        },
+        `documenso:rejected:${envelopeId}:${recipient.id}`,
+      );
+    }
+  }
+
+  if (payload.event === "DOCUMENT_COMPLETED" && existingDocument.status !== "signed") {
+    const envelope = await callDocumenso<DocumensoEnvelope>(`/envelope/${envelopeId}`);
+    const envelopeItems = envelope.envelopeItems ?? payload.payload.envelopeItems ?? [];
+    const firstItem = envelopeItems[0];
+
+    if (!firstItem) {
+      throw new AppError(502, "Documenso did not return an envelope item to download.");
+    }
+
+    const completedPdf = await callDocumensoBinary(`/envelope/item/${firstItem.id}/download`);
+    const signedPath = getSignedDocumensoPath(existingDocument.uploadedByUserId, existingDocument.id);
+    const signedSha256 = createHash("sha256").update(completedPdf).digest("hex");
+    const { error: uploadError } = await adminClient.storage
+      .from(env.SUPABASE_SIGNED_DOCUMENT_BUCKET)
+      .upload(signedPath, completedPdf, {
+        contentType: "application/pdf",
+        upsert: true,
+      });
+
+    if (uploadError) {
+      throw new AppError(500, uploadError.message);
+    }
+
+    const completedAt = envelope.completedAt ?? payload.payload.completedAt ?? payload.createdAt;
+    const { error: updateError } = await adminClient
+      .from("documents")
+      .update({
+        status: "signed",
+        completed_at: completedAt,
+        export_sha256: signedSha256,
+        export_storage_bytes: completedPdf.length,
+      })
+      .eq("id", documentId);
+
+    if (updateError) {
+      throw new AppError(500, updateError.message);
+    }
+
+    for (const recipient of envelope.recipients ?? payload.payload.recipients ?? []) {
+      if (recipient.signingStatus !== "SIGNED") {
+        continue;
+      }
+
+      const matchedSigner = signerByEmail.get(normalizeEmailAddress(recipient.email));
+      const signedAt = recipient.signedAt ?? completedAt;
+      await appendSignatureEventOnce(
+        {
+          document_id: documentId,
+          signer_type: matchedSigner?.participantType ?? "external",
+          signer_email: recipient.email,
+          signer_user_id: matchedSigner?.userId ?? null,
+          event_type: "signed",
+          ip_address: null,
+          user_agent: null,
+          metadata: {
+            provider: "documenso",
+            signature_path: 2,
+            envelope_id: envelopeId,
+            recipient_id: recipient.id,
+            signed_at: signedAt,
+            signed_bucket: env.SUPABASE_SIGNED_DOCUMENT_BUCKET,
+            signed_path: signedPath,
+          },
+        },
+        `documenso:signed:${envelopeId}:${recipient.id}:${signedAt}`,
+      );
+    }
+
+    await appendAuditEvent(documentId, "system", "document.completed", "Completed in Documenso", {
+      signaturePath: 2,
+      envelopeId,
+      signedPath,
+    });
+  }
+
+  return {
+    received: true,
+    event: payload.event,
+    documentId,
   };
 }
 
@@ -5233,19 +6353,12 @@ export async function duplicateDocumentForAuthorizationHeader(
 
   const newDocumentId = crypto.randomUUID();
   const nextStoragePath = `${user.id}/${newDocumentId}/${sourceDocument.fileName}`;
-  const env = readServerEnv();
-  const { data: fileBlob, error: downloadError } = await adminClient.storage
-    .from(env.SUPABASE_DOCUMENT_BUCKET)
-    .download(sourceDocument.storagePath);
-
-  if (downloadError || !fileBlob) {
-    throw new AppError(500, downloadError?.message ?? "Unable to copy the source PDF.");
-  }
+  const { bucket: sourceBucket, sourceBlob: fileBlob } = await downloadSourceDocumentBlob(sourceDocument);
 
   const buffer = Buffer.from(await fileBlob.arrayBuffer());
   const now = new Date().toISOString();
   const { error: uploadError } = await adminClient.storage
-    .from(env.SUPABASE_DOCUMENT_BUCKET)
+    .from(sourceBucket)
     .upload(nextStoragePath, buffer, {
       contentType: "application/pdf",
       upsert: false,
@@ -5261,6 +6374,8 @@ export async function duplicateDocumentForAuthorizationHeader(
     file_name: sourceDocument.fileName,
     storage_path: nextStoragePath,
     workspace_id: (sourceRow as DocumentRow).workspace_id,
+    signature_path: sourceDocument.signaturePath,
+    status: "pending" as const,
     editor_history_index: 0,
     delivery_mode: sourceDocument.deliveryMode,
     distribution_target: sourceDocument.distributionTarget,
@@ -5926,9 +7041,6 @@ export async function verifySigningTokenCode(
 
 export async function resolveSigningTokenSession(token: string, documentId: string) {
   const tokenRow = await requireValidSigningToken(token, documentId);
-  const adminClient = createServiceRoleClient();
-  const env = readServerEnv();
-
   const document = await requireDocumentBundle(documentId);
 
   const signer = document.signers.find((s) => s.id === tokenRow.signer_id);
@@ -5951,9 +7063,7 @@ export async function resolveSigningTokenSession(token: string, documentId: stri
   };
 
   // Generate a short-lived signed URL for the raw PDF so the guest can view it
-  const { data: previewData } = await adminClient.storage
-    .from(env.SUPABASE_DOCUMENT_BUCKET)
-    .createSignedUrl(document.storagePath, 60 * 60);
+  const { signedUrl: previewUrl } = await createSourceDocumentSignedUrl(document.storagePath, 60 * 60);
 
   return {
     signerToken: token,
@@ -5962,7 +7072,7 @@ export async function resolveSigningTokenSession(token: string, documentId: stri
     signerName: signer.name,
     documentId,
     document: signerResponse,
-    previewUrl: previewData?.signedUrl ?? null,
+    previewUrl,
     verification: toSigningVerificationState(tokenRow),
   };
 }

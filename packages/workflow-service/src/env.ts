@@ -53,6 +53,14 @@ const serverEnvSchema = z.object({
   SUPABASE_ANON_KEY: trimmedNonEmptyString,
   SUPABASE_SERVICE_ROLE_KEY: trimmedNonEmptyString,
   SUPABASE_DOCUMENT_BUCKET: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string().min(1)).default("documents"),
+  SUPABASE_UNSIGNED_DOCUMENT_BUCKET: z.preprocess(
+    (value) => typeof value === "string" ? value.trim() : value,
+    z.string().min(1),
+  ).default("documents-unsigned"),
+  SUPABASE_SIGNED_DOCUMENT_BUCKET: z.preprocess(
+    (value) => typeof value === "string" ? value.trim() : value,
+    z.string().min(1),
+  ).default("documents-signed"),
   SUPABASE_SIGNATURE_BUCKET: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string().min(1)).default("signatures"),
   EASYDRAFT_ADMIN_EMAILS: trimmedOptionalString,
   EASYDRAFT_APP_ORIGIN: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string().url()).default("https://easydraftdocs.app"),
@@ -66,6 +74,14 @@ const serverEnvSchema = z.object({
   SMTP_SECURE: optionalBooleanFromEnv,
   SMTP_USER: trimmedOptionalString,
   SMTP_PASSWORD: trimmedOptionalString,
+  P12_CERT_BASE64: trimmedOptionalString,
+  P12_CERT_PASSPHRASE: trimmedOptionalString,
+  DOCUMENSO_API_BASE_URL: z.preprocess(
+    (value) => typeof value === "string" ? value.trim() : value,
+    z.string().url(),
+  ).default("https://app.documenso.com/api/v2"),
+  DOCUMENSO_API_KEY: trimmedOptionalString,
+  DOCUMENSO_WEBHOOK_SECRET: trimmedOptionalString,
   EASYDRAFT_ENABLE_CERTIFICATE_SIGNING: optionalBooleanFromEnv,
   EASYDRAFT_DIGITAL_SIGNING_PROVIDER: z.preprocess(
     (value) => typeof value === "string" ? value.trim() : value,

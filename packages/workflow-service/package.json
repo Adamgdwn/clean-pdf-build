@@ -11,15 +11,21 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@signpdf/placeholder-pdf-lib": "^3.3.0",
+    "@signpdf/signer-p12": "^3.3.0",
+    "@signpdf/signpdf": "^3.3.0",
+    "@signpdf/utils": "^3.3.0",
     "@clean-pdf/domain": "0.1.0",
     "@sentry/node": "^9.18.0",
     "@supabase/supabase-js": "^2.57.4",
     "nodemailer": "^8.0.4",
+    "node-forge": "^1.3.1",
     "pdf-lib": "^1.17.1",
     "stripe": "^18.4.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@types/node-forge": "^1.3.14",
     "@types/nodemailer": "^7.0.11"
   }
 }

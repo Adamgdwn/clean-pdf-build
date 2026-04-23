@@ -148,6 +148,19 @@ export type SavedSignature = {
   createdAt: string;
 };
 
+export type SignatureEvent = {
+  id: string;
+  documentId: string;
+  signerType: "internal" | "external";
+  signerEmail: string | null;
+  signerUserId: string | null;
+  eventType: "sent" | "viewed" | "signed" | "rejected" | "verified";
+  ipAddress: string | null;
+  userAgent: string | null;
+  metadata: Record<string, string | number | boolean | null>;
+  createdAt: string;
+};
+
 export type AccountProfile = {
   id: string;
   email: string;

@@ -34,7 +34,11 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return response.status(400).json({ message: "Missing upload bucket or path." });
     }
 
-    const allowedBuckets = new Set([env.SUPABASE_DOCUMENT_BUCKET, env.SUPABASE_SIGNATURE_BUCKET]);
+    const allowedBuckets = new Set([
+      env.SUPABASE_DOCUMENT_BUCKET,
+      env.SUPABASE_UNSIGNED_DOCUMENT_BUCKET,
+      env.SUPABASE_SIGNATURE_BUCKET,
+    ]);
     if (!allowedBuckets.has(bucket)) {
       throw new AppError(400, "That upload bucket is not allowed.");
     }

@@ -51,6 +51,9 @@ Refine. Share. Sign.
 
 ### What is live and working
 - All three delivery modes: self-managed, internal-only, and platform-managed
+- Signature Path 1: internal PDF preparation + signing with a server-managed P12 certificate
+- Signature Path 2: Documenso envelope creation, embedded/internal signing session support, webhook completion sync, and signed-PDF copy-back into private storage
+- Signature Path 3: intentionally stubbed with a `503` API route and disabled UI tile
 - Sequential and parallel routing with internal and external participants
 - External signer token links with no account required
 - External signer email verification before signature, initial, or approval completion
@@ -102,6 +105,9 @@ The latest application pass closed the most important product-surface gaps for s
 - signing token replay is tighter: superseded and completed links are invalidated more aggressively
 - active workspace is explicit and persistent for multi-workspace users
 - loading/skeleton states now cover workspace hydration and switching
+- split private PDF storage now supports unsigned source files and signed outputs in separate buckets
+- per-document signature path selection now routes between internal PDF signing, Documenso, and the Path 3 stub
+- signature-path event history is now stored in `signature_events` and surfaced in the workspace audit panel
 
 ## What Just Completed
 
@@ -129,6 +135,8 @@ The latest application pass closed the most important product-surface gaps for s
 - [docs/architecture.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/architecture.md): system and codebase structure
 - [docs/identity-and-monetization.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/identity-and-monetization.md): role and billing model
 - [docs/operator-runbook.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/operator-runbook.md): queue, feedback, and release operating loop
+- [docs/pdf-signature-rollout.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/pdf-signature-rollout.md): signature-path status, rollout steps, and smoke tests
+- [docs/pdf-signature-storage.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/pdf-signature-storage.md): bucket layout and storage rules
 - [CHANGELOG.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/CHANGELOG.md): release-facing change log
 
 ---
@@ -186,6 +194,12 @@ The latest application pass closed the most important product-surface gaps for s
    - pick a provider: `easy_draft_remote`, `qualified_remote`, or `organization_hsm`
    - use `node-signpdf` or provider SDK to embed a PKCS#7 `/Sig` annotation
    - keep signer identity in reusable profiles and capture reason/location at signing time
+
+7. **Operationalize the new signature paths**
+   - apply the hosted signature migration and bucket setup
+   - configure the Documenso webhook and real API credentials
+   - upload the production P12 certificate for Path 1
+   - run Path 1 and Path 2 smoke tests before marketing the feature
 
 ### Operations
 

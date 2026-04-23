@@ -12,7 +12,41 @@ This is the owner checklist for a credible controlled launch, not the full produ
 ### Database and deploy state
 - [ ] Apply the latest hosted Supabase migration:
   - `20260417120000_invite_and_signing_verification.sql`
+- [ ] Apply the PDF signature migration:
+  - `20260422100000_pdf_signature_paths.sql`
 - [ ] Confirm production is running the current `main` build after this push.
+
+### PDF signature rollout
+- [ ] Create and keep private these Supabase Storage buckets:
+  - `documents-unsigned`
+  - `documents-signed`
+  - `signatures`
+- [ ] Set these Vercel env vars in Preview and Production:
+  - `SUPABASE_UNSIGNED_DOCUMENT_BUCKET`
+  - `SUPABASE_SIGNED_DOCUMENT_BUCKET`
+  - `DOCUMENSO_API_BASE_URL`
+  - `DOCUMENSO_API_KEY`
+  - `DOCUMENSO_WEBHOOK_SECRET`
+  - `P12_CERT_BASE64`
+  - `P12_CERT_PASSPHRASE`
+- [ ] In Documenso, create a webhook pointing to:
+  - `https://easydraftdocs.app/api/documenso-webhook`
+- [ ] Run the Path 1 smoke test:
+  - upload with `Signature path = Path 1`
+  - place a signature field
+  - prepare the PDF
+  - complete the document
+  - generate the signed PDF
+  - confirm the signed PDF comes from `documents-signed`
+- [ ] Run the Path 2 smoke test:
+  - upload with `Signature path = Path 2`
+  - add an internal signer and one external signer
+  - create the Documenso envelope
+  - confirm the embedded signer session appears for the internal signer when applicable
+  - confirm the external email invite arrives
+  - complete the signing flow
+  - confirm the final PDF is copied back into `documents-signed`
+- [ ] Confirm the `Signature audit trail` panel shows expected `signature_events` rows for both Path 1 and Path 2
 
 ### Stripe
 - [ ] Stripe Dashboard → Billing → enable `Send an invoice for free trials`
@@ -97,3 +131,7 @@ npm run smoke:public-routes -- https://easydraftdocs.app
 - [ ] Surface token history in billing
 - [ ] Add stronger trial-end conversion messaging
 - [ ] Integrate certificate-backed PDF signing
+
+Reference:
+
+- [docs/pdf-signature-rollout.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/pdf-signature-rollout.md)

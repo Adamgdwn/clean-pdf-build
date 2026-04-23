@@ -111,6 +111,27 @@ Relevant endpoints:
 - [billing-portal.ts](/home/adamgoodwin/code/Applications/Clean_pdf_build/apps/web/api/billing-portal.ts)
 - [stripe-webhook.ts](/home/adamgoodwin/code/Applications/Clean_pdf_build/apps/web/api/stripe-webhook.ts)
 
+## PDF signature rollout
+
+Current signature-path posture:
+
+- Path 1 is implemented for internal PDF signing with a server-managed P12 certificate
+- Path 2 is implemented through Documenso envelope creation and webhook completion sync
+- Path 3 is intentionally stubbed and should remain disabled in operator messaging
+
+Before relying on the feature in a live environment, confirm:
+
+1. the hosted migration `20260422100000_pdf_signature_paths.sql` is applied
+2. `documents-unsigned`, `documents-signed`, and `signatures` exist and are private
+3. `P12_CERT_BASE64` and `P12_CERT_PASSPHRASE` are configured
+4. `DOCUMENSO_API_BASE_URL`, `DOCUMENSO_API_KEY`, and `DOCUMENSO_WEBHOOK_SECRET` are configured
+5. Documenso is sending webhooks to `https://easydraftdocs.app/api/documenso-webhook`
+
+Reference:
+
+- [pdf-signature-rollout.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/pdf-signature-rollout.md)
+- [pdf-signature-storage.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/pdf-signature-storage.md)
+
 ## Stripe setup checklist
 
 To move from tester mode toward a marketable paid product:
@@ -141,7 +162,14 @@ Confirm these remain correct in preview and production:
 - `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_DOCUMENT_BUCKET`
+- `SUPABASE_UNSIGNED_DOCUMENT_BUCKET`
+- `SUPABASE_SIGNED_DOCUMENT_BUCKET`
 - `SUPABASE_SIGNATURE_BUCKET`
+- `DOCUMENSO_API_BASE_URL`
+- `DOCUMENSO_API_KEY`
+- `DOCUMENSO_WEBHOOK_SECRET`
+- `P12_CERT_BASE64`
+- `P12_CERT_PASSPHRASE`
 - `EASYDRAFT_ADMIN_EMAILS`
 - `EASYDRAFT_APP_ORIGIN`
 
@@ -149,7 +177,8 @@ Also confirm:
 
 - Auth `site_url` is correct
 - redirect allow-lists are correct
-- the `documents` bucket is private
+- the `documents-unsigned` bucket is private
+- the `documents-signed` bucket is private
 - the `signatures` bucket is private
 - all migrations are applied
 
@@ -163,6 +192,8 @@ For production confidence, admins or operators should test:
 - active workspace switching
 - saved signature creation
 - digital-signature profile creation
+- Path 1 internal PDF signing
+- Path 2 Documenso envelope creation and webhook completion
 - internal-use-only flow
 - self-managed flow
 - platform-managed flow
