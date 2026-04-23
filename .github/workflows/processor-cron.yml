@@ -1,19 +1,10 @@
-name: Processor cron
+name: Processor run
 
-# Runs all three job types every 30 minutes.
-# GitHub cron adds up to 15 minutes of jitter, so actual cadence is 30-45 min.
-# This is acceptable because:
-#   - Notifications are attempted inline on the primary send path; the queue
-#     is a retry safety net, not the first-attempt delivery path.
-#   - OCR jobs use mocked results and are not blocking for users.
-#   - Purges are idempotent and low-urgency.
+# Manual-only trigger. Use this from the Actions UI when you need to drain
+# the notification retry queue, process queued OCR jobs, or run document purges.
 #
-# Upgrade path: when notification retry latency matters, migrate to Fly.io
-# (see services/document-processor/Dockerfile and fly.toml).
+# Add a schedule trigger here once real user volume creates actual retry pressure.
 on:
-  schedule:
-    - cron: "*/30 * * * *"
-  # Allow manual triggering from the Actions UI for smoke testing.
   workflow_dispatch:
 
 jobs:
@@ -38,8 +29,6 @@ jobs:
 
           echo "Response: ${response}"
 
-          # A 207 means at least one job type errored. Surface this as a
-          # workflow failure so GitHub sends the alert email.
           ok=$(echo "${response}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ok','false'))" 2>/dev/null || echo "false")
           if [ "${ok}" != "True" ] && [ "${ok}" != "true" ]; then
             echo "One or more processor job types reported an error. See response above."

@@ -27,12 +27,12 @@ This is the owner checklist for a credible controlled launch, not the full produ
 ### Supabase
 - [ ] **Rotate the Supabase management API token** — the old `sbp_v0_...` was in `.env`; revoke it at supabase.com → account → Access Tokens and generate a fresh one only when needed for a migration task
 
-### Processor cron
+### Processor (manual trigger)
 - [ ] Set `EASYDRAFT_PROCESSOR_SECRET` in Vercel (Production + Preview) — any random string, e.g. `openssl rand -hex 32`
 - [ ] Add the same value as a GitHub repo secret named `PROCESSOR_SECRET`:
   - GitHub → repository → Settings → Secrets and variables → Actions → New secret
-- [ ] Push `main` — the processor cron workflow activates automatically
-- [ ] Trigger manually from the Actions UI (Actions → Processor cron → Run workflow) and confirm the response is `ok: true`
+- [ ] When needed: trigger from Actions UI (Actions → Processor run → Run workflow) and confirm the response is `ok: true`
+- Note: no automatic schedule — add one to the workflow file when real notification retry volume justifies it
 
 ### Email and external signer flow
 - [ ] Send one real `platform_managed` workflow to an external email address

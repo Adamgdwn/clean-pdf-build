@@ -170,11 +170,10 @@ Once the above is complete, the next operational/product tasks should be:
    - keep Vercel log drains or equivalent enabled
    - alert on failed notification rows and aging queues
 3. Keep deployment docs aligned with live runtime requirements and env vars.
-4. Processor runtime — verify the GitHub Actions cron is running:
-   - Go to Actions → Processor cron → confirm the last scheduled run succeeded.
-   - If the run failed, check the step output for the curl error (likely a wrong `PROCESSOR_SECRET` secret).
-   - Trigger manually from the Actions UI to confirm `ok: true` in the response.
-   - When notification retry latency matters, migrate to Fly.io (see `docs/deployment.md`).
+4. Processor runtime — verify manual trigger works:
+   - Set `EASYDRAFT_PROCESSOR_SECRET` in Vercel and `PROCESSOR_SECRET` as a GitHub repo secret.
+   - Go to Actions → Processor run → Run workflow and confirm `ok: true` in the response.
+   - Add a `schedule:` block to the workflow file when notification retry volume justifies it (see `docs/deployment.md`).
 5. Harden the core workflow before adding broader feature surface:
    - stronger executed-record retention / reopen behavior
    - extraction of workflow core panels from `App.tsx`

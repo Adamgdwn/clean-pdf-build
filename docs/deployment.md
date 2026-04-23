@@ -214,39 +214,20 @@ This improves trust over bearer-link-only completion, but it is still not certif
 
 All processing logic is exposed through a single secured Vercel endpoint: `POST /api/processor-run`. The endpoint runs notifications, OCR jobs, and document purges in sequence and returns a JSON summary. It requires `x-processor-secret: <EASYDRAFT_PROCESSOR_SECRET>` or `Authorization: Bearer <EASYDRAFT_PROCESSOR_SECRET>`.
 
-### Option A — GitHub Actions cron (pilot default, zero new accounts)
+### Manual trigger (current)
 
-A scheduled GitHub Actions workflow (`.github/workflows/processor-cron.yml`) calls the Vercel endpoint every 30 minutes. This is the right choice for a controlled pilot because:
+`.github/workflows/processor-run.yml` exposes a `workflow_dispatch` trigger — run it from the GitHub Actions UI whenever you need to drain the notification retry queue, process queued OCR jobs, or run document purges. No secrets or hosting required until you have real volume.
 
-- no new hosting accounts required
-- Vercel functions are already warm (no cold-start overhead)
-- GitHub sends alert emails when a cron run fails
-- 2 runs/hour × 1 min/run × 30 days = 1440 min/month, inside the 2000 min free tier
+**Setup — one-time (when ready to use):**
+1. Set `EASYDRAFT_PROCESSOR_SECRET` in Vercel (any random string, e.g. `openssl rand -hex 32`).
+2. Add the same value as a GitHub repo secret named `PROCESSOR_SECRET` (Settings → Secrets and variables → Actions).
+3. Trigger from the Actions UI and confirm the response is `ok: true`.
 
-**Setup — one-time:**
-1. In GitHub → repository → Settings → Secrets and variables → Actions, add `PROCESSOR_SECRET` with the same value as `EASYDRAFT_PROCESSOR_SECRET` in Vercel.
-2. Push to `main`. The cron workflow activates automatically.
-3. Trigger it manually from the Actions UI to verify the first run succeeds.
+### Scheduled trigger (when retry pressure justifies it)
 
-**Trade-off:** GitHub's cron scheduler adds up to 15 minutes of jitter. A failed notification will be retried within 30–45 minutes. For the pilot this is acceptable because most notifications are sent inline on the primary delivery path; the queue is a retry safety net.
+Add a `schedule:` block to `.github/workflows/processor-run.yml` once real user volume creates notification retry pressure. A 30-minute cadence fits inside the GitHub Actions free tier (2000 min/month).
 
-### Option B — Fly.io supercronic (upgrade when SLO tightens)
-
-A tiny Alpine + supercronic container (`services/document-processor/Dockerfile`) calls the same Vercel endpoint every 2 minutes with second-level precision. No Node.js or monorepo build required — the image is ~15 MB.
-
-**Setup — one-time:**
-```bash
-fly apps create easydraft-processor
-fly secrets set EASYDRAFT_PROCESSOR_SECRET=<same-value-as-vercel>
-fly deploy --config services/document-processor/fly.toml
-```
-
-**Ongoing deploys** (after crontab or Dockerfile changes):
-```bash
-fly deploy --config services/document-processor/fly.toml
-```
-
-**Trade-off:** requires a Fly account and CLI install. The machine costs ~$1.94/month if it exceeds the 3-machine free tier. Migrate to this option when a customer deal requires tighter notification delivery guarantees.
+For tighter SLOs, a small Alpine + supercronic container in `services/document-processor/` can call the same endpoint every 2 minutes from Fly.io (~$1.94/month beyond the free tier).
 
 ### Upgrade path for real OCR
 

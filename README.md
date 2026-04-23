@@ -106,7 +106,7 @@ The latest application pass closed the most important product-surface gaps for s
 ## What Just Completed
 
 - **Session security hardening**: removed redundant custom session layer; browser-side Supabase client is now hydrated via `onAuthStateChange` so token auto-refresh actually works. Previously the access token expired after one hour with no recovery path. Sign-out now invalidates the refresh token server-side via `auth.signOut()`.
-- **Processor runtime wired**: `POST /api/processor-run` Vercel function runs all three job types (notifications, OCR jobs, document purges) behind `EASYDRAFT_PROCESSOR_SECRET`. GitHub Actions cron (`.github/workflows/processor-cron.yml`) triggers it every 30 minutes and fails loudly on errors — no new hosting platform required.
+- **Processor runtime wired**: `POST /api/processor-run` Vercel function runs all three job types (notifications, OCR jobs, document purges) behind `EASYDRAFT_PROCESSOR_SECRET`. A GitHub Actions workflow (`.github/workflows/processor-run.yml`) can trigger it manually from the Actions UI; add a `schedule:` block when real user volume creates actual retry pressure.
 - **Credentials cleaned from `.env`**: live Stripe key and Supabase management API token removed; both must live in Vercel only. Local dev uses test/placeholder values.
 - Public trust/legal pages now exist as first-class routes and have deployment smoke coverage.
 - Certificate-backed signing claims were corrected so public copy reflects the current live assurance level.
@@ -129,7 +129,6 @@ The latest application pass closed the most important product-surface gaps for s
 - [docs/architecture.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/architecture.md): system and codebase structure
 - [docs/identity-and-monetization.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/identity-and-monetization.md): role and billing model
 - [docs/operator-runbook.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/operator-runbook.md): queue, feedback, and release operating loop
-- [docs/current-priority-handoff.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/current-priority-handoff.md): end-of-day summary of what completed and what comes next
 - [CHANGELOG.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/CHANGELOG.md): release-facing change log
 
 ---
