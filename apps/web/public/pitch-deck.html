@@ -1,0 +1,1387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EasyDraftDocs — Refine. Share. Sign.</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --ink:     #0f172a;
+    --mid:     #334155;
+    --muted:   #64748b;
+    --border:  #e2e8f0;
+    --surface: #f8fafc;
+    --white:   #ffffff;
+    --brand:   #2563eb;
+    --brand-d: #1d4ed8;
+    --accent:  #0ea5e9;
+    --green:   #16a34a;
+    --amber:   #d97706;
+    --red:     #dc2626;
+    --radius:  12px;
+    --r-lg:    20px;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--white);
+    color: var(--ink);
+    line-height: 1.6;
+    font-size: 16px;
+  }
+
+  /* ── LAYOUT ─────────────────────────────────── */
+  .section {
+    padding: 80px 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .section-full {
+    padding: 80px 24px;
+    width: 100%;
+  }
+
+  .section-full > .inner {
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  h2.eyebrow {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--brand);
+    margin-bottom: 12px;
+  }
+
+  h2.headline {
+    font-size: clamp(28px, 4vw, 44px);
+    font-weight: 800;
+    line-height: 1.15;
+    color: var(--ink);
+    margin-bottom: 20px;
+  }
+
+  p.sub {
+    font-size: 18px;
+    color: var(--mid);
+    max-width: 640px;
+    margin-bottom: 40px;
+  }
+
+  /* ── HERO ───────────────────────────────────── */
+  .hero {
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a6e 50%, #0c2a4a 100%);
+    min-height: 92vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 60px 24px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 30% 40%, rgba(37,99,235,.25) 0%, transparent 60%),
+                radial-gradient(circle at 75% 65%, rgba(14,165,233,.15) 0%, transparent 55%);
+  }
+
+  .hero-content { position: relative; z-index: 1; }
+
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(37,99,235,.25);
+    border: 1px solid rgba(99,179,255,.3);
+    border-radius: 100px;
+    padding: 6px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #93c5fd;
+    margin-bottom: 32px;
+    letter-spacing: .04em;
+  }
+
+  .hero h1 {
+    font-size: clamp(36px, 6vw, 72px);
+    font-weight: 900;
+    line-height: 1.08;
+    color: var(--white);
+    margin-bottom: 24px;
+    letter-spacing: -.02em;
+  }
+
+  .hero h1 em {
+    font-style: normal;
+    background: linear-gradient(90deg, #60a5fa, #38bdf8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero-sub {
+    font-size: clamp(16px, 2.2vw, 20px);
+    color: #cbd5e1;
+    max-width: 680px;
+    margin: 0 auto 40px;
+    line-height: 1.6;
+  }
+
+  .hero-cta {
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 56px;
+  }
+
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--brand);
+    color: var(--white);
+    padding: 14px 28px;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 700;
+    text-decoration: none;
+    transition: background .2s, transform .15s;
+    box-shadow: 0 4px 20px rgba(37,99,235,.45);
+  }
+
+  .btn-primary:hover { background: var(--brand-d); transform: translateY(-1px); }
+
+  .btn-outline {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    color: #e2e8f0;
+    border: 1.5px solid rgba(255,255,255,.25);
+    padding: 14px 28px;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background .2s, border-color .2s;
+  }
+
+  .btn-outline:hover { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.4); }
+
+  .hero-stats {
+    display: flex;
+    gap: 40px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .stat-value {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--white);
+  }
+
+  .stat-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #94a3b8;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+
+  .stat-divider {
+    width: 1px;
+    height: 36px;
+    background: rgba(255,255,255,.15);
+    align-self: center;
+  }
+
+  /* ── PROBLEM ────────────────────────────────── */
+  .problem-bg {
+    background: var(--surface);
+  }
+
+  .pain-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 20px;
+    margin-top: 40px;
+  }
+
+  .pain-card {
+    background: var(--white);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .pain-icon {
+    font-size: 28px;
+  }
+
+  .pain-card h3 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  .pain-card p {
+    font-size: 14px;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  /* ── HOW IT WORKS ───────────────────────────── */
+  .lifecycle {
+    display: flex;
+    gap: 0;
+    margin-top: 48px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+  }
+
+  .step {
+    flex: 1;
+    min-width: 120px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    position: relative;
+  }
+
+  .step:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    top: 24px;
+    right: -20px;
+    width: 40px;
+    height: 2px;
+    background: var(--brand);
+    opacity: .35;
+  }
+
+  .step-num {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--brand), var(--accent));
+    color: var(--white);
+    font-size: 18px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 14px;
+    flex-shrink: 0;
+    box-shadow: 0 4px 14px rgba(37,99,235,.35);
+  }
+
+  .step-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 6px;
+  }
+
+  .step-desc {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.45;
+    max-width: 110px;
+  }
+
+  /* ── WORKFLOW MODES ─────────────────────────── */
+  .modes-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 24px;
+    margin-top: 44px;
+  }
+
+  .mode-card {
+    border-radius: var(--r-lg);
+    padding: 32px;
+    position: relative;
+    overflow: hidden;
+    border: 1.5px solid transparent;
+  }
+
+  .mode-self   { background: linear-gradient(135deg, #f0f9ff, #e0f2fe); border-color: #bae6fd; }
+  .mode-intern { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border-color: #bbf7d0; }
+  .mode-mgd    { background: linear-gradient(135deg, #faf5ff, #ede9fe); border-color: #ddd6fe; }
+
+  .mode-icon {
+    font-size: 36px;
+    margin-bottom: 16px;
+    display: block;
+  }
+
+  .mode-card h3 {
+    font-size: 19px;
+    font-weight: 800;
+    color: var(--ink);
+    margin-bottom: 8px;
+  }
+
+  .mode-tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 100px;
+    margin-bottom: 12px;
+  }
+
+  .mode-self   .mode-tag { background: #bae6fd; color: #075985; }
+  .mode-intern .mode-tag { background: #bbf7d0; color: #14532d; }
+  .mode-mgd    .mode-tag { background: #ddd6fe; color: #4c1d95; }
+
+  .mode-card p {
+    font-size: 14px;
+    color: var(--mid);
+    line-height: 1.6;
+    margin-bottom: 16px;
+  }
+
+  .mode-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .mode-list li {
+    font-size: 13px;
+    color: var(--mid);
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .mode-list li::before { content: '→'; color: var(--brand); font-weight: 700; flex-shrink: 0; }
+
+  /* ── FEATURES ───────────────────────────────── */
+  .features-bg {
+    background: var(--surface);
+  }
+
+  .feat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 20px;
+    margin-top: 44px;
+  }
+
+  .feat-card {
+    background: var(--white);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px 24px;
+    transition: box-shadow .2s, transform .2s;
+  }
+
+  .feat-card:hover {
+    box-shadow: 0 8px 30px rgba(0,0,0,.08);
+    transform: translateY(-2px);
+  }
+
+  .feat-icon {
+    font-size: 32px;
+    margin-bottom: 14px;
+    display: block;
+  }
+
+  .feat-card h3 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 8px;
+  }
+
+  .feat-card p {
+    font-size: 13.5px;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  .feat-card .badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 100px;
+    margin-top: 10px;
+    background: #dbeafe;
+    color: var(--brand-d);
+  }
+
+  /* ── AUDIT TRAIL ────────────────────────────── */
+  .audit-block {
+    background: #0f172a;
+    border-radius: var(--r-lg);
+    padding: 40px;
+    margin-top: 44px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    align-items: center;
+  }
+
+  .audit-text h3 {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--white);
+    margin-bottom: 14px;
+  }
+
+  .audit-text p {
+    font-size: 15px;
+    color: #94a3b8;
+    line-height: 1.65;
+    margin-bottom: 20px;
+  }
+
+  .audit-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .audit-list li {
+    font-size: 14px;
+    color: #cbd5e1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .audit-list li .check {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(22,163,74,.2);
+    border: 1.5px solid rgba(22,163,74,.5);
+    color: #4ade80;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .audit-terminal {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 20px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+  }
+
+  .term-header {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+
+  .term-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+
+  .term-dot:nth-child(1) { background: #ef4444; }
+  .term-dot:nth-child(2) { background: #f59e0b; }
+  .term-dot:nth-child(3) { background: #22c55e; }
+
+  .term-line {
+    margin-bottom: 6px;
+    line-height: 1.7;
+  }
+
+  .term-key   { color: #64748b; }
+  .term-val   { color: #a5f3fc; }
+  .term-ok    { color: #4ade80; }
+  .term-hash  { color: #c084fc; word-break: break-all; }
+  .term-label { color: #94a3b8; }
+
+  /* ── PRICING ────────────────────────────────── */
+  .pricing-bg {
+    background: linear-gradient(180deg, #f8fafc 0%, #eff6ff 100%);
+  }
+
+  .pricing-hero {
+    text-align: center;
+    margin-bottom: 56px;
+  }
+
+  .pricing-card {
+    background: var(--white);
+    border: 2px solid var(--brand);
+    border-radius: var(--r-lg);
+    padding: 48px 40px;
+    max-width: 520px;
+    margin: 0 auto 48px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(37,99,235,.15);
+    position: relative;
+  }
+
+  .pricing-badge {
+    position: absolute;
+    top: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--brand);
+    color: var(--white);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: 5px 18px;
+    border-radius: 100px;
+    white-space: nowrap;
+  }
+
+  .price-amount {
+    font-size: 58px;
+    font-weight: 900;
+    color: var(--ink);
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+
+  .price-amount sup { font-size: 26px; vertical-align: top; margin-top: 12px; font-weight: 700; }
+
+  .price-period {
+    font-size: 15px;
+    color: var(--muted);
+    margin-bottom: 32px;
+  }
+
+  .price-features {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    text-align: left;
+    margin-bottom: 36px;
+  }
+
+  .price-features li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 15px;
+    color: var(--mid);
+  }
+
+  .price-features li .tick {
+    color: var(--green);
+    font-weight: 700;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+
+  .trial-note {
+    font-size: 13px;
+    color: var(--muted);
+    font-style: italic;
+    margin-top: 12px;
+  }
+
+  /* Comparison bars */
+  .compare-title {
+    text-align: center;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--mid);
+    margin-bottom: 32px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    font-size: 12px;
+  }
+
+  .compare-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    max-width: 700px;
+    margin: 0 auto;
+  }
+
+  .compare-row {
+    display: grid;
+    grid-template-columns: 140px 1fr 70px;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .compare-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--mid);
+    text-align: right;
+  }
+
+  .compare-name.highlight { color: var(--brand); font-weight: 800; font-size: 15px; }
+
+  .bar-wrap {
+    height: 36px;
+    background: #f1f5f9;
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .bar {
+    height: 100%;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    padding-left: 12px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--white);
+    white-space: nowrap;
+    transition: width 1s ease;
+  }
+
+  .bar-easy    { background: linear-gradient(90deg, var(--brand), var(--accent)); width: 22%; }
+  .bar-docusign { background: #64748b; width: 85%; }
+  .bar-adobe    { background: #64748b; width: 72%; }
+  .bar-hello    { background: #64748b; width: 52%; }
+
+  .compare-price {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+
+  .compare-price.ours { color: var(--brand); font-size: 15px; }
+
+  .compare-note {
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 16px;
+    font-style: italic;
+  }
+
+  /* ── CORP SECTION ───────────────────────────── */
+  .corp-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    align-items: center;
+    margin-top: 48px;
+  }
+
+  .corp-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .corp-item {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+
+  .corp-ico {
+    font-size: 22px;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    background: #eff6ff;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .corp-item h4 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 4px;
+  }
+
+  .corp-item p {
+    font-size: 13.5px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .corp-visual {
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: 32px;
+  }
+
+  .org-tree {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .tree-node {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--mid);
+    margin-bottom: 2px;
+    position: relative;
+  }
+
+  .tree-node.l0 { background: #dbeafe; color: var(--brand-d); font-size: 15px; font-weight: 800; }
+  .tree-node.l1 { margin-left: 24px; background: #f0f9ff; }
+  .tree-node.l2 { margin-left: 48px; background: #f8fafc; font-weight: 500; }
+  .tree-node.l3 { margin-left: 72px; background: #f1f5f9; font-size: 13px; font-weight: 500; }
+
+  .tree-ico { font-size: 16px; }
+
+  /* ── HONEST SECTION ─────────────────────────── */
+  .honest-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-top: 44px;
+  }
+
+  .honest-card {
+    border-radius: var(--radius);
+    padding: 28px;
+  }
+
+  .honest-yes { background: #f0fdf4; border: 1.5px solid #bbf7d0; }
+  .honest-no  { background: #fff7ed; border: 1.5px solid #fed7aa; }
+
+  .honest-card h3 {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+
+  .honest-yes h3 { color: var(--green); }
+  .honest-no  h3 { color: var(--amber); }
+
+  .honest-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .honest-list li {
+    font-size: 14px;
+    color: var(--mid);
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    line-height: 1.5;
+  }
+
+  .honest-list li span:first-child { flex-shrink: 0; }
+
+  /* ── CTA ────────────────────────────────────── */
+  .cta-section {
+    background: linear-gradient(135deg, #1e3a6e 0%, #0f172a 100%);
+    text-align: center;
+    padding: 100px 24px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cta-section::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 50%, rgba(37,99,235,.2) 0%, transparent 65%);
+  }
+
+  .cta-inner { position: relative; z-index: 1; max-width: 680px; margin: 0 auto; }
+
+  .cta-section h2 {
+    font-size: clamp(28px, 4.5vw, 48px);
+    font-weight: 900;
+    color: var(--white);
+    margin-bottom: 18px;
+    line-height: 1.15;
+  }
+
+  .cta-section p {
+    font-size: 18px;
+    color: #94a3b8;
+    margin-bottom: 36px;
+    line-height: 1.6;
+  }
+
+  .cta-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--brand);
+    color: var(--white);
+    padding: 18px 36px;
+    border-radius: 12px;
+    font-size: 18px;
+    font-weight: 800;
+    text-decoration: none;
+    box-shadow: 0 6px 30px rgba(37,99,235,.5);
+    transition: transform .2s, background .2s;
+  }
+
+  .cta-btn:hover { background: var(--brand-d); transform: scale(1.03); }
+
+  .cta-small {
+    margin-top: 18px;
+    font-size: 13px;
+    color: #64748b;
+  }
+
+  .cta-small strong { color: #94a3b8; }
+
+  /* ── FOOTER ─────────────────────────────────── */
+  footer {
+    background: #0f172a;
+    color: #475569;
+    text-align: center;
+    padding: 32px 24px;
+    font-size: 13px;
+  }
+
+  footer a { color: #64748b; text-decoration: none; }
+  footer a:hover { color: #94a3b8; }
+
+  .footer-links {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+
+  /* ── DIVIDER ────────────────────────────────── */
+  .section-divider {
+    height: 1px;
+    background: var(--border);
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  /* ── RESPONSIVE ─────────────────────────────── */
+  @media (max-width: 700px) {
+    .audit-block   { grid-template-columns: 1fr; }
+    .corp-grid     { grid-template-columns: 1fr; }
+    .honest-grid   { grid-template-columns: 1fr; }
+    .lifecycle     { flex-wrap: wrap; justify-content: center; gap: 24px; }
+    .step:not(:last-child)::after { display: none; }
+    .compare-row   { grid-template-columns: 100px 1fr 60px; }
+    .compare-name  { font-size: 12px; }
+  }
+
+  @media (max-width: 480px) {
+    .section, .section-full { padding: 56px 16px; }
+    .hero { min-height: auto; padding: 60px 16px; }
+    .audit-block { padding: 28px 20px; }
+    .pricing-card { padding: 36px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════ HERO ═══════════════════════════ -->
+<section class="hero">
+  <div class="hero-content">
+    <div class="hero-badge">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      Refine · Share · Sign
+    </div>
+    <h1>PDF signing that works<br>the way <em>you</em> do</h1>
+    <p class="hero-sub">
+      Upload a contract. Place only the fields you need. Assign signers, send, and get a
+      tamper-evident signed record — without turning your tool into a full PDF editor.
+    </p>
+    <div class="hero-cta">
+      <a href="https://easydraftdocs.app" class="btn-primary">
+        Start free — 30 days, no card
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </a>
+      <a href="https://easydraftdocs.app/guide.html" class="btn-outline">
+        See the guide
+      </a>
+    </div>
+    <div class="hero-stats">
+      <div class="stat">
+        <span class="stat-value">30 days</span>
+        <span class="stat-label">Free trial</span>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <span class="stat-value">No card</span>
+        <span class="stat-label">To start</span>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <span class="stat-value">$12 CAD</span>
+        <span class="stat-label">Per seat/month</span>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <span class="stat-value">3 modes</span>
+        <span class="stat-label">Workflow paths</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ PROBLEM ══════════════════════════ -->
+<div class="section-full problem-bg">
+  <div class="section inner">
+    <h2 class="eyebrow">The problem</h2>
+    <h2 class="headline">Legacy tools were built for someone else's workflow</h2>
+    <p class="sub">Most PDF signing platforms are either overbuilt enterprise suites or bare-minimum file-share tools. Neither fits a small or mid-size team that just needs contracts to move.</p>
+    <div class="pain-grid">
+      <div class="pain-card">
+        <span class="pain-icon">💸</span>
+        <h3>Priced for enterprise</h3>
+        <p>Major players charge $25–$65 USD per seat per month — before you hit envelope limits or add-on fees.</p>
+      </div>
+      <div class="pain-card">
+        <span class="pain-icon">🧩</span>
+        <h3>Feature bloat you don't need</h3>
+        <p>Full layout editing, custom branding toolkits, API suites — most teams use 10% of the product and pay for all of it.</p>
+      </div>
+      <div class="pain-card">
+        <span class="pain-icon">🔒</span>
+        <h3>Signers forced to create accounts</h3>
+        <p>Nothing kills a signing flow faster than asking a client to register before they can read the document.</p>
+      </div>
+      <div class="pain-card">
+        <span class="pain-icon">🌫️</span>
+        <h3>No audit trail you can own</h3>
+        <p>You're trusting a black box. When did they sign? Was it the right person? On what version? Hard to answer.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section-divider"></div>
+
+<!-- ═══════════════════════════ HOW IT WORKS ══════════════════════ -->
+<div class="section">
+  <h2 class="eyebrow">How it works</h2>
+  <h2 class="headline">Seven steps. Start to signed record.</h2>
+  <p class="sub">EasyDraftDocs keeps your original document intact and layers only the workflow on top of it.</p>
+
+  <div class="lifecycle">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-label">Upload</div>
+      <div class="step-desc">Your PDF goes into private storage — nobody else can see it</div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-label">Prepare</div>
+      <div class="step-desc">Add signers, place fields, choose routing and delivery mode</div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-label">Send</div>
+      <div class="step-desc">Routing activates; participants get notified in order</div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-label">Sign</div>
+      <div class="step-desc">Each participant completes their assigned fields; sequential routing advances automatically</div>
+    </div>
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-label">Complete</div>
+      <div class="step-desc">All required fields done — document marked complete</div>
+    </div>
+    <div class="step">
+      <div class="step-num">6</div>
+      <div class="step-label">Export</div>
+      <div class="step-desc">Download renders signatures into the PDF; SHA-256 hash recorded</div>
+    </div>
+    <div class="step">
+      <div class="step-num">7</div>
+      <div class="step-label">Lock</div>
+      <div class="step-desc">Explicit lock prevents further edits; reopen resumes the workflow if needed</div>
+    </div>
+  </div>
+</div>
+
+<div class="section-divider"></div>
+
+<!-- ═══════════════════════════ MODES ═════════════════════════════ -->
+<div class="section-full">
+  <div class="section inner">
+    <h2 class="eyebrow">Workflow modes</h2>
+    <h2 class="headline">Three ways to move a document through your team</h2>
+    <p class="sub">Pick the mode that fits your situation — you can choose per document, not per account.</p>
+
+    <div class="modes-grid">
+      <div class="mode-card mode-self">
+        <span class="mode-icon">📁</span>
+        <span class="mode-tag">Self-managed</span>
+        <h3>You control distribution</h3>
+        <p>Store and prepare the document in EasyDraftDocs. Download and distribute it yourself — email it, drop it in a shared drive, whatever you already use.</p>
+        <ul class="mode-list">
+          <li>No routing, no external emails</li>
+          <li>Full audit trail still recorded internally</li>
+          <li>Good for: single-owner reviews, internal drafts</li>
+        </ul>
+      </div>
+
+      <div class="mode-card mode-intern">
+        <span class="mode-icon">🏢</span>
+        <span class="mode-tag">Internal only</span>
+        <h3>Team signs inside the app</h3>
+        <p>All participants are members of your workspace. No external emails sent — everyone signs directly in the platform.</p>
+        <ul class="mode-list">
+          <li>Sequential or parallel routing</li>
+          <li>All signers have workspace accounts</li>
+          <li>Good for: internal approvals, policy acknowledgements</li>
+        </ul>
+      </div>
+
+      <div class="mode-card mode-mgd">
+        <span class="mode-icon">📬</span>
+        <span class="mode-tag">Platform-managed</span>
+        <h3>EasyDraft emails your signers</h3>
+        <p>EasyDraftDocs emails each participant a secure, one-time signing link — in routing order. External signers need no account. They verify their identity via email code before signing.</p>
+        <ul class="mode-list">
+          <li>External signers get a one-time link</li>
+          <li>Email verification code required before any signature action</li>
+          <li>Token consumed per external workflow send</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section-divider"></div>
+
+<!-- ═══════════════════════════ FEATURES ════════════════════════ -->
+<div class="section-full features-bg">
+  <div class="section inner">
+    <h2 class="eyebrow">What's included</h2>
+    <h2 class="headline">Everything a document workflow needs, nothing it doesn't</h2>
+
+    <div class="feat-grid">
+      <div class="feat-card">
+        <span class="feat-icon">✍️</span>
+        <h3>Five field types</h3>
+        <p>Signature, initials, approval, date, and free-text — placed exactly where you need them. Resizable, drag-repositionable.</p>
+      </div>
+
+      <div class="feat-card">
+        <span class="feat-icon">🔀</span>
+        <h3>Sequential &amp; parallel routing</h3>
+        <p>Route signers one at a time or all at once. Stage-based routing advances automatically when each stage is complete.</p>
+      </div>
+
+      <div class="feat-card">
+        <span class="feat-icon">🔗</span>
+        <h3>No-account external signing</h3>
+        <p>External signers enter through a one-time token link. No registration required. Email verification code gates the actual signing action.</p>
+        <span class="badge">Stronger than link-only</span>
+      </div>
+
+      <div class="feat-card">
+        <span class="feat-icon">📋</span>
+        <h3>Full audit trail</h3>
+        <p>Every action — view, sign, request-changes, lock, reopen — is timestamped and stored. Version history tracks every document state.</p>
+      </div>
+
+      <div class="feat-card">
+        <span class="feat-icon">🏁</span>
+        <h3>Completion certificate</h3>
+        <p>A downloadable certificate records every participant, timestamp, and the SHA-256 hash of the final rendered PDF.</p>
+      </div>
+
+      <div class="feat-card">
+        <span class="feat-icon">🔏</span>
+        <h3>Lock / reopen</h3>
+        <p>Explicitly lock a document to prevent further changes. Reopen it if circumstances change — the full history is preserved.</p>
+      </div>
+
+      <div class="feat-card">
+        <span class="feat-icon">🗃️</span>
+        <h3>Private storage by default</h3>
+        <p>Documents are stored in private Supabase buckets. Unsigned originals and signed outputs are kept in separate storage paths.</p>
+      </div>
+
+      <div class="feat-card">
+        <span class="feat-icon">🗑️</span>
+        <h3>Scheduled purge control</h3>
+        <p>Documents are temporary-by-default. Opt in to retained storage, or let them purge on schedule — you set the policy.</p>
+      </div>
+
+      <div class="feat-card">
+        <span class="feat-icon">🔄</span>
+        <h3>Change-impact classification</h3>
+        <p>Post-sign document edits are classified as non-material, review-required, or resign-required — so the record always reflects what everyone actually signed.</p>
+      </div>
+    </div>
+
+    <!-- audit trail block -->
+    <div class="audit-block">
+      <div class="audit-text">
+        <h3>The signed record you can actually rely on</h3>
+        <p>When a document completes, EasyDraftDocs renders all signatures into the final PDF and records a SHA-256 hash of that exact file. Every download generates the same hash — so you always know whether the file has changed.</p>
+        <ul class="audit-list">
+          <li><span class="check">✓</span> SHA-256 integrity hash on every completed document</li>
+          <li><span class="check">✓</span> Completion certificate with all participant timestamps</li>
+          <li><span class="check">✓</span> Version history for every document state</li>
+          <li><span class="check">✓</span> Email verification before any external signer action</li>
+          <li><span class="check">✓</span> Audit trail surfaced in the workspace panel</li>
+        </ul>
+      </div>
+      <div class="audit-terminal">
+        <div class="term-header">
+          <div class="term-dot"></div><div class="term-dot"></div><div class="term-dot"></div>
+        </div>
+        <div class="term-line"><span class="term-key">document:   </span><span class="term-val">MSA_ClientA_v3.pdf</span></div>
+        <div class="term-line"><span class="term-key">status:     </span><span class="term-ok">completed</span></div>
+        <div class="term-line"><span class="term-key">signed_by:  </span><span class="term-val">Alice Wang, Bob Chen</span></div>
+        <div class="term-line"><span class="term-key">completed:  </span><span class="term-val">2026-04-27 14:32 UTC</span></div>
+        <div class="term-line"><span class="term-key">sha256:     </span><span class="term-hash">a3f9c1d8...e7b42091</span></div>
+        <div class="term-line">&nbsp;</div>
+        <div class="term-line"><span class="term-label">→ completion certificate available</span></div>
+        <div class="term-line"><span class="term-label">→ 4 audit events recorded</span></div>
+        <div class="term-line"><span class="term-label">→ signed PDF locked in storage</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section-divider"></div>
+
+<!-- ═══════════════════════════ TEAMS ════════════════════════════ -->
+<div class="section">
+  <h2 class="eyebrow">For teams</h2>
+  <h2 class="headline">Corporate accounts that reflect how teams actually work</h2>
+  <p class="sub">One parent account owns billing. Members share a token pool. Admins stay in control without touching every document.</p>
+
+  <div class="corp-grid">
+    <ul class="corp-list">
+      <div class="corp-item">
+        <div class="corp-ico">🏛️</div>
+        <div>
+          <h4>Organization → Workspace model</h4>
+          <p>Your corporate account owns billing, members, and shared tokens. Workspaces stay the operational container for documents — clean and separate.</p>
+        </div>
+      </div>
+      <div class="corp-item">
+        <div class="corp-ico">🪙</div>
+        <div>
+          <h4>Shared external signer tokens</h4>
+          <p>Token balance is pooled across the org. Admins can top it up any time; every spend is tracked. Internal participants never consume tokens.</p>
+        </div>
+      </div>
+      <div class="corp-item">
+        <div class="corp-ico">✉️</div>
+        <div>
+          <h4>Team invitations</h4>
+          <p>Invite members by email with role assignment. Invite acceptance fails closed if the wrong account tries to join — protecting workspace isolation.</p>
+        </div>
+      </div>
+      <div class="corp-item">
+        <div class="corp-ico">📊</div>
+        <div>
+          <h4>Owner KPI dashboard</h4>
+          <p>Org admins see a watchlist of documents that need attention, billing status, member count, and queue metrics — all in one view.</p>
+        </div>
+      </div>
+    </ul>
+
+    <div class="corp-visual">
+      <div style="font-size:13px; font-weight:700; color:var(--muted); margin-bottom:18px; text-transform:uppercase; letter-spacing:.07em;">Account structure</div>
+      <div class="org-tree">
+        <div class="tree-node l0"><span class="tree-ico">🏢</span> Acme Corp (corporate)</div>
+        <div class="tree-node l1"><span class="tree-ico">💳</span> Billing &amp; shared token pool</div>
+        <div class="tree-node l1"><span class="tree-ico">👥</span> Member administration</div>
+        <div class="tree-node l1"><span class="tree-ico">📂</span> Workspace: Sales</div>
+        <div class="tree-node l2"><span class="tree-ico">📄</span> NDA_ClientB.pdf</div>
+        <div class="tree-node l2"><span class="tree-ico">📄</span> MSA_2026.pdf</div>
+        <div class="tree-node l1"><span class="tree-ico">📂</span> Workspace: Legal</div>
+        <div class="tree-node l2"><span class="tree-ico">📄</span> Policy_update.pdf</div>
+        <div class="tree-node l1" style="margin-top:10px; font-size:12px; color:var(--muted);">
+          <span class="tree-ico">👤</span> Alice (admin) · Bob (member) · Carol (member)
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section-divider"></div>
+
+<!-- ═══════════════════════════ PRICING ══════════════════════════ -->
+<div class="section-full pricing-bg">
+  <div class="section inner">
+    <div class="pricing-hero">
+      <h2 class="eyebrow">Pricing</h2>
+      <h2 class="headline">Half the price. No envelope limits.</h2>
+      <p class="sub" style="margin:0 auto;">Major signing platforms charge $25–65 USD per seat per month, cap your envelopes, and charge more for teams. EasyDraftDocs doesn't.</p>
+    </div>
+
+    <div class="pricing-card">
+      <div class="pricing-badge">One simple plan</div>
+      <div class="price-amount"><sup>$</sup>12</div>
+      <div class="price-period">CAD per seat / month &nbsp;·&nbsp; or $120/seat/year</div>
+      <ul class="price-features">
+        <li><span class="tick">✓</span> All three workflow modes (self-managed, internal, platform-managed)</li>
+        <li><span class="tick">✓</span> Sequential and parallel signing</li>
+        <li><span class="tick">✓</span> Audit trail, version history, completion certificates</li>
+        <li><span class="tick">✓</span> External signers via one-time links — no account needed</li>
+        <li><span class="tick">✓</span> External signer email verification</li>
+        <li><span class="tick">✓</span> Prepaid external signer token packs (shared by org)</li>
+        <li><span class="tick">✓</span> Corporate accounts with admin, billing, and workspace management</li>
+        <li><span class="tick">✓</span> 30-day free trial — no credit card required</li>
+      </ul>
+      <a href="https://easydraftdocs.app" class="btn-primary" style="width:100%; justify-content:center; font-size:17px; padding:16px;">
+        Start your free trial
+      </a>
+      <p class="trial-note">No card required. Downgrade, cancel, or delete your account anytime — all self-service.</p>
+    </div>
+
+    <!-- Comparison bars -->
+    <div class="compare-title">Approximate monthly per-seat cost — business/team plans (USD converted to CAD)</div>
+    <div class="compare-grid">
+      <div class="compare-row">
+        <div class="compare-name highlight">EasyDraftDocs</div>
+        <div class="bar-wrap"><div class="bar bar-easy">$12 CAD</div></div>
+        <div class="compare-price ours">$12 CAD</div>
+      </div>
+      <div class="compare-row">
+        <div class="compare-name">HelloSign</div>
+        <div class="bar-wrap"><div class="bar bar-hello"></div></div>
+        <div class="compare-price">~$30+ CAD</div>
+      </div>
+      <div class="compare-row">
+        <div class="compare-name">Adobe Acrobat Sign</div>
+        <div class="bar-wrap"><div class="bar bar-adobe"></div></div>
+        <div class="compare-price">~$43+ CAD</div>
+      </div>
+      <div class="compare-row">
+        <div class="compare-name">DocuSign Business</div>
+        <div class="bar-wrap"><div class="bar bar-docusign"></div></div>
+        <div class="compare-price">~$52+ CAD</div>
+      </div>
+    </div>
+    <p class="compare-note">Competitor pricing based on published USD list rates, converted at approx. 1.38 CAD/USD. Prices vary by plan tier, region, and promotions.</p>
+  </div>
+</div>
+
+<div class="section-divider"></div>
+
+<!-- ═══════════════════════════ HONEST ═══════════════════════════ -->
+<div class="section">
+  <h2 class="eyebrow">Honest product summary</h2>
+  <h2 class="headline">What EasyDraftDocs is — and what it isn't</h2>
+  <p class="sub">We'd rather you know exactly what you're getting before you start your trial than be surprised afterward.</p>
+
+  <div class="honest-grid">
+    <div class="honest-card honest-yes">
+      <h3>✓ What it does well</h3>
+      <ul class="honest-list">
+        <li><span>✓</span> Upload any PDF and prepare it for signing without editing the layout</li>
+        <li><span>✓</span> Place fields, assign participants, route sequentially or in parallel</li>
+        <li><span>✓</span> Send external signers a one-time link — they don't need an account</li>
+        <li><span>✓</span> Gate external signing actions behind an email verification code</li>
+        <li><span>✓</span> Record a full audit trail and SHA-256 integrity hash on every document</li>
+        <li><span>✓</span> Manage team access, billing, and shared tokens under one corporate account</li>
+        <li><span>✓</span> Let signers place their own signature if no field was pre-assigned</li>
+        <li><span>✓</span> Lock completed documents and reopen them if the workflow needs to resume</li>
+      </ul>
+    </div>
+
+    <div class="honest-card honest-no">
+      <h3>— What it doesn't do (yet)</h3>
+      <ul class="honest-list">
+        <li><span>—</span> Full PDF content editing — EasyDraft is a workflow layer, not a layout editor</li>
+        <li><span>—</span> Certificate-backed cryptographic signing (PAdES/CAdES) — the SHA-256 hash confirms file integrity, but embedded digital certificate signing is a planned next step, not live</li>
+        <li><span>—</span> Legal compliance guarantees — check your jurisdiction's e-signature requirements before relying solely on EasyDraft for legally regulated documents</li>
+        <li><span>—</span> Integrations or API access in the current plan — this is a standalone workflow tool</li>
+        <li><span>—</span> Custom branding or white-labelling on the base plan</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section-divider"></div>
+
+<!-- ═══════════════════════════ CTA ══════════════════════════════ -->
+<section class="cta-section">
+  <div class="cta-inner">
+    <h2>Start your free trial today</h2>
+    <p>
+      30 days. No credit card. Cancel or delete your account any time — entirely self-service.
+      If you outgrow the trial, $12 CAD per seat per month is all it costs to keep going.
+    </p>
+    <a href="https://easydraftdocs.app" class="cta-btn">
+      Try EasyDraftDocs free
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+    </a>
+    <p class="cta-small">
+      Already have an account? <strong><a href="https://easydraftdocs.app" style="color:#93c5fd;">Sign in →</a></strong>
+      &nbsp;·&nbsp; Questions? Read the <strong><a href="https://easydraftdocs.app/guide.html" style="color:#93c5fd;">user guide</a></strong>
+    </p>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-links">
+    <a href="https://easydraftdocs.app/pricing">Pricing</a>
+    <a href="https://easydraftdocs.app/guide.html">User guide</a>
+    <a href="https://easydraftdocs.app/privacy">Privacy</a>
+    <a href="https://easydraftdocs.app/terms">Terms</a>
+    <a href="https://easydraftdocs.app/security">Security</a>
+  </div>
+  <div>© 2026 EasyDraftDocs. All rights reserved.</div>
+</footer>
+
+</body>
+</html>
