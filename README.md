@@ -132,6 +132,8 @@ The latest application pass closed the most important product-surface gaps for s
 - [docs/go-live-checklist.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/go-live-checklist.md): deployment and release gate checklist
 - [docs/admin-instructions.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/admin-instructions.md): operator and admin workflow guide
 - [docs/workflow-matrix.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/workflow-matrix.md): canonical workflow patterns
+- [docs/manual-testing-scenarios.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/manual-testing-scenarios.md): manual launch scenario catalog
+- [docs/manual-testing-protocol.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/manual-testing-protocol.md): repeatable test protocol and results workbook
 - [docs/architecture.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/architecture.md): system and codebase structure
 - [docs/identity-and-monetization.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/identity-and-monetization.md): role and billing model
 - [docs/operator-runbook.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/operator-runbook.md): queue, feedback, and release operating loop
