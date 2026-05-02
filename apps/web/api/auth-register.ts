@@ -23,6 +23,13 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const fullName = typeof request.body?.fullName === "string" ? request.body.fullName.trim() : "";
     const accountType =
       request.body?.accountType === "corporate" ? "corporate" : "individual";
+    const profileKind =
+      request.body?.profileKind === "easydraft_user" ||
+      request.body?.profileKind === "easydraft_staff"
+        ? request.body.profileKind
+        : email.toLowerCase().endsWith("@agoperations.ca")
+          ? "easydraft_staff"
+          : "easydraft_user";
     const workspaceName =
       typeof request.body?.workspaceName === "string" ? request.body.workspaceName.trim() : "";
 
@@ -40,6 +47,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         data: {
           full_name: fullName,
           account_type: accountType,
+          profile_kind: profileKind,
           workspace_name: workspaceName || undefined,
         },
       },

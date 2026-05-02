@@ -11,6 +11,9 @@ type Props = {
   pendingInviteDetails?: WorkspaceInviteDetails["invitation"] | null;
   onSessionCreated: (session: Session) => void;
   onRegistered: () => void;
+  variant?: "customer" | "team";
+  defaultMode?: "sign_in" | "sign_up";
+  allowDirectSignup?: boolean;
 };
 
 export function AuthPanel({
@@ -20,8 +23,13 @@ export function AuthPanel({
   pendingInviteDetails,
   onSessionCreated,
   onRegistered,
+  variant = "customer",
+  defaultMode = "sign_in",
+  allowDirectSignup = true,
 }: Props) {
-  const [authMode, setAuthMode] = useState<"sign_in" | "sign_up">("sign_in");
+  const canSignUp = allowDirectSignup || hasPendingInvite;
+  const preferredInitialMode = defaultMode === "sign_up" && !canSignUp ? "sign_in" : defaultMode;
+  const [authMode, setAuthMode] = useState<"sign_in" | "sign_up">(preferredInitialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -30,6 +38,14 @@ export function AuthPanel({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (canSignUp || authMode !== "sign_up") {
+      return;
+    }
+
+    setAuthMode("sign_in");
+  }, [authMode, canSignUp]);
 
   useEffect(() => {
     if (!pendingInviteDetails?.email) {
@@ -149,17 +165,33 @@ export function AuthPanel({
     );
   }
 
+  const eyebrow =
+    variant === "team"
+      ? authMode === "sign_up"
+        ? "Team invite"
+        : "AG Operations team"
+      : authMode === "sign_up"
+        ? "Start free trial"
+        : "Customer sign in";
+
+  const introCopy =
+    variant === "team"
+      ? hasPendingInvite
+        ? "Use the invited email address to activate your AG Operations team account."
+        : "AG Operations team members sign in here for support, admin visibility, billing review, and internal testing."
+      : authMode === "sign_up"
+        ? "Create your EasyDraft workspace, upload your first PDF, and invite teammates when you're ready."
+        : "Returning customer teams can sign in here to continue active workflows, billing, and workspace management.";
+
   return (
     <section className="card">
-      <p className="eyebrow">{authMode === "sign_up" ? "Start free trial" : "Sign in"}</p>
+      <p className="eyebrow">{eyebrow}</p>
 
       {errorMessage ? <div className="alert">{errorMessage}</div> : null}
       {noticeMessage ? <div className="alert success">{noticeMessage}</div> : null}
 
       <form className="stack" onSubmit={handleAuthSubmit}>
-          <p className="muted">
-            Owners, administrators, and employees all sign in here. There is no separate admin portal.
-          </p>
+          <p className="muted">{introCopy}</p>
 
           {hasPendingInvite ? (
             <div className="alert success">
@@ -173,22 +205,24 @@ export function AuthPanel({
             </div>
           ) : null}
 
-          <div className="pill-row">
-            <button
-              className={`pill-button ${authMode === "sign_in" ? "active" : ""}`}
-              onClick={() => setAuthMode("sign_in")}
-              type="button"
-            >
-              Sign in
-            </button>
-            <button
-              className={`pill-button ${authMode === "sign_up" ? "active" : ""}`}
-              onClick={() => setAuthMode("sign_up")}
-              type="button"
-            >
-              Sign up
-            </button>
-          </div>
+          {canSignUp ? (
+            <div className="pill-row">
+              <button
+                className={`pill-button ${authMode === "sign_in" ? "active" : ""}`}
+                onClick={() => setAuthMode("sign_in")}
+                type="button"
+              >
+                Sign in
+              </button>
+              <button
+                className={`pill-button ${authMode === "sign_up" ? "active" : ""}`}
+                onClick={() => setAuthMode("sign_up")}
+                type="button"
+              >
+                Sign up
+              </button>
+            </div>
+          ) : null}
 
           {authMode === "sign_up" ? (
             <>

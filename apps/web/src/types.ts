@@ -174,6 +174,7 @@ export type AccountProfile = {
   productUpdatesOptIn: boolean;
   lastSeenAt: string | null;
   onboardingCompletedAt: string | null;
+  profileKind: "easydraft_user" | "easydraft_staff";
 };
 
 export type AdminOverview = {
@@ -293,6 +294,7 @@ export type AdminManagedUser = {
   email: string;
   displayName: string;
   companyName: string | null;
+  profileKind: "easydraft_user" | "easydraft_staff" | null;
   createdAt: string;
   lastSignInAt: string | null;
   emailConfirmedAt: string | null;

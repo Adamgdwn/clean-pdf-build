@@ -30,7 +30,9 @@ Official guidance from Supabase says Auth data lives in the Auth schema and that
 Recommended user data split:
 
 - `auth.users`: login identity, provider, email verification state
-- `public.profiles`: display name, avatar URL, company name, locale, timezone, opt-in flags
+- `public.profiles`: shared account identity, display name, avatar URL, company name, locale, timezone, opt-in flags, and `profile_kind`
+- `public.easydraft_user_profiles`: product-user profile extension rows
+- `public.easydraft_staff_profiles`: internal EasyDraft staff profile extension rows
 - `public.organizations`: parent account for individual or corporate customers
 - `public.organization_memberships`: which organization the user belongs to and their account role
 - `public.workspace_memberships`: which workspace the user belongs to and their workspace role

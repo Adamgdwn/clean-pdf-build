@@ -13,6 +13,12 @@ function formatFeedbackLabel(value: string) {
   return value.replaceAll("_", " ");
 }
 
+function formatProfileKind(value: AdminManagedUser["profileKind"]) {
+  if (!value) return "Unclassified";
+  if (value === "easydraft_staff") return "EasyDraft staff";
+  return "EasyDraft user";
+}
+
 // ─── Sidebar summary card ────────────────────────────────────────────────────
 
 type SidebarProps = {
@@ -534,6 +540,7 @@ export function AdminConsole({
                     {adminUser.companyName ? (
                       <p className="muted">Company: {adminUser.companyName}</p>
                     ) : null}
+                    <p className="muted">Profile: {formatProfileKind(adminUser.profileKind)}</p>
                     <p className="muted">
                       Privileges: {adminUser.privilegeLabels.join(", ")}
                     </p>

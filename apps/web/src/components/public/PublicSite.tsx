@@ -5,7 +5,7 @@ import { AuthPanel } from "../AuthPanel";
 import { FeedbackPanel } from "../FeedbackPanel";
 import type { WorkspaceInviteDetails } from "../../types";
 
-export type PublicPage = "home" | "pricing" | "privacy" | "terms" | "security";
+export type PublicPage = "home" | "pricing" | "privacy" | "terms" | "security" | "team";
 
 const MARKETING_PRICING = {
   trialDays: 30,
@@ -79,6 +79,9 @@ export function PublicSite({
   const legalPage = publicPage === "privacy" || publicPage === "terms" || publicPage === "security"
     ? renderLegalPage(publicPage)
     : null;
+  const isTeamPage = publicPage === "team";
+  const showCustomerStartSection = publicPage === "home" || publicPage === "pricing";
+  const showMarketingSidebar = !isTeamPage;
 
   function handlePublicNav(event: MouseEvent<HTMLAnchorElement>, nextPage: PublicPage) {
     event.preventDefault();
@@ -102,51 +105,54 @@ export function PublicSite({
             <a className="landing-nav-link" href="/security" onClick={(event) => handlePublicNav(event, "security")}>Security</a>
             <a className="landing-nav-link" href="/privacy" onClick={(event) => handlePublicNav(event, "privacy")}>Privacy</a>
             <a className="landing-nav-link" href="/terms" onClick={(event) => handlePublicNav(event, "terms")}>Terms</a>
-            <a className="landing-nav-cta" href="#landing-auth">Start free trial</a>
+            <a className="landing-nav-link" href="/team" onClick={(event) => handlePublicNav(event, "team")}>Team access</a>
+            <a className="landing-nav-cta" href={isTeamPage ? "#team-access" : "#landing-start"}>
+              {isTeamPage ? "Team sign in" : "Start free trial"}
+            </a>
           </nav>
         </div>
       </header>
-      <div className={`landing-body ${publicPage === "pricing" ? "pricing-page-shell" : ""}`}>
+      <div className={`landing-body ${publicPage === "pricing" ? "pricing-page-shell" : ""} ${isTeamPage ? "landing-body-team" : ""}`}>
         <div className="landing-value">
           {publicPage === "home" ? (
             <>
-              <p className="eyebrow">Refine. Share. Sign.</p>
-              <h2>Private document workflows for teams that need routing, signing, and an audit trail</h2>
+              <p className="eyebrow">Customer-ready document workflows</p>
+              <h2>Send clear, private document workflows without making customers learn your internal process</h2>
               <p className="landing-sub">
-                EasyDraftDocs gives your team one place to upload PDFs, route approvals, collect signatures,
-                and keep a clean completion trail without forcing external signers to learn your internal tools.
+                EasyDraft gives your team one place to upload existing PDFs, route internal reviews, collect
+                signatures, and keep a clean audit trail while customers see a focused, low-friction signing experience.
               </p>
               <div className="landing-cta-row">
-                <a className="primary-button" href="#landing-auth">Start free trial</a>
+                <a className="primary-button" href="#landing-start">Start free trial</a>
                 <a className="ghost-button" href="/pricing" onClick={(event) => handlePublicNav(event, "pricing")}>View pricing</a>
-                <a className="ghost-button" href="#landing-tour">Explore product tour</a>
+                <a className="ghost-button" href="#landing-tour">See how it works</a>
               </div>
               <div className="landing-proof-grid">
                 <div className="landing-proof-card">
-                  <strong>What it&apos;s for</strong>
-                  <span>Private document workflows, routing, signing, and audit-ready exports.</span>
+                  <strong>For your customer</strong>
+                  <span>Outside signers get a dedicated action flow instead of your full internal workspace.</span>
                 </div>
                 <div className="landing-proof-card">
-                  <strong>How trust works today</strong>
-                  <span>SHA-256 export integrity, audit history, explicit routing, and visible workspace ownership.</span>
+                  <strong>For your team</strong>
+                  <span>Keep review, routing, billing, and workspace control inside one private operating surface.</span>
                 </div>
                 <div className="landing-proof-card">
-                  <strong>What happens next</strong>
-                  <span>Start a free trial, review pricing, or take a quick product tour before signing in.</span>
+                  <strong>For your records</strong>
+                  <span>Capture audit history, routing status, and SHA-256 export integrity in one completion trail.</span>
                 </div>
               </div>
               <ul className="landing-features">
                 <li>
-                  <strong>Private PDF vault</strong>
-                  <span>Secure uploads with signed preview URLs, completion certificates, and audit trails.</span>
+                  <strong>Use the PDFs you already have</strong>
+                  <span>Upload existing agreements, route them internally, then send customers only what they need to see and sign.</span>
                 </li>
                 <li>
-                  <strong>Reusable signatures</strong>
-                  <span>Save your signature and initials once and reuse them on assigned workflow fields.</span>
+                  <strong>Keep external signers out of your workspace</strong>
+                  <span>Customers do not need to navigate your admin views, billing controls, or internal preparation screens.</span>
                 </li>
                 <li>
-                  <strong>Managed routing</strong>
-                  <span>Sequential or parallel signing, internal or external participants, and a visible waiting-on state.</span>
+                  <strong>See status without chasing people</strong>
+                  <span>Track who is up next, what is complete, and what still needs attention from one place.</span>
                 </li>
               </ul>
             </>
@@ -160,7 +166,7 @@ export function PublicSite({
                 while external workflow routing uses tokens only when EasyDraft handles outside delivery for you.
               </p>
               <div className="landing-cta-row">
-                <a className="primary-button" href="#landing-auth">Start free trial</a>
+                <a className="primary-button" href="#landing-start">Start free trial</a>
                 <a className="ghost-button" href="/" onClick={(event) => handlePublicNav(event, "home")}>Back to overview</a>
               </div>
               <div className="landing-proof-grid">
@@ -179,6 +185,44 @@ export function PublicSite({
               </div>
             </>
           ) : null}
+          {publicPage === "team" ? (
+            <>
+              <p className="eyebrow">AG Operations team access</p>
+              <h2>A dedicated team entry point for support, admin visibility, and internal workflow operations</h2>
+              <p className="landing-sub">
+                This page is for AG Operations team members who manage customer workspaces, review admin metrics,
+                handle tester invites, and support internal document operations. Customer-facing traffic should stay on the main site.
+              </p>
+              <div className="landing-proof-grid">
+                <div className="landing-proof-card">
+                  <strong>Support access</strong>
+                  <span>Review customer workspace state, invites, and account status from the team side of the product.</span>
+                </div>
+                <div className="landing-proof-card">
+                  <strong>Admin visibility</strong>
+                  <span>Watch queue health, billing posture, and internal readiness without mixing that message into the customer homepage.</span>
+                </div>
+                <div className="landing-proof-card">
+                  <strong>Invite-safe onboarding</strong>
+                  <span>Invited team members can activate the correct account without crossing into the public customer flow.</span>
+                </div>
+              </div>
+              <ul className="landing-features">
+                <li>
+                  <strong>Separate from the customer homepage</strong>
+                  <span>Customer messaging stays focused on clean document workflows, while team access stays operational.</span>
+                </li>
+                <li>
+                  <strong>Built for internal coordination</strong>
+                  <span>Use this page for AG Operations sign-in, invite-based team activation, and password resets.</span>
+                </li>
+                <li>
+                  <strong>Same secure product, clearer entry points</strong>
+                  <span>The product stays unified behind the scenes, but each audience gets a page that matches its job.</span>
+                </li>
+              </ul>
+            </>
+          ) : null}
           {legalPage ? (
             <>
               <p className="eyebrow">{legalPage.eyebrow}</p>
@@ -195,32 +239,137 @@ export function PublicSite({
             </>
           ) : null}
         </div>
-        <div className="landing-auth" id="landing-auth">
-          <AuthPanel
-            sessionUser={null}
-            guestSigningSession={null}
-            hasPendingInvite={pendingInviteToken !== null}
-            pendingInviteDetails={pendingInviteDetails}
-            onSessionCreated={onSessionCreated}
-            onRegistered={onRegistered}
-          />
-          {errorMessage ? <div className="alert" style={{ marginTop: "0.75rem" }}>{errorMessage}</div> : null}
-          {noticeMessage ? <div className="alert success" style={{ marginTop: "0.75rem" }}>{noticeMessage}</div> : null}
-          <section className="card landing-side-note">
-            <div className="section-heading compact">
-              <p className="eyebrow">{publicPage === "pricing" ? "Owner visibility" : "Current trust model"}</p>
-              <span>{publicPage === "pricing" ? "Always visible" : "SHA-256 + audit trail"}</span>
-            </div>
-            <p className="muted">
-              Team subscriptions cover your internal members. External managed workflows use prepaid tokens,
-              so outside signers do not become paid seats.
-            </p>
-            <p className="muted">
-              The current beta records SHA-256 export hashes and workflow history. Certificate-backed PDF signing is not part of the live beta yet.
-            </p>
-          </section>
-        </div>
+        {showMarketingSidebar ? (
+          <div className="landing-hero-stack">
+            <section className="card landing-showcase-panel">
+              <div className="section-heading compact">
+                <p className="eyebrow">Customer focus</p>
+                <span>Clear by design</span>
+              </div>
+              <div className="landing-showcase-list">
+                <div className="row-card landing-showcase-item">
+                  <div>
+                    <strong>Dedicated signing surface</strong>
+                    <p className="muted">External signers act in a focused page built for completion, not exploration.</p>
+                  </div>
+                </div>
+                <div className="row-card landing-showcase-item">
+                  <div>
+                    <strong>Internal work stays internal</strong>
+                    <p className="muted">Preparation, approvals, team controls, and billing visibility stay with your team.</p>
+                  </div>
+                </div>
+                <div className="row-card landing-showcase-item">
+                  <div>
+                    <strong>Status stays visible</strong>
+                    <p className="muted">Know who is waiting, who has finished, and when the final export is ready.</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <section className="card landing-side-note">
+              <div className="section-heading compact">
+                <p className="eyebrow">{publicPage === "pricing" ? "Owner visibility" : "Current trust model"}</p>
+                <span>{publicPage === "pricing" ? "Always visible" : "SHA-256 + audit trail"}</span>
+              </div>
+              <p className="muted">
+                Team subscriptions cover your internal members. External managed workflows use prepaid tokens,
+                so outside signers do not become paid seats.
+              </p>
+              <p className="muted">
+                The current beta records SHA-256 export hashes and workflow history. Certificate-backed PDF signing is not part of the live beta yet.
+              </p>
+              <div className="landing-inline-actions">
+                {showCustomerStartSection ? (
+                  <a className="ghost-button" href="#landing-start">Start your workspace</a>
+                ) : (
+                  <a className="ghost-button" href="/" onClick={(event) => handlePublicNav(event, "home")}>Back to overview</a>
+                )}
+                <a className="ghost-button" href="/team" onClick={(event) => handlePublicNav(event, "team")}>AG Operations team</a>
+              </div>
+            </section>
+          </div>
+        ) : (
+          <div className="landing-auth" id="team-access">
+            <AuthPanel
+              sessionUser={null}
+              guestSigningSession={null}
+              hasPendingInvite={pendingInviteToken !== null}
+              pendingInviteDetails={pendingInviteDetails}
+              onSessionCreated={onSessionCreated}
+              onRegistered={onRegistered}
+              variant="team"
+              defaultMode="sign_in"
+              allowDirectSignup={false}
+            />
+            {errorMessage ? <div className="alert" style={{ marginTop: "0.75rem" }}>{errorMessage}</div> : null}
+            {noticeMessage ? <div className="alert success" style={{ marginTop: "0.75rem" }}>{noticeMessage}</div> : null}
+            <section className="card landing-side-note">
+              <div className="section-heading compact">
+                <p className="eyebrow">Team path</p>
+                <span>Separate from customer traffic</span>
+              </div>
+              <p className="muted">
+                Keep AG Operations sign-in, tester invites, billing review, and admin visibility on a dedicated page.
+              </p>
+              <p className="muted">
+                Customer-facing messaging stays on the main site so buyers see the workflow value first.
+              </p>
+            </section>
+          </div>
+        )}
       </div>
+      {showCustomerStartSection ? (
+        <section className="landing-section" id="landing-start">
+          <div className="landing-section-header">
+            <p className="eyebrow">Get started</p>
+            <h3>Start your workspace without mixing customer sign-up and internal team access</h3>
+            <p className="muted">
+              New customer teams can create a workspace here. AG Operations staff use a separate team access page.
+            </p>
+          </div>
+          <div className="landing-access-grid">
+            <div className="landing-access-card">
+              <AuthPanel
+                sessionUser={null}
+                guestSigningSession={null}
+                hasPendingInvite={pendingInviteToken !== null}
+                pendingInviteDetails={pendingInviteDetails}
+                onSessionCreated={onSessionCreated}
+                onRegistered={onRegistered}
+                variant="customer"
+                defaultMode="sign_up"
+              />
+              {errorMessage ? <div className="alert" style={{ marginTop: "0.75rem" }}>{errorMessage}</div> : null}
+              {noticeMessage ? <div className="alert success" style={{ marginTop: "0.75rem" }}>{noticeMessage}</div> : null}
+            </div>
+            <article className="card landing-access-card landing-access-secondary">
+              <p className="eyebrow">AG Operations team</p>
+              <h3>Internal access has its own landing page</h3>
+              <p className="muted">
+                Keep support, admin, and internal testing separate from the customer trial experience.
+              </p>
+              <ul className="landing-features compact">
+                <li>
+                  <strong>Team sign-in</strong>
+                  <span>Use the dedicated page for AG Operations staff login and password resets.</span>
+                </li>
+                <li>
+                  <strong>Invite-based activation</strong>
+                  <span>Invited team members can activate the correct account path without touching the customer homepage.</span>
+                </li>
+                <li>
+                  <strong>Cleaner public message</strong>
+                  <span>Customers see product value first, not internal admin instructions.</span>
+                </li>
+              </ul>
+              <div className="landing-inline-actions">
+                <a className="ghost-button" href="/team" onClick={(event) => handlePublicNav(event, "team")}>Open team access</a>
+              </div>
+            </article>
+          </div>
+        </section>
+      ) : null}
       <section className="landing-section" id="landing-pricing">
         <div className="landing-section-header">
           <p className="eyebrow">Pricing</p>
@@ -300,6 +449,11 @@ export function PublicSite({
             <strong>Security</strong>
             <p className="muted">See how SHA-256 integrity, audit history, and queue visibility work today.</p>
             <a className="ghost-button" href="/security" onClick={(event) => handlePublicNav(event, "security")}>Open security</a>
+          </article>
+          <article className="toolbar-card">
+            <strong>AG Operations team</strong>
+            <p className="muted">Use the separate team landing page for staff sign-in, invite activation, and internal operations.</p>
+            <a className="ghost-button" href="/team" onClick={(event) => handlePublicNav(event, "team")}>Open team access</a>
           </article>
         </div>
         <div style={{ marginTop: "18px" }}>

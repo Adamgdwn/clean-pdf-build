@@ -310,6 +310,7 @@ function getPublicPage(pathname: string): PublicPage {
   if (pathname === "/privacy") return "privacy";
   if (pathname === "/terms") return "terms";
   if (pathname === "/security") return "security";
+  if (pathname === "/team") return "team";
   return "home";
 }
 
@@ -1838,6 +1839,8 @@ export default function App() {
         ? "/terms"
         : nextPage === "security"
         ? "/security"
+        : nextPage === "team"
+        ? "/team"
         : "/";
     window.history.pushState({}, "", nextPath);
     setPublicPage(nextPage);

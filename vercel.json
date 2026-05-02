@@ -88,6 +88,10 @@
     {
       "source": "/security",
       "destination": "/index.html"
+    },
+    {
+      "source": "/team",
+      "destination": "/index.html"
     }
   ]
 }

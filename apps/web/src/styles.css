@@ -776,6 +776,7 @@ select {
 
   .landing-body,
   .landing-proof-grid,
+  .landing-access-grid,
   .landing-pricing-grid,
   .landing-faq-grid,
   .landing-tour-grid,
@@ -824,6 +825,10 @@ select {
     width: auto;
     margin-left: 20px;
     margin-right: 20px;
+  }
+
+  .landing-auth {
+    position: static;
   }
 
   .signer-header {
@@ -1119,14 +1124,18 @@ select {
 .landing-body {
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 420px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 420px);
   gap: 40px;
   align-items: start;
   padding: 40px 48px 60px;
-  max-width: 1100px;
+  max-width: 1180px;
   width: 100%;
   margin: 0 auto;
   box-sizing: border-box;
+}
+
+.landing-body-team {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
 }
 
 .pricing-page-shell {
@@ -1135,6 +1144,12 @@ select {
 
 .landing-value {
   padding-top: 12px;
+}
+
+.landing-hero-stack {
+  display: grid;
+  gap: 14px;
+  align-content: start;
 }
 
 .landing-cta-row {
@@ -1156,6 +1171,13 @@ select {
 .landing-tour-card {
   display: grid;
   gap: 6px;
+}
+
+.landing-proof-card strong,
+.landing-showcase-item strong,
+.landing-access-card h3 {
+  font-family: "Fraunces", "Georgia", serif;
+  font-weight: 600;
 }
 
 .landing-proof-card span {
@@ -1219,6 +1241,10 @@ select {
   line-height: 1.5;
 }
 
+.landing-features.compact {
+  gap: 16px;
+}
+
 .landing-auth {
   position: sticky;
   top: 28px;
@@ -1233,8 +1259,31 @@ select {
   margin-top: 12px;
 }
 
+.landing-showcase-panel,
+.landing-side-note,
+.landing-access-card {
+  padding: 20px;
+}
+
+.landing-showcase-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.landing-showcase-item {
+  align-items: center;
+}
+
+.landing-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
 .landing-section {
-  width: min(1100px, calc(100% - 96px));
+  width: min(1180px, calc(100% - 96px));
   margin: 0 auto 56px;
   display: grid;
   gap: 20px;
@@ -1262,8 +1311,25 @@ select {
 
 .landing-faq-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 14px;
+}
+
+.landing-access-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.landing-access-card .card {
+  margin-bottom: 0;
+}
+
+.landing-access-secondary h3 {
+  margin: 0 0 10px;
+  font-size: clamp(1.3rem, 2vw, 1.7rem);
+  line-height: 1.2;
 }
 
 .landing-tour-step {

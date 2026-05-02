@@ -49,7 +49,7 @@ import { createAuthClient, createServiceRoleClient } from "./supabase.js";
 import { getWorkspaceSigningTokenBalance } from "./billing.js";
 
 const PROFILE_COLUMNS =
-  "id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at, onboarding_completed_at" as const;
+  "id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at, onboarding_completed_at, profile_kind" as const;
 
 type DocumentRow = {
   id: string;
@@ -306,6 +306,7 @@ type ProfileRow = {
   product_updates_opt_in: boolean;
   last_seen_at: string | null;
   onboarding_completed_at: string | null;
+  profile_kind: "easydraft_user" | "easydraft_staff";
 };
 
 type EditorSnapshotRow = {
@@ -444,6 +445,7 @@ type ProfileResponse = {
     productUpdatesOptIn: boolean;
     lastSeenAt: string | null;
     onboardingCompletedAt: string | null;
+    profileKind: "easydraft_user" | "easydraft_staff";
   };
 };
 
@@ -469,6 +471,7 @@ type AdminManagedUserResponse = {
   email: string;
   displayName: string;
   companyName: string | null;
+  profileKind: "easydraft_user" | "easydraft_staff" | null;
   createdAt: string;
   lastSignInAt: string | null;
   emailConfirmedAt: string | null;
@@ -1487,6 +1490,7 @@ function mapProfile(row: ProfileRow): ProfileResponse["profile"] {
     productUpdatesOptIn: row.product_updates_opt_in,
     lastSeenAt: row.last_seen_at,
     onboardingCompletedAt: row.onboarding_completed_at,
+    profileKind: row.profile_kind,
   };
 }
 
@@ -4256,6 +4260,7 @@ export async function listAdminUsersForAuthorizationHeader(
           email.split("@")[0] ??
           "Unknown user",
         companyName: profile?.company_name ?? null,
+        profileKind: profile?.profile_kind ?? null,
         createdAt: authUser.created_at,
         lastSignInAt: authUser.last_sign_in_at ?? null,
         emailConfirmedAt: authUser.email_confirmed_at ?? null,
@@ -4324,6 +4329,7 @@ export async function sendAdminUserInviteForAuthorizationHeader(
     redirectTo,
     data: {
       full_name: parsed.displayName?.trim() || parsed.email.split("@")[0],
+      profile_kind: "easydraft_staff",
     },
   });
 
