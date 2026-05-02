@@ -105,7 +105,6 @@ export function PublicSite({
             <a className="landing-nav-link" href="/security" onClick={(event) => handlePublicNav(event, "security")}>Security</a>
             <a className="landing-nav-link" href="/privacy" onClick={(event) => handlePublicNav(event, "privacy")}>Privacy</a>
             <a className="landing-nav-link" href="/terms" onClick={(event) => handlePublicNav(event, "terms")}>Terms</a>
-            <a className="landing-nav-link" href="/team" onClick={(event) => handlePublicNav(event, "team")}>Team access</a>
             <a className="landing-nav-cta" href={isTeamPage ? "#team-access" : "#landing-start"}>
               {isTeamPage ? "Team sign in" : "Start free trial"}
             </a>
@@ -285,7 +284,6 @@ export function PublicSite({
                 ) : (
                   <a className="ghost-button" href="/" onClick={(event) => handlePublicNav(event, "home")}>Back to overview</a>
                 )}
-                <a className="ghost-button" href="/team" onClick={(event) => handlePublicNav(event, "team")}>AG Operations team</a>
               </div>
             </section>
           </div>
@@ -323,9 +321,9 @@ export function PublicSite({
         <section className="landing-section" id="landing-start">
           <div className="landing-section-header">
             <p className="eyebrow">Get started</p>
-            <h3>Start your workspace without mixing customer sign-up and internal team access</h3>
+            <h3>Start your workspace and move your first customer-ready workflow through the system</h3>
             <p className="muted">
-              New customer teams can create a workspace here. AG Operations staff use a separate team access page.
+              Create your account, set up your workspace, and begin preparing documents in the same place your team will manage them.
             </p>
           </div>
           <div className="landing-access-grid">
@@ -344,28 +342,25 @@ export function PublicSite({
               {noticeMessage ? <div className="alert success" style={{ marginTop: "0.75rem" }}>{noticeMessage}</div> : null}
             </div>
             <article className="card landing-access-card landing-access-secondary">
-              <p className="eyebrow">AG Operations team</p>
-              <h3>Internal access has its own landing page</h3>
+              <p className="eyebrow">What happens next</p>
+              <h3>Your customer workflow starts here</h3>
               <p className="muted">
-                Keep support, admin, and internal testing separate from the customer trial experience.
+                Everything on this page is designed for customer-facing teams who want a clean start and a clear path to sending live documents.
               </p>
               <ul className="landing-features compact">
                 <li>
-                  <strong>Team sign-in</strong>
-                  <span>Use the dedicated page for AG Operations staff login and password resets.</span>
+                  <strong>Create your workspace</strong>
+                  <span>Name your workspace, invite teammates, and centralize the PDFs your customers need to review and sign.</span>
                 </li>
                 <li>
-                  <strong>Invite-based activation</strong>
-                  <span>Invited team members can activate the correct account path without touching the customer homepage.</span>
+                  <strong>Prepare without friction</strong>
+                  <span>Set routing, assign signers, and control the flow before anything reaches a customer inbox.</span>
                 </li>
                 <li>
-                  <strong>Cleaner public message</strong>
-                  <span>Customers see product value first, not internal admin instructions.</span>
+                  <strong>Send with confidence</strong>
+                  <span>Track progress, review the audit trail, and export the final record when the workflow is complete.</span>
                 </li>
               </ul>
-              <div className="landing-inline-actions">
-                <a className="ghost-button" href="/team" onClick={(event) => handlePublicNav(event, "team")}>Open team access</a>
-              </div>
             </article>
           </div>
         </section>
@@ -425,7 +420,7 @@ export function PublicSite({
           <article className="toolbar-card landing-tour-card">
             <span className="landing-tour-step">3</span>
             <strong>Review and export</strong>
-            <p className="muted">Owners monitor billing, team access, workflow risk, audit history, and final exports from one control center.</p>
+            <p className="muted">Owners monitor billing, workflow risk, audit history, and final exports from one control center.</p>
           </article>
         </div>
       </section>
@@ -451,9 +446,13 @@ export function PublicSite({
             <a className="ghost-button" href="/security" onClick={(event) => handlePublicNav(event, "security")}>Open security</a>
           </article>
           <article className="toolbar-card">
-            <strong>AG Operations team</strong>
-            <p className="muted">Use the separate team landing page for staff sign-in, invite activation, and internal operations.</p>
-            <a className="ghost-button" href="/team" onClick={(event) => handlePublicNav(event, "team")}>Open team access</a>
+            <strong>Getting started</strong>
+            <p className="muted">Review pricing, start a workspace, and move from setup to your first live workflow without leaving the customer path.</p>
+            {showCustomerStartSection ? (
+              <a className="ghost-button" href="#landing-start">Open workspace setup</a>
+            ) : (
+              <a className="ghost-button" href="/" onClick={(event) => handlePublicNav(event, "home")}>Back to overview</a>
+            )}
           </article>
         </div>
         <div style={{ marginTop: "18px" }}>
