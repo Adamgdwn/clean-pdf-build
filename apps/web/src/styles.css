@@ -1309,6 +1309,20 @@ select {
   gap: 14px;
 }
 
+.landing-tour-visual {
+  padding: 18px;
+  overflow: hidden;
+}
+
+.landing-tour-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(37, 108, 94, 0.12);
+  background: #ffffff;
+}
+
 .landing-faq-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -1342,6 +1356,12 @@ select {
   background: var(--accent-soft);
   color: var(--accent);
   font-weight: 700;
+}
+
+@media (max-width: 960px) {
+  .landing-tour-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ── Workspace header (replaces marketing hero for signed-in users) ────────── */

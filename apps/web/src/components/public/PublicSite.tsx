@@ -405,7 +405,17 @@ export function PublicSite({
         <div className="landing-section-header">
           <p className="eyebrow">Product tour</p>
           <h3>How a team uses EasyDraft in practice</h3>
+          <p className="muted">
+            From upload through completion, the workflow stays visible to your team while customers only see the action path they need.
+          </p>
         </div>
+        <article className="toolbar-card landing-tour-visual">
+          <img
+            className="landing-tour-image"
+            src="/marketing/easydraft-workflow-overview.png"
+            alt="EasyDraft workflow overview showing upload, routing choice, delivery mode, progress tracking, and completion export."
+          />
+        </article>
         <div className="landing-tour-grid">
           <article className="toolbar-card landing-tour-card">
             <span className="landing-tour-step">1</span>
