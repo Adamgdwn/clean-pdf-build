@@ -107,6 +107,26 @@ describe("rate limiting", () => {
     expect((await consumeRateLimit("client-a", policy, 50)).allowed).toBe(false);
     expect((await consumeRateLimit("client-a", policy, 101)).allowed).toBe(true);
   });
+
+  it("falls back to in-memory limiting when production is missing Upstash config", async () => {
+    const policy = {
+      key: "test:production-fallback",
+      limit: 1,
+      windowMs: 100,
+    };
+    const productionEnv = readServerEnv({
+      NODE_ENV: "production",
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_ANON_KEY: "anon",
+      SUPABASE_SERVICE_ROLE_KEY: "service",
+      SUPABASE_DOCUMENT_BUCKET: "documents",
+      SUPABASE_SIGNATURE_BUCKET: "signatures",
+      EASYDRAFT_APP_ORIGIN: "https://easydraftdocs.app",
+    });
+
+    expect((await consumeRateLimit("client-b", policy, 0, productionEnv)).allowed).toBe(true);
+    expect((await consumeRateLimit("client-b", policy, 1, productionEnv)).allowed).toBe(false);
+  });
 });
 
 describe("change impact classification", () => {

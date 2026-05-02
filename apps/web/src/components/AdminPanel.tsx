@@ -19,6 +19,11 @@ function formatProfileKind(value: AdminManagedUser["profileKind"]) {
   return "EasyDraft user";
 }
 
+function formatAccountType(value: AdminManagedUser["accountType"]) {
+  if (!value) return "Unknown account";
+  return value === "corporate" ? "Corporate" : "Individual";
+}
+
 // ─── Sidebar summary card ────────────────────────────────────────────────────
 
 type SidebarProps = {
@@ -529,6 +534,9 @@ export function AdminConsole({
                       {adminUser.id === sessionUser.id ? "You" : adminUser.displayName}
                     </strong>
                     <p className="muted">{adminUser.email}</p>
+                    {adminUser.username ? (
+                      <p className="muted">Username: {adminUser.username}</p>
+                    ) : null}
                     <p className="muted">
                       {adminUser.status === "confirmed" ? "Confirmed" : "Pending confirmation"} ·
                       created {formatTimestamp(adminUser.createdAt)}
@@ -540,6 +548,10 @@ export function AdminConsole({
                     {adminUser.companyName ? (
                       <p className="muted">Company: {adminUser.companyName}</p>
                     ) : null}
+                    <p className="muted">
+                      Account: {formatAccountType(adminUser.accountType)}
+                      {adminUser.workspaceName ? ` · Workspace: ${adminUser.workspaceName}` : ""}
+                    </p>
                     <p className="muted">Profile: {formatProfileKind(adminUser.profileKind)}</p>
                     <p className="muted">
                       Privileges: {adminUser.privilegeLabels.join(", ")}

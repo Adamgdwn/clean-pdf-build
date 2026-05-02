@@ -11,6 +11,7 @@ import {
   listAccessibleWorkspacesForUser,
   resolveAuthenticatedUser,
   resolveWorkspaceForUser,
+  syncProfileIdentity,
   type AuthenticatedUser,
 } from "./service.js";
 import { createAuthClient, createServiceRoleClient } from "./supabase.js";
@@ -539,6 +540,15 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
     }
   }
 
+  await syncProfileIdentity({
+    id: user.id,
+    email: user.email,
+    displayName: user.name ?? user.email,
+    accountType: workspace?.workspace_type === "team" ? "corporate" : "individual",
+    workspaceName: workspace?.name ?? null,
+    companyName: workspace?.workspace_type === "team" ? workspace?.name ?? null : null,
+  });
+
   return {
     joined: true,
     alreadyMember: false,
@@ -621,6 +631,51 @@ export async function updateWorkspaceNameForAuthorizationHeader(
       throw new AppError(500, organizationError.message);
     }
   }
+
+  const { data: memberProfiles, error: memberProfilesError } = await adminClient
+    .from("workspace_memberships")
+    .select("user_id, profiles(email, display_name, username, profile_kind)")
+    .eq("workspace_id", workspace.id);
+
+  if (memberProfilesError) {
+    throw new AppError(500, memberProfilesError.message);
+  }
+
+  await Promise.all(
+    ((memberProfiles ?? []) as Array<{
+      user_id: string;
+      profiles:
+        | {
+            email: string;
+            display_name: string | null;
+            username: string | null;
+            profile_kind: "easydraft_user" | "easydraft_staff" | null;
+          }
+        | Array<{
+            email: string;
+            display_name: string | null;
+            username: string | null;
+            profile_kind: "easydraft_user" | "easydraft_staff" | null;
+          }>
+        | null;
+    }>).map(async (entry) => {
+      const profile = Array.isArray(entry.profiles) ? entry.profiles[0] ?? null : entry.profiles;
+      if (!profile?.email) {
+        return;
+      }
+
+      await syncProfileIdentity({
+        id: entry.user_id,
+        email: profile.email,
+        displayName: profile.display_name,
+        username: profile.username,
+        profileKind: profile.profile_kind,
+        accountType: organization.account_type,
+        workspaceName: parsed.name,
+        companyName: organization.account_type === "corporate" ? parsed.name : null,
+      });
+    }),
+  );
 
   return { updated: true, name: parsed.name };
 }

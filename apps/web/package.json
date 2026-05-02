@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --env-file-if-exists=../../.env ../../node_modules/vite/bin/vite.js",
-    "build": "node --env-file-if-exists=../../.env ../../node_modules/vite/bin/vite.js build",
+    "build": "node ../../node_modules/vite/bin/vite.js build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

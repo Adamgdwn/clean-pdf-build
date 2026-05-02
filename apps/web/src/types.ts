@@ -165,8 +165,11 @@ export type AccountProfile = {
   id: string;
   email: string;
   displayName: string;
+  username: string | null;
   avatarUrl: string | null;
   companyName: string | null;
+  accountType: "individual" | "corporate";
+  workspaceName: string | null;
   jobTitle: string | null;
   locale: string | null;
   timezone: string | null;
@@ -293,7 +296,10 @@ export type AdminManagedUser = {
   id: string;
   email: string;
   displayName: string;
+  username: string | null;
   companyName: string | null;
+  accountType: "individual" | "corporate" | null;
+  workspaceName: string | null;
   profileKind: "easydraft_user" | "easydraft_staff" | null;
   createdAt: string;
   lastSignInAt: string | null;

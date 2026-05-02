@@ -2,6 +2,11 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import { getCanonicalAppOrigin, readServerEnv } from "../../../packages/workflow-service/src/env.js";
 import { buildWelcomeEmail, deliverNotificationEmail } from "../../../packages/workflow-service/src/notifications.js";
+import {
+  deriveUsername,
+  inferCompanyName,
+  inferProfileKind,
+} from "../../../packages/workflow-service/src/profile-identity.js";
 import { createAuthClient } from "../../../packages/workflow-service/src/supabase.js";
 
 import { enforceRateLimit, sendError } from "./_utils.js";
@@ -23,15 +28,21 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const fullName = typeof request.body?.fullName === "string" ? request.body.fullName.trim() : "";
     const accountType =
       request.body?.accountType === "corporate" ? "corporate" : "individual";
-    const profileKind =
-      request.body?.profileKind === "easydraft_user" ||
-      request.body?.profileKind === "easydraft_staff"
+    const profileKind = inferProfileKind(
+      email,
+      request.body?.profileKind === "easydraft_user" || request.body?.profileKind === "easydraft_staff"
         ? request.body.profileKind
-        : email.toLowerCase().endsWith("@agoperations.ca")
-          ? "easydraft_staff"
-          : "easydraft_user";
+        : null,
+    );
     const workspaceName =
       typeof request.body?.workspaceName === "string" ? request.body.workspaceName.trim() : "";
+    const username = deriveUsername(email);
+    const companyName = inferCompanyName({
+      email,
+      accountType,
+      workspaceName,
+      profileKind,
+    });
 
     if (!email || !password || !fullName) {
       return response.status(400).json({ message: "Full name, email, and password are required." });
@@ -46,6 +57,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
         emailRedirectTo: getCanonicalAppOrigin(env),
         data: {
           full_name: fullName,
+          username,
+          company_name: companyName ?? undefined,
           account_type: accountType,
           profile_kind: profileKind,
           workspace_name: workspaceName || undefined,

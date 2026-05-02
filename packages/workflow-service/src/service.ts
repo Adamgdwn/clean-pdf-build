@@ -45,11 +45,19 @@ import {
   deliverNotificationEmail,
   getConfiguredNotificationEmailProvider,
 } from "./notifications.js";
+import {
+  deriveUsername,
+  inferAccountType,
+  inferCompanyName,
+  inferProfileKind,
+  type AccountType,
+  type ProfileKind,
+} from "./profile-identity.js";
 import { createAuthClient, createServiceRoleClient } from "./supabase.js";
 import { getWorkspaceSigningTokenBalance } from "./billing.js";
 
 const PROFILE_COLUMNS =
-  "id, email, display_name, avatar_url, company_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at, onboarding_completed_at, profile_kind" as const;
+  "id, email, display_name, username, avatar_url, company_name, account_type, workspace_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at, onboarding_completed_at, profile_kind" as const;
 
 type DocumentRow = {
   id: string;
@@ -297,8 +305,11 @@ type ProfileRow = {
   id: string;
   email: string;
   display_name: string;
+  username: string | null;
   avatar_url: string | null;
   company_name: string | null;
+  account_type: AccountType;
+  workspace_name: string | null;
   job_title: string | null;
   locale: string | null;
   timezone: string | null;
@@ -306,7 +317,7 @@ type ProfileRow = {
   product_updates_opt_in: boolean;
   last_seen_at: string | null;
   onboarding_completed_at: string | null;
-  profile_kind: "easydraft_user" | "easydraft_staff";
+  profile_kind: ProfileKind;
 };
 
 type EditorSnapshotRow = {
@@ -436,8 +447,11 @@ type ProfileResponse = {
     id: string;
     email: string;
     displayName: string;
+    username: string | null;
     avatarUrl: string | null;
     companyName: string | null;
+    accountType: AccountType;
+    workspaceName: string | null;
     jobTitle: string | null;
     locale: string | null;
     timezone: string | null;
@@ -445,7 +459,7 @@ type ProfileResponse = {
     productUpdatesOptIn: boolean;
     lastSeenAt: string | null;
     onboardingCompletedAt: string | null;
-    profileKind: "easydraft_user" | "easydraft_staff";
+    profileKind: ProfileKind;
   };
 };
 
@@ -470,8 +484,11 @@ type AdminManagedUserResponse = {
   id: string;
   email: string;
   displayName: string;
+  username: string | null;
   companyName: string | null;
-  profileKind: "easydraft_user" | "easydraft_staff" | null;
+  accountType: AccountType | null;
+  workspaceName: string | null;
+  profileKind: ProfileKind | null;
   createdAt: string;
   lastSignInAt: string | null;
   emailConfirmedAt: string | null;
@@ -868,6 +885,152 @@ function slugify(value: string) {
 
 function normalizeEmailAddress(value: string) {
   return value.trim().toLowerCase();
+}
+
+function normalizeDisplayName(value: string | null | undefined, email: string) {
+  const trimmed = value?.trim();
+  return trimmed || email.split("@")[0] || "User";
+}
+
+type SyncProfileIdentityInput = {
+  id: string;
+  email: string;
+  displayName?: string | null;
+  username?: string | null;
+  companyName?: string | null;
+  accountType?: AccountType | null;
+  workspaceName?: string | null;
+  profileKind?: ProfileKind | null;
+  touchLastSeenAt?: boolean;
+};
+
+export async function syncProfileIdentity(input: SyncProfileIdentityInput) {
+  const adminClient = createServiceRoleClient();
+  const normalizedEmail = normalizeEmailAddress(input.email);
+  const normalizedDisplayName = normalizeDisplayName(input.displayName, normalizedEmail);
+  const normalizedProfileKind = inferProfileKind(normalizedEmail, input.profileKind);
+  const normalizedUsername = deriveUsername(normalizedEmail, input.username);
+
+  const [organizationMembershipsResult, workspaceMembershipsResult] = await Promise.all([
+    adminClient
+      .from("organization_memberships")
+      .select("role, created_at, organizations(id, name, account_type, owner_user_id)")
+      .eq("user_id", input.id),
+    adminClient
+      .from("workspace_memberships")
+      .select("role, created_at, workspaces(id, name, workspace_type, owner_user_id)")
+      .eq("user_id", input.id),
+  ]);
+
+  if (organizationMembershipsResult.error) {
+    throw new AppError(500, organizationMembershipsResult.error.message);
+  }
+
+  if (workspaceMembershipsResult.error) {
+    throw new AppError(500, workspaceMembershipsResult.error.message);
+  }
+
+  const preferredOrganization = ((organizationMembershipsResult.data ?? []) as Array<{
+    role: "owner" | "admin" | "member" | "billing_admin";
+    created_at: string;
+    organizations:
+      | {
+          id: string;
+          name: string;
+          account_type: AccountType;
+          owner_user_id: string;
+        }
+      | Array<{
+          id: string;
+          name: string;
+          account_type: AccountType;
+          owner_user_id: string;
+        }>
+      | null;
+  }>)
+    .map((entry) => ({
+      role: entry.role,
+      createdAt: entry.created_at,
+      organization: Array.isArray(entry.organizations) ? entry.organizations[0] ?? null : entry.organizations,
+    }))
+    .filter((entry) => entry.organization)
+    .sort((left, right) => {
+      const roleWeight = (role: string) =>
+        role === "owner" ? 0 : role === "admin" ? 1 : role === "billing_admin" ? 2 : 3;
+      return (
+        roleWeight(left.role) - roleWeight(right.role) ||
+        left.createdAt.localeCompare(right.createdAt)
+      );
+    })[0]?.organization ?? null;
+
+  const preferredWorkspace = ((workspaceMembershipsResult.data ?? []) as Array<{
+    role: "owner" | "admin" | "member" | "billing_admin";
+    created_at: string;
+    workspaces:
+      | {
+          id: string;
+          name: string;
+          workspace_type: "personal" | "team";
+          owner_user_id: string;
+        }
+      | Array<{
+          id: string;
+          name: string;
+          workspace_type: "personal" | "team";
+          owner_user_id: string;
+        }>
+      | null;
+  }>)
+    .map((entry) => ({
+      role: entry.role,
+      createdAt: entry.created_at,
+      workspace: Array.isArray(entry.workspaces) ? entry.workspaces[0] ?? null : entry.workspaces,
+    }))
+    .filter((entry) => entry.workspace)
+    .sort((left, right) => {
+      const roleWeight = (role: string) =>
+        role === "owner" ? 0 : role === "admin" ? 1 : role === "billing_admin" ? 2 : 3;
+      return (
+        roleWeight(left.role) - roleWeight(right.role) ||
+        left.createdAt.localeCompare(right.createdAt)
+      );
+    })[0]?.workspace ?? null;
+
+  const normalizedAccountType = inferAccountType(
+    input.accountType,
+    preferredOrganization?.account_type ?? (preferredWorkspace?.workspace_type === "team" ? "corporate" : "individual"),
+  );
+  const normalizedWorkspaceName =
+    input.workspaceName?.trim() ||
+    preferredOrganization?.name ||
+    preferredWorkspace?.name ||
+    null;
+  const normalizedCompanyName = inferCompanyName({
+    email: normalizedEmail,
+    preferredCompanyName: input.companyName,
+    workspaceName: normalizedWorkspaceName,
+    accountType: normalizedAccountType,
+    profileKind: normalizedProfileKind,
+    fallbackCompanyName: preferredOrganization?.account_type === "corporate" ? preferredOrganization.name : null,
+  });
+
+  const payload = {
+    id: input.id,
+    email: normalizedEmail,
+    display_name: normalizedDisplayName,
+    username: normalizedUsername,
+    company_name: normalizedCompanyName,
+    account_type: normalizedAccountType,
+    workspace_name: normalizedWorkspaceName,
+    profile_kind: normalizedProfileKind,
+    ...(input.touchLastSeenAt ? { last_seen_at: new Date().toISOString() } : {}),
+  };
+
+  const { error } = await adminClient.from("profiles").upsert(payload, { onConflict: "id" });
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
 }
 
 function isActionFieldKind(kind: Field["kind"]) {
@@ -1481,8 +1644,11 @@ function mapProfile(row: ProfileRow): ProfileResponse["profile"] {
     id: row.id,
     email: row.email,
     displayName: row.display_name,
+    username: row.username,
     avatarUrl: row.avatar_url,
     companyName: row.company_name,
+    accountType: row.account_type,
+    workspaceName: row.workspace_name,
     jobTitle: row.job_title,
     locale: row.locale,
     timezone: row.timezone,
@@ -1649,12 +1815,30 @@ export async function resolveAuthenticatedUser(authorizationHeader: string | und
     workspaceName: data.user.user_metadata.workspace_name ?? undefined,
   };
   const normalizedEmail = normalizeEmailAddress(user.rawEmail);
+  const profileKind = inferProfileKind(normalizedEmail, data.user.user_metadata.profile_kind);
 
   await adminClient.from("profiles").upsert(
     {
       id: user.id,
       email: user.email,
-      display_name: user.name,
+      display_name: normalizeDisplayName(user.name, normalizedEmail),
+      username: deriveUsername(
+        normalizedEmail,
+        typeof data.user.user_metadata.username === "string" ? data.user.user_metadata.username : null,
+      ),
+      company_name: inferCompanyName({
+        email: normalizedEmail,
+        preferredCompanyName:
+          typeof data.user.user_metadata.company_name === "string"
+            ? data.user.user_metadata.company_name
+            : null,
+        workspaceName: user.workspaceName ?? null,
+        accountType: inferAccountType(user.accountType),
+        profileKind,
+      }),
+      account_type: inferAccountType(user.accountType),
+      workspace_name: user.workspaceName ?? null,
+      profile_kind: profileKind,
       last_seen_at: new Date().toISOString(),
     },
     {
@@ -4259,7 +4443,10 @@ export async function listAdminUsersForAuthorizationHeader(
           authUser.user_metadata?.name ??
           email.split("@")[0] ??
           "Unknown user",
+        username: profile?.username ?? deriveUsername(email),
         companyName: profile?.company_name ?? null,
+        accountType: profile?.account_type ?? null,
+        workspaceName: profile?.workspace_name ?? null,
         profileKind: profile?.profile_kind ?? null,
         createdAt: authUser.created_at,
         lastSignInAt: authUser.last_sign_in_at ?? null,

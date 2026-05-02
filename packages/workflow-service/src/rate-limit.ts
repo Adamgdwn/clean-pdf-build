@@ -1,4 +1,5 @@
-import { hasRedisRateLimitConfig, readServerEnv } from "./env.js";
+import { hasRedisRateLimitConfig, readServerEnv, type ServerEnv } from "./env.js";
+import { captureServerException } from "./telemetry.js";
 
 type RateLimitState = {
   count: number;
@@ -122,15 +123,26 @@ export async function consumeRateLimit(
   clientKey: string,
   policy: RateLimitPolicy,
   now = Date.now(),
+  env: ServerEnv = readServerEnv(),
 ): Promise<RateLimitResult> {
-  const env = readServerEnv();
-
   if (hasRedisRateLimitConfig(env)) {
-    return consumeRedisRateLimit(clientKey, policy, now);
-  }
-
-  if ((env.NODE_ENV ?? "development") === "production") {
-    throw new Error("Distributed rate limiting requires UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in production.");
+    try {
+      return await consumeRedisRateLimit(clientKey, policy, now);
+    } catch (error) {
+      captureServerException(error, {
+        scope: "rate-limit",
+        policyKey: policy.key,
+        fallback: "memory",
+        reason: "redis_request_failed",
+      });
+    }
+  } else if ((env.NODE_ENV ?? "development") === "production") {
+    captureServerException(new Error("Missing Upstash Redis rate limit configuration."), {
+      scope: "rate-limit",
+      policyKey: policy.key,
+      fallback: "memory",
+      reason: "missing_redis_config",
+    });
   }
 
   return consumeMemoryRateLimit(clientKey, policy, now);
