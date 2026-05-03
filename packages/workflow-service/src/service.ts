@@ -26,7 +26,7 @@ import {
 import { createHash, randomInt, timingSafeEqual } from "crypto";
 import { pdflibAddPlaceholder } from "@signpdf/placeholder-pdf-lib";
 import { P12Signer } from "@signpdf/signer-p12";
-import signpdf from "@signpdf/signpdf";
+import { SignPdf } from "@signpdf/signpdf";
 import { SUBFILTER_ETSI_CADES_DETACHED } from "@signpdf/utils";
 import forge from "node-forge";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
@@ -5065,6 +5065,7 @@ export async function createInternallySignedDocumentForAuthorizationHeader(
 
   const { exportBuffer } = await renderDocumentExportBuffer(document);
   const { p12Buffer, passphrase, thumbprint } = readInternalSigningCertificate();
+  const signpdf = new SignPdf();
   const signer = new P12Signer(p12Buffer, { passphrase });
   const signingTime = new Date();
 
