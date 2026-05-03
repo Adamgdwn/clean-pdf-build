@@ -60,6 +60,18 @@ function formatWorkspaceRoleLabel(role: string | null) {
   return formatState(role);
 }
 
+function getBrowserTimeZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function getBrowserLocale() {
+  return typeof navigator !== "undefined" ? navigator.language : "";
+}
+
 const AUDIT_EVENT_LABELS: Record<string, string> = {
   "document.uploaded": "Uploaded",
   "document.prepared": "Prepared",
@@ -820,8 +832,8 @@ export default function App() {
     setProfileDisplayName(payload.profile.displayName);
     setProfileCompanyName(payload.profile.companyName ?? "");
     setProfileJobTitle(payload.profile.jobTitle ?? "");
-    setProfileTimezone(payload.profile.timezone ?? "");
-    setProfileLocale(payload.profile.locale ?? "");
+    setProfileTimezone(payload.profile.timezone ?? getBrowserTimeZone());
+    setProfileLocale(payload.profile.locale ?? getBrowserLocale());
     setProfileMarketingOptIn(payload.profile.marketingOptIn);
     setProfileProductUpdatesOptIn(payload.profile.productUpdatesOptIn);
   }
@@ -2373,11 +2385,15 @@ export default function App() {
     billingOverview?.workspace.name ??
     accountProfile?.companyName ??
     "Workspace";
-  const currentWorkspaceRoleLabel = formatWorkspaceRoleLabel(workspaceMembershipRole);
   const currentWorkspaceIsCorporate =
     activeWorkspace?.organization?.accountType === "corporate" ||
     workspaceTeam?.organization.accountType === "corporate" ||
     billingOverview?.organization.accountType === "corporate";
+  const currentWorkspaceDisplayName = currentWorkspaceIsCorporate ? currentWorkspaceName : "My workspace";
+  const currentWorkspaceRoleLabel = currentWorkspaceIsCorporate
+    ? formatWorkspaceRoleLabel(workspaceMembershipRole)
+    : null;
+  const isBusinessProfile = accountProfile?.accountType === "corporate" || accountProfile?.profileKind === "easydraft_staff";
   const isWorkspaceHydrating = Boolean(
     sessionUser &&
       session &&
@@ -2780,7 +2796,7 @@ export default function App() {
               <p className="user-name">{sessionUser.name}</p>
               <p className="muted user-email">{sessionUser.email}</p>
               <p className="muted user-workspace">
-                {currentWorkspaceName}
+                {currentWorkspaceDisplayName}
                 {currentWorkspaceRoleLabel ? ` · ${currentWorkspaceRoleLabel}` : ""}
               </p>
               <button className="ghost-button small" onClick={handleSignOut} type="button">Sign out</button>
@@ -2795,7 +2811,7 @@ export default function App() {
               <span>
                 {activeWorkspace?.organization?.accountType === "corporate"
                   ? "Corporate account"
-                  : "Individual account"}
+                  : "Personal workspace"}
               </span>
             </div>
             <label className="form-field">
@@ -2811,8 +2827,12 @@ export default function App() {
               >
                 {availableWorkspaces.map((workspace) => (
                   <option key={workspace.id} value={workspace.id}>
-                    {workspace.organization?.name ?? workspace.name}
-                    {workspace.role ? ` (${formatWorkspaceRoleLabel(workspace.role)})` : ""}
+                    {workspace.organization?.accountType === "corporate"
+                      ? (workspace.organization?.name ?? workspace.name)
+                      : "My workspace"}
+                    {workspace.organization?.accountType === "corporate" && workspace.role
+                      ? ` (${formatWorkspaceRoleLabel(workspace.role)})`
+                      : ""}
                   </option>
                 ))}
               </select>
@@ -2920,7 +2940,7 @@ export default function App() {
           <section className="card" id="section-account">
             <div className="section-heading compact">
               <p className="eyebrow">Account</p>
-              <span>{accountProfile.companyName ?? "Personal"}</span>
+              <span>{isBusinessProfile ? accountProfile.companyName ?? "Business" : "Personal"}</span>
             </div>
             <form className="stack form-block account-form" onSubmit={handleSaveProfile}>
               <label className="form-field">
@@ -2931,20 +2951,24 @@ export default function App() {
                   onChange={(event) => setProfileDisplayName(event.target.value)}
                 />
               </label>
-              <label className="form-field">
-                <span>Company</span>
-                <input
-                  value={profileCompanyName}
-                  onChange={(event) => setProfileCompanyName(event.target.value)}
-                />
-              </label>
-              <label className="form-field">
-                <span>Job title</span>
-                <input
-                  value={profileJobTitle}
-                  onChange={(event) => setProfileJobTitle(event.target.value)}
-                />
-              </label>
+              {isBusinessProfile ? (
+                <>
+                  <label className="form-field">
+                    <span>Company</span>
+                    <input
+                      value={profileCompanyName}
+                      onChange={(event) => setProfileCompanyName(event.target.value)}
+                    />
+                  </label>
+                  <label className="form-field">
+                    <span>Job title</span>
+                    <input
+                      value={profileJobTitle}
+                      onChange={(event) => setProfileJobTitle(event.target.value)}
+                    />
+                  </label>
+                </>
+              ) : null}
               <div className="form-grid compact-grid">
                 <label className="form-field">
                   <span>Timezone</span>
@@ -3419,7 +3443,7 @@ export default function App() {
               {portalView === "org_admin"
                 ? "Organization control center"
                 : sessionUser
-                  ? currentWorkspaceName
+                  ? currentWorkspaceDisplayName
                   : "Complete your assigned fields"}
             </h2>
             {portalView === "org_admin" ? (
@@ -3428,8 +3452,14 @@ export default function App() {
               </p>
             ) : (
               <p className="muted">
-                Working in <strong>{currentWorkspaceName}</strong>
-                {currentWorkspaceRoleLabel ? ` as ${currentWorkspaceRoleLabel}.` : "."}
+                {currentWorkspaceIsCorporate ? (
+                  <>
+                    Working in <strong>{currentWorkspaceDisplayName}</strong>
+                    {currentWorkspaceRoleLabel ? ` as ${currentWorkspaceRoleLabel}.` : "."}
+                  </>
+                ) : (
+                  <>Working in your personal document workspace.</>
+                )}
               </p>
             )}
           </div>
@@ -3487,7 +3517,13 @@ export default function App() {
             {workspaceTeam.members.length === 1 ? (
               <div className="stack">
                 <p className="muted">
-                  You&apos;re the owner of <strong>{currentWorkspaceName}</strong>. Refine. Share. Sign. Start with one complete solo workflow so you can see the full send, sign, and export path.
+                  {currentWorkspaceIsCorporate ? (
+                    <>
+                      You&apos;re the owner of <strong>{currentWorkspaceDisplayName}</strong>. Refine. Share. Sign. Start with one complete solo workflow so you can see the full send, sign, and export path.
+                    </>
+                  ) : (
+                    <>Start with one complete solo workflow so you can see the full send, sign, and export path.</>
+                  )}
                 </p>
                 <div className="checklist-grid">
                   <div className="checklist-step checklist-step-active">
