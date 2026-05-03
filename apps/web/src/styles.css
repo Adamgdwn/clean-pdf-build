@@ -1134,6 +1134,13 @@ select {
   box-sizing: border-box;
 }
 
+.landing-body-home {
+  grid-template-columns: minmax(0, 0.8fr) minmax(520px, 1.2fr);
+  max-width: 1280px;
+  align-items: center;
+  gap: 34px;
+}
+
 .landing-body-team {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
 }
@@ -1158,7 +1165,7 @@ select {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 24px;
+  margin-bottom: 0;
 }
 
 .landing-proof-grid {
@@ -1166,27 +1173,6 @@ select {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 28px;
-}
-
-.landing-process-preview {
-  display: grid;
-  gap: 12px;
-  margin: 0 0 24px;
-}
-
-.landing-process-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.landing-process-header strong {
-  display: block;
-  margin-top: 4px;
-  color: #18241d;
-  font-size: 0.98rem;
-  line-height: 1.45;
 }
 
 .landing-proof-card,
@@ -1231,7 +1217,7 @@ select {
 }
 
 .landing-sub {
-  margin: 0 0 32px;
+  margin: 0 0 24px;
   color: var(--text-muted);
   font-size: 1.05rem;
   line-height: 1.6;
@@ -1296,6 +1282,43 @@ select {
 
 .landing-showcase-item {
   align-items: center;
+}
+
+.landing-workflow-card {
+  padding: 14px;
+}
+
+.landing-workflow-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 10px;
+  border: 1px solid rgba(37, 108, 94, 0.12);
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.landing-workflow-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.landing-workflow-steps span {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 7px 9px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.25;
+}
+
+.landing-home-proof {
+  margin-top: -18px;
 }
 
 .landing-inline-actions {
@@ -1388,11 +1411,6 @@ select {
 @media (max-width: 960px) {
   .landing-tour-grid {
     grid-template-columns: 1fr;
-  }
-
-  .landing-process-header {
-    align-items: flex-start;
-    flex-direction: column;
   }
 }
 
@@ -1660,6 +1678,18 @@ button.row-card-button p {
   .landing-nav {
     width: 100%;
     gap: 10px 14px;
+  }
+
+  .landing-body-home .landing-hero-stack {
+    order: -1;
+  }
+
+  .landing-body-home .landing-side-note {
+    display: none;
+  }
+
+  .landing-workflow-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .landing-proof-grid,
