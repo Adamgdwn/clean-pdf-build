@@ -1137,8 +1137,10 @@ select {
 .landing-body-home {
   grid-template-columns: minmax(0, 0.8fr) minmax(520px, 1.2fr);
   max-width: 1280px;
-  align-items: center;
+  align-items: start;
   gap: 34px;
+  padding-top: 24px;
+  padding-bottom: 36px;
 }
 
 .landing-body-team {
