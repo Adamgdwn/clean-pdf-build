@@ -2374,6 +2374,10 @@ export default function App() {
     accountProfile?.companyName ??
     "Workspace";
   const currentWorkspaceRoleLabel = formatWorkspaceRoleLabel(workspaceMembershipRole);
+  const currentWorkspaceIsCorporate =
+    activeWorkspace?.organization?.accountType === "corporate" ||
+    workspaceTeam?.organization.accountType === "corporate" ||
+    billingOverview?.organization.accountType === "corporate";
   const isWorkspaceHydrating = Boolean(
     sessionUser &&
       session &&
@@ -2384,7 +2388,9 @@ export default function App() {
   const orgAdminAccessResolved = Boolean(sessionUser && (sessionUser.isAdmin || billingOverview || workspaceTeam));
   const canAccessOrgAdmin = Boolean(
     sessionUser &&
-      (sessionUser.isAdmin || ["owner", "admin", "billing_admin"].includes(workspaceMembershipRole ?? "")),
+      (sessionUser.isAdmin ||
+        (currentWorkspaceIsCorporate &&
+          ["owner", "admin", "billing_admin"].includes(workspaceMembershipRole ?? ""))),
   );
 
   function updatePortalView(nextView: PortalView) {

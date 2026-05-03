@@ -1454,20 +1454,23 @@ export async function resolveWorkspaceForUser(
     return existingWorkspace;
   }
 
-  const wantsCorporateAccount = user.accountType === "corporate" || Boolean(user.workspaceName?.trim());
+  const wantsCorporateAccount = user.accountType === "corporate";
   const workspaceType = wantsCorporateAccount ? "team" : "personal";
+  const preferredWorkspaceName = user.workspaceName?.trim() || null;
   const organizationName = wantsCorporateAccount
-    ? user.workspaceName?.trim() || (user.name?.trim() ? `${user.name.trim()}'s organization` : "My organization")
-    : user.name?.trim()
+    ? preferredWorkspaceName || (user.name?.trim() ? `${user.name.trim()}'s organization` : "My organization")
+    : (preferredWorkspaceName ??
+      (user.name?.trim()
       ? `${user.name.trim()}'s account`
-      : "My account";
+        : "My account"));
   const workspaceName = wantsCorporateAccount
     ? organizationName
-    : user.name?.trim()
+    : (preferredWorkspaceName ??
+      (user.name?.trim()
       ? `${user.name.trim()}'s workspace`
-      : "My workspace";
+        : "My workspace"));
   const baseSlug = slugify(
-    wantsCorporateAccount ? organizationName : user.name || user.email.split("@")[0],
+    organizationName || workspaceName || user.name || user.email.split("@")[0],
   );
   const workspaceSlug = [baseSlug, user.id.slice(0, 8)]
     .filter(Boolean)

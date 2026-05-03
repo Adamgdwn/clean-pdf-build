@@ -12,9 +12,9 @@ describe("profile identity helpers", () => {
     expect(deriveUsername("Adam.Goodwin+pilot@gmail.com")).toBe("adam.goodwin-pilot");
   });
 
-  it("prefers an explicit profile kind before falling back to the email domain", () => {
+  it("prefers an explicit profile kind and otherwise treats accounts as users", () => {
     expect(inferProfileKind("user@example.com", "easydraft_staff")).toBe("easydraft_staff");
-    expect(inferProfileKind("staff@agoperations.ca")).toBe("easydraft_staff");
+    expect(inferProfileKind("staff@agoperations.ca")).toBe("easydraft_user");
   });
 
   it("keeps corporate account type and workspace name aligned for company inference", () => {

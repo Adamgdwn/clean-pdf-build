@@ -33,7 +33,7 @@ export function AuthPanel({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
-  const [accountType, setAccountType] = useState<"individual" | "corporate">("corporate");
+  const [accountType, setAccountType] = useState<"individual" | "corporate">("individual");
   const [workspaceName, setWorkspaceName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);

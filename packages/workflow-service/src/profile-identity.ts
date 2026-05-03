@@ -23,8 +23,7 @@ export function inferProfileKind(email: string, preferredProfileKind?: string | 
     return preferredProfileKind;
   }
 
-  const domain = email.trim().toLowerCase().split("@")[1] ?? "";
-  return domain === "agoperations.ca" ? "easydraft_staff" : "easydraft_user";
+  return "easydraft_user";
 }
 
 export function inferAccountType(
