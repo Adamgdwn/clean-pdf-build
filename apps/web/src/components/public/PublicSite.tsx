@@ -126,6 +126,21 @@ export function PublicSite({
                 <a className="ghost-button" href="/pricing" onClick={(event) => handlePublicNav(event, "pricing")}>View pricing</a>
                 <a className="ghost-button" href="#landing-tour">See how it works</a>
               </div>
+              <section className="landing-process-preview" id="landing-tour">
+                <div className="landing-process-header">
+                  <div>
+                    <p className="eyebrow">Workflow map</p>
+                    <strong>Upload PDF, choose the route, send, track progress, then export the signed record.</strong>
+                  </div>
+                </div>
+                <article className="toolbar-card landing-tour-visual landing-tour-visual-preview">
+                  <img
+                    className="landing-tour-image"
+                    src="/marketing/easydraft-workflow-overview.png"
+                    alt="EasyDraft workflow overview showing upload, routing choice, delivery mode, progress tracking, and completion export."
+                  />
+                </article>
+              </section>
               <div className="landing-proof-grid">
                 <div className="landing-proof-card">
                   <strong>For your customer</strong>
@@ -401,7 +416,7 @@ export function PublicSite({
           </article>
         </div>
       </section>
-      <section className="landing-section" id="landing-tour">
+      <section className="landing-section" id={publicPage === "home" ? "landing-tour-details" : "landing-tour"}>
         <div className="landing-section-header">
           <p className="eyebrow">Product tour</p>
           <h3>How a team uses EasyDraft in practice</h3>
