@@ -55,6 +55,7 @@ import {
 } from "./profile-identity.js";
 import { createAuthClient, createServiceRoleClient } from "./supabase.js";
 import { getWorkspaceSigningTokenBalance } from "./billing.js";
+import { captureServerException } from "./telemetry.js";
 
 const PROFILE_COLUMNS =
   "id, email, display_name, username, avatar_url, company_name, account_type, workspace_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at, onboarding_completed_at, profile_kind" as const;
@@ -2417,7 +2418,16 @@ async function queueNotification(
   }
 
   if (hasNotificationEmailConfig()) {
-    await deliverNotificationRow(data as NotificationRow);
+    try {
+      await deliverNotificationRow(data as NotificationRow);
+    } catch (error) {
+      captureServerException(error, {
+        scope: "notification-delivery",
+        documentId,
+        notificationId: (data as NotificationRow).id,
+        eventType,
+      });
+    }
   }
 }
 
@@ -7622,16 +7632,28 @@ export async function processQueuedNotifications(limit = 10) {
   }
 
   const deliveredNotifications: string[] = [];
+  const failedNotifications: string[] = [];
 
   for (const notification of (data ?? []) as NotificationRow[]) {
-    const result = await deliverNotificationRow(notification);
+    try {
+      const result = await deliverNotificationRow(notification);
 
-    if (result.delivered) {
-      deliveredNotifications.push(notification.id);
+      if (result.delivered) {
+        deliveredNotifications.push(notification.id);
+      }
+    } catch (error) {
+      failedNotifications.push(notification.id);
+      captureServerException(error, {
+        scope: "notification-processor",
+        documentId: notification.document_id,
+        notificationId: notification.id,
+        eventType: notification.event_type,
+      });
     }
   }
 
   return {
     deliveredNotifications,
+    failedNotifications,
   };
 }

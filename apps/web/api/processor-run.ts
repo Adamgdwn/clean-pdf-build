@@ -41,7 +41,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
   }
 
   const results = {
-    notifications: { delivered: 0, error: null as string | null },
+    notifications: { delivered: 0, failed: 0, error: null as string | null },
     jobs: { processed: 0, error: null as string | null },
     purges: { purged: 0, error: null as string | null },
   };
@@ -50,6 +50,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
   try {
     const outcome = await processQueuedNotifications();
     results.notifications.delivered = outcome.deliveredNotifications.length;
+    results.notifications.failed = outcome.failedNotifications.length;
   } catch (error) {
     results.notifications.error = (error as Error).message;
     captureServerException(error, { scope: "processor-run", task: "notifications" });

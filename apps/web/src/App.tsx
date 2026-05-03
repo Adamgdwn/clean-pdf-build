@@ -92,6 +92,16 @@ function formatAuditEventType(type: string) {
   return AUDIT_EVENT_LABELS[type] ?? formatState(type);
 }
 
+function getSettledErrorMessage(results: PromiseSettledResult<unknown>[]) {
+  const messages = results
+    .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+    .map((result) => result.reason)
+    .map((reason) => (reason instanceof Error ? reason.message : String(reason)))
+    .filter(Boolean);
+
+  return messages.length > 0 ? Array.from(new Set(messages)).join(" ") : null;
+}
+
 function getSignerFieldStatus(
   signer: { id: string },
   fields: Array<{ assigneeSignerId: string | null; required: boolean; kind: string; completedAt: string | null }>,
@@ -398,7 +408,7 @@ function OnboardingPrompt({
         .map((e) => e.trim())
         .filter((e) => e.includes("@"));
 
-      await Promise.allSettled(
+      const invitationResults = await Promise.allSettled(
         emails.map((email) =>
           apiFetch("/workspace-invite", session, {
             method: "POST",
@@ -406,6 +416,11 @@ function OnboardingPrompt({
           }),
         ),
       );
+      const invitationError = getSettledErrorMessage(invitationResults);
+
+      if (invitationError) {
+        throw new Error(`Workspace setup saved, but one or more invitations failed. ${invitationError}`);
+      }
 
       onComplete();
     } catch (error) {
@@ -895,11 +910,16 @@ export default function App() {
 
     try {
       await refreshWorkspaceDirectory(session);
-      await Promise.allSettled([
+      const results = await Promise.allSettled([
         refreshBilling(session),
         refreshTeam(session),
         refreshDocuments(session),
       ]);
+      const refreshError = getSettledErrorMessage(results);
+
+      if (refreshError) {
+        throw new Error(`Workspace switched, but some workspace data could not refresh. ${refreshError}`);
+      }
       showToast("Workspace updated.");
     } catch (error) {
       setErrorMessage((error as Error).message);
@@ -2215,7 +2235,7 @@ export default function App() {
 
         await refreshWorkspaceDirectory(activeSession);
 
-        await Promise.allSettled([
+        const results = await Promise.allSettled([
           refreshBilling(activeSession),
           refreshTeam(activeSession),
           refreshDocuments(activeSession),
@@ -2230,6 +2250,11 @@ export default function App() {
               ]
             : []),
         ]);
+        const refreshError = getSettledErrorMessage(results);
+
+        if (refreshError && !cancelled) {
+          setErrorMessage(`Some workspace data could not load. ${refreshError}`);
+        }
       } catch (error) {
         if (!cancelled) {
           setErrorMessage((error as Error).message);
