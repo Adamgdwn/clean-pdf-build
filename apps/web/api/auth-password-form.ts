@@ -21,7 +21,7 @@ function renderRedirectPage(response: VercelResponse, session: Session) {
     <p>Signing you in…</p>
     <script>
       try {
-        localStorage.setItem("easydraft_session", ${escapeForScript(serializedSession)});
+        sessionStorage.setItem("easydraft_session", ${escapeForScript(serializedSession)});
       } catch (error) {
         console.error(error);
       }
