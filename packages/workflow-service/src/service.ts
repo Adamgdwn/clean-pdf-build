@@ -26,7 +26,7 @@ import {
 import { createHash, randomInt, timingSafeEqual } from "crypto";
 import { pdflibAddPlaceholder } from "@signpdf/placeholder-pdf-lib";
 import { P12Signer } from "@signpdf/signer-p12";
-import signpdf from "@signpdf/signpdf";
+import { SignPdf } from "@signpdf/signpdf";
 import { SUBFILTER_ETSI_CADES_DETACHED } from "@signpdf/utils";
 import forge from "node-forge";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
@@ -53,11 +53,20 @@ import {
   type AccountType,
   type ProfileKind,
 } from "./profile-identity.js";
+import {
+  countProfiles,
+  deleteProfileById,
+  findProfileByEmail,
+  getProfileById as getSplitProfileById,
+  listProfilesByIds,
+  PROFILE_COLUMNS,
+  type ProfileRow,
+  updateProfileById,
+  upsertProfile,
+} from "./profile-store.js";
 import { createAuthClient, createServiceRoleClient } from "./supabase.js";
 import { getWorkspaceSigningTokenBalance } from "./billing.js";
-
-const PROFILE_COLUMNS =
-  "id, email, display_name, username, avatar_url, company_name, account_type, workspace_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at, onboarding_completed_at, profile_kind" as const;
+import { captureServerException } from "./telemetry.js";
 
 type DocumentRow = {
   id: string;
@@ -299,25 +308,6 @@ type SavedSignatureRow = {
   storage_path: string | null;
   is_default: boolean;
   created_at: string;
-};
-
-type ProfileRow = {
-  id: string;
-  email: string;
-  display_name: string;
-  username: string | null;
-  avatar_url: string | null;
-  company_name: string | null;
-  account_type: AccountType;
-  workspace_name: string | null;
-  job_title: string | null;
-  locale: string | null;
-  timezone: string | null;
-  marketing_opt_in: boolean;
-  product_updates_opt_in: boolean;
-  last_seen_at: string | null;
-  onboarding_completed_at: string | null;
-  profile_kind: ProfileKind;
 };
 
 type EditorSnapshotRow = {
@@ -1015,22 +1005,17 @@ export async function syncProfileIdentity(input: SyncProfileIdentityInput) {
   });
 
   const payload = {
-    id: input.id,
+    user_id: input.id,
     email: normalizedEmail,
     display_name: normalizedDisplayName,
     username: normalizedUsername,
     company_name: normalizedCompanyName,
     account_type: normalizedAccountType,
     workspace_name: normalizedWorkspaceName,
-    profile_kind: normalizedProfileKind,
     ...(input.touchLastSeenAt ? { last_seen_at: new Date().toISOString() } : {}),
   };
 
-  const { error } = await adminClient.from("profiles").upsert(payload, { onConflict: "id" });
-
-  if (error) {
-    throw new AppError(500, error.message);
-  }
+  await upsertProfile(adminClient, normalizedProfileKind, payload);
 }
 
 function isActionFieldKind(kind: Field["kind"]) {
@@ -1453,20 +1438,23 @@ export async function resolveWorkspaceForUser(
     return existingWorkspace;
   }
 
-  const wantsCorporateAccount = user.accountType === "corporate" || Boolean(user.workspaceName?.trim());
+  const wantsCorporateAccount = user.accountType === "corporate";
   const workspaceType = wantsCorporateAccount ? "team" : "personal";
+  const preferredWorkspaceName = user.workspaceName?.trim() || null;
   const organizationName = wantsCorporateAccount
-    ? user.workspaceName?.trim() || (user.name?.trim() ? `${user.name.trim()}'s organization` : "My organization")
-    : user.name?.trim()
+    ? preferredWorkspaceName || (user.name?.trim() ? `${user.name.trim()}'s organization` : "My organization")
+    : (preferredWorkspaceName ??
+      (user.name?.trim()
       ? `${user.name.trim()}'s account`
-      : "My account";
+        : "My account"));
   const workspaceName = wantsCorporateAccount
     ? organizationName
-    : user.name?.trim()
+    : (preferredWorkspaceName ??
+      (user.name?.trim()
       ? `${user.name.trim()}'s workspace`
-      : "My workspace";
+        : "My workspace"));
   const baseSlug = slugify(
-    wantsCorporateAccount ? organizationName : user.name || user.email.split("@")[0],
+    organizationName || workspaceName || user.name || user.email.split("@")[0],
   );
   const workspaceSlug = [baseSlug, user.id.slice(0, 8)]
     .filter(Boolean)
@@ -1817,34 +1805,28 @@ export async function resolveAuthenticatedUser(authorizationHeader: string | und
   const normalizedEmail = normalizeEmailAddress(user.rawEmail);
   const profileKind = inferProfileKind(normalizedEmail, data.user.user_metadata.profile_kind);
 
-  await adminClient.from("profiles").upsert(
-    {
-      id: user.id,
-      email: user.email,
-      display_name: normalizeDisplayName(user.name, normalizedEmail),
-      username: deriveUsername(
-        normalizedEmail,
-        typeof data.user.user_metadata.username === "string" ? data.user.user_metadata.username : null,
-      ),
-      company_name: inferCompanyName({
-        email: normalizedEmail,
-        preferredCompanyName:
-          typeof data.user.user_metadata.company_name === "string"
-            ? data.user.user_metadata.company_name
-            : null,
-        workspaceName: user.workspaceName ?? null,
-        accountType: inferAccountType(user.accountType),
-        profileKind,
-      }),
-      account_type: inferAccountType(user.accountType),
-      workspace_name: user.workspaceName ?? null,
-      profile_kind: profileKind,
-      last_seen_at: new Date().toISOString(),
-    },
-    {
-      onConflict: "id",
-    },
-  );
+  await upsertProfile(adminClient, profileKind, {
+    user_id: user.id,
+    email: user.email,
+    display_name: normalizeDisplayName(user.name, normalizedEmail),
+    username: deriveUsername(
+      normalizedEmail,
+      typeof data.user.user_metadata.username === "string" ? data.user.user_metadata.username : null,
+    ),
+    company_name: inferCompanyName({
+      email: normalizedEmail,
+      preferredCompanyName:
+        typeof data.user.user_metadata.company_name === "string"
+          ? data.user.user_metadata.company_name
+          : null,
+      workspaceName: user.workspaceName ?? null,
+      accountType: inferAccountType(user.accountType),
+      profileKind,
+    }),
+    account_type: inferAccountType(user.accountType),
+    workspace_name: user.workspaceName ?? null,
+    last_seen_at: new Date().toISOString(),
+  });
 
   const { data: invites } = await adminClient
     .from("document_invites")
@@ -2158,18 +2140,7 @@ async function requireDocumentBundle(documentId: string) {
   let accessProfiles: ProfileRow[] = [];
 
   if (accessUserIds.length > 0) {
-    const { data: profileRows, error: profileError } = await adminClient
-      .from("profiles")
-      .select(
-        PROFILE_COLUMNS,
-      )
-      .in("id", accessUserIds);
-
-    if (profileError) {
-      throw new AppError(500, profileError.message);
-    }
-
-    accessProfiles = (profileRows ?? []) as ProfileRow[];
+    accessProfiles = await listProfilesByIds(adminClient, accessUserIds);
   }
 
   return mapDocumentRecord(
@@ -2417,7 +2388,16 @@ async function queueNotification(
   }
 
   if (hasNotificationEmailConfig()) {
-    await deliverNotificationRow(data as NotificationRow);
+    try {
+      await deliverNotificationRow(data as NotificationRow);
+    } catch (error) {
+      captureServerException(error, {
+        scope: "notification-delivery",
+        documentId,
+        notificationId: (data as NotificationRow).id,
+        eventType,
+      });
+    }
   }
 }
 
@@ -2726,17 +2706,7 @@ async function restoreEditorSnapshot(
 
 async function getProfileById(userId: string) {
   const adminClient = createServiceRoleClient();
-  const { data, error } = await adminClient
-    .from("profiles")
-    .select("id, email, display_name")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (error) {
-    throw new AppError(500, error.message);
-  }
-
-  return data as { id: string; email: string; display_name: string } | null;
+  return getSplitProfileById(adminClient, userId);
 }
 
 function getPendingRequiredAssignedFields(document: DocumentRecord) {
@@ -3930,16 +3900,9 @@ export async function listAdminFeedbackRequestsForAuthorizationHeader(
   const profileById = new Map<string, { display_name: string; email: string }>();
 
   if (relatedProfileIds.length > 0) {
-    const { data: profileRows, error: profileError } = await adminClient
-      .from("profiles")
-      .select("id, display_name, email")
-      .in("id", relatedProfileIds);
+    const profileRows = await listProfilesByIds(adminClient, relatedProfileIds);
 
-    if (profileError) {
-      throw new AppError(500, profileError.message);
-    }
-
-    for (const profile of (profileRows ?? []) as Array<{ id: string; display_name: string; email: string }>) {
+    for (const profile of profileRows) {
       profileById.set(profile.id, {
         display_name: profile.display_name,
         email: profile.email,
@@ -4044,20 +4007,14 @@ export async function updateAdminFeedbackRequestForAuthorizationHeader(
 export async function getProfileForAuthorizationHeader(authorizationHeader: string | undefined) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const adminClient = createServiceRoleClient();
-  const { data, error } = await adminClient
-    .from("profiles")
-    .select(
-      PROFILE_COLUMNS,
-    )
-    .eq("id", user.id)
-    .maybeSingle();
+  const profile = await getSplitProfileById(adminClient, user.id);
 
-  if (error || !data) {
-    throw new AppError(500, error?.message ?? "Unable to load account profile.");
+  if (!profile) {
+    throw new AppError(500, "Unable to load account profile.");
   }
 
   return {
-    profile: mapProfile(data as ProfileRow),
+    profile: mapProfile(profile),
   };
 }
 
@@ -4066,14 +4023,7 @@ export async function markOnboardingCompleteForAuthorizationHeader(
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const adminClient = createServiceRoleClient();
-  const { error } = await adminClient
-    .from("profiles")
-    .update({ onboarding_completed_at: new Date().toISOString() })
-    .eq("id", user.id);
-
-  if (error) {
-    throw new AppError(500, error.message);
-  }
+  await updateProfileById(adminClient, user.id, { onboarding_completed_at: new Date().toISOString() });
 
   return { ok: true };
 }
@@ -4095,21 +4045,10 @@ export async function updateProfileForAuthorizationHeader(
     product_updates_opt_in: parsed.productUpdatesOptIn,
   };
 
-  const { data, error } = await adminClient
-    .from("profiles")
-    .update(payload)
-    .eq("id", user.id)
-    .select(
-      PROFILE_COLUMNS,
-    )
-    .single();
-
-  if (error || !data) {
-    throw new AppError(500, error?.message ?? "Unable to update account profile.");
-  }
+  const profile = await updateProfileById(adminClient, user.id, payload);
 
   return {
-    profile: mapProfile(data as ProfileRow),
+    profile: mapProfile(profile),
   };
 }
 
@@ -4198,7 +4137,7 @@ export async function getAdminOverviewForAuthorizationHeader(
     billingCustomersCount,
     workspacesResponse,
   ] = await Promise.all([
-    adminClient.from("profiles").select("*", { count: "exact", head: true }),
+    countProfiles(adminClient),
     adminClient.from("workspaces").select("*", { count: "exact", head: true }),
     adminClient.from("documents").select("*", { count: "exact", head: true }).is("deleted_at", null),
     adminClient
@@ -4253,7 +4192,6 @@ export async function getAdminOverviewForAuthorizationHeader(
   ]);
 
   for (const response of [
-    profilesCount,
     workspacesCount,
     documentsCount,
     sentDocumentsCount,
@@ -4312,7 +4250,7 @@ export async function getAdminOverviewForAuthorizationHeader(
 
   return {
     metrics: {
-      totalUsers: profilesCount.count ?? 0,
+      totalUsers: profilesCount,
       totalWorkspaces: workspacesCount.count ?? 0,
       totalDocuments: documentsCount.count ?? 0,
       sentDocuments: sentDocumentsCount.count ?? 0,
@@ -4353,11 +4291,8 @@ export async function listAdminUsersForAuthorizationHeader(
     return { users: [] as AdminManagedUserResponse[] };
   }
 
-  const [profilesResponse, membershipsResponse, documentsResponse] = await Promise.all([
-    adminClient
-      .from("profiles")
-      .select(PROFILE_COLUMNS)
-      .in("id", userIds),
+  const [profileRows, membershipsResponse, documentsResponse] = await Promise.all([
+    listProfilesByIds(adminClient, userIds),
     adminClient
       .from("workspace_memberships")
       .select("workspace_id, user_id, role")
@@ -4369,7 +4304,7 @@ export async function listAdminUsersForAuthorizationHeader(
       .in("uploaded_by_user_id", userIds),
   ]);
 
-  for (const response of [profilesResponse, membershipsResponse, documentsResponse]) {
+  for (const response of [membershipsResponse, documentsResponse]) {
     if (response.error) {
       throw new AppError(500, response.error.message);
     }
@@ -4391,7 +4326,7 @@ export async function listAdminUsersForAuthorizationHeader(
   }
 
   const profileById = new Map(
-    ((profilesResponse.data ?? []) as ProfileRow[]).map((profile) => [profile.id, profile]),
+    profileRows.map((profile) => [profile.id, profile]),
   );
   const workspaceById = new Map(
     ((workspacesResponse.data ?? []) as Array<{ id: string; name: string }>).map((workspace) => [
@@ -4559,11 +4494,7 @@ export async function deleteAdminUserForAuthorizationHeader(
     throw new AppError(500, authDeleteError.message);
   }
 
-  const { error: profileDeleteError } = await adminClient.from("profiles").delete().eq("id", parsed.userId);
-
-  if (profileDeleteError) {
-    throw new AppError(500, profileDeleteError.message);
-  }
+  await deleteProfileById(adminClient, parsed.userId);
 
   return {
     deletedUserId: parsed.userId,
@@ -5055,6 +4986,7 @@ export async function createInternallySignedDocumentForAuthorizationHeader(
 
   const { exportBuffer } = await renderDocumentExportBuffer(document);
   const { p12Buffer, passphrase, thumbprint } = readInternalSigningCertificate();
+  const signpdf = new SignPdf();
   const signer = new P12Signer(p12Buffer, { passphrase });
   const signingTime = new Date();
 
@@ -7622,16 +7554,28 @@ export async function processQueuedNotifications(limit = 10) {
   }
 
   const deliveredNotifications: string[] = [];
+  const failedNotifications: string[] = [];
 
   for (const notification of (data ?? []) as NotificationRow[]) {
-    const result = await deliverNotificationRow(notification);
+    try {
+      const result = await deliverNotificationRow(notification);
 
-    if (result.delivered) {
-      deliveredNotifications.push(notification.id);
+      if (result.delivered) {
+        deliveredNotifications.push(notification.id);
+      }
+    } catch (error) {
+      failedNotifications.push(notification.id);
+      captureServerException(error, {
+        scope: "notification-processor",
+        documentId: notification.document_id,
+        notificationId: notification.id,
+        eventType: notification.event_type,
+      });
     }
   }
 
   return {
     deliveredNotifications,
+    failedNotifications,
   };
 }

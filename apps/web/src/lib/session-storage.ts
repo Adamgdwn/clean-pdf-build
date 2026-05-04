@@ -9,9 +9,9 @@ const WORKSPACE_STORAGE_KEY = "easydraft_active_workspace";
  * Supabase client via auth.setSession(). Returns null if no handoff is present.
  */
 export function consumeHandoffSession(): Session | null {
-  const raw = window.localStorage.getItem(SESSION_HANDOFF_KEY);
+  const raw = window.sessionStorage.getItem(SESSION_HANDOFF_KEY);
   if (!raw) return null;
-  window.localStorage.removeItem(SESSION_HANDOFF_KEY);
+  window.sessionStorage.removeItem(SESSION_HANDOFF_KEY);
   try {
     return JSON.parse(raw) as Session;
   } catch {
@@ -20,13 +20,13 @@ export function consumeHandoffSession(): Session | null {
 }
 
 export function loadStoredWorkspaceId() {
-  return window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+  return window.sessionStorage.getItem(WORKSPACE_STORAGE_KEY);
 }
 
 export function persistWorkspaceId(workspaceId: string) {
-  window.localStorage.setItem(WORKSPACE_STORAGE_KEY, workspaceId);
+  window.sessionStorage.setItem(WORKSPACE_STORAGE_KEY, workspaceId);
 }
 
 export function clearStoredWorkspaceId() {
-  window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+  window.sessionStorage.removeItem(WORKSPACE_STORAGE_KEY);
 }
