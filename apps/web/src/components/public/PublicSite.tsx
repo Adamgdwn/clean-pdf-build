@@ -81,7 +81,7 @@ export function PublicSite({
     : null;
   const isTeamPage = publicPage === "team";
   const showCustomerStartSection = publicPage === "home" || publicPage === "pricing";
-  const showMarketingSidebar = !isTeamPage;
+  const showMarketingSidebar = !isTeamPage && publicPage !== "home";
 
   function handlePublicNav(event: MouseEvent<HTMLAnchorElement>, nextPage: PublicPage) {
     event.preventDefault();
@@ -111,6 +111,27 @@ export function PublicSite({
           </nav>
         </div>
       </header>
+      {publicPage === "home" ? (
+        <>
+          <section className="landing-workflow-hero" id="landing-tour">
+            <div className="landing-workflow-hero-heading">
+              <p className="eyebrow">Workflow map</p>
+              <span>Upload, route, send, track, export</span>
+            </div>
+            <img
+              className="landing-workflow-hero-image"
+              src="/marketing/easydraft-workflow-overview.png"
+              alt="EasyDraft workflow overview showing upload, routing choice, delivery mode, progress tracking, and completion export."
+            />
+          </section>
+          <nav className="landing-workflow-nav" aria-label="EasyDraft workflow stages">
+            <a href="#landing-start">Start free trial</a>
+            <a href="#landing-proof">Why it helps</a>
+            <a href="#landing-pricing">Pricing</a>
+            <a href="#landing-start">Create workspace</a>
+          </nav>
+        </>
+      ) : null}
       <div className={`landing-body ${publicPage === "home" ? "landing-body-home" : ""} ${publicPage === "pricing" ? "pricing-page-shell" : ""} ${isTeamPage ? "landing-body-team" : ""}`}>
         <div className="landing-value">
           {publicPage === "home" ? (
@@ -125,6 +146,9 @@ export function PublicSite({
                 <a className="ghost-button" href="/pricing" onClick={(event) => handlePublicNav(event, "pricing")}>View pricing</a>
                 <a className="ghost-button" href="#landing-tour">See how it works</a>
               </div>
+              <p className="landing-trust-note">
+                Customers sign in a focused browser flow. Your team keeps preparation, routing, status, and export history in the workspace.
+              </p>
             </>
           ) : null}
           {publicPage === "pricing" ? (
@@ -211,52 +235,32 @@ export function PublicSite({
         </div>
         {showMarketingSidebar ? (
           <div className="landing-hero-stack">
-            {publicPage === "home" ? (
-              <section className="card landing-showcase-panel landing-workflow-card" id="landing-tour">
-                <div className="section-heading compact">
-                  <p className="eyebrow">Workflow map</p>
-                  <span>Upload, route, send, track, export</span>
-                </div>
-                <img
-                  className="landing-workflow-image"
-                  src="/marketing/easydraft-workflow-overview.png"
-                  alt="EasyDraft workflow overview showing upload, routing choice, delivery mode, progress tracking, and completion export."
-                />
-                <div className="landing-workflow-steps" aria-label="EasyDraft workflow stages">
-                  <span>1. Upload PDF</span>
-                  <span>2. Choose route</span>
-                  <span>3. Send or store</span>
-                  <span>4. Track and export</span>
-                </div>
-              </section>
-            ) : (
-              <section className="card landing-showcase-panel">
-                <div className="section-heading compact">
-                  <p className="eyebrow">Customer focus</p>
-                  <span>Clear by design</span>
-                </div>
-                <div className="landing-showcase-list">
-                  <div className="row-card landing-showcase-item">
-                    <div>
-                      <strong>Dedicated signing surface</strong>
-                      <p className="muted">External signers act in a focused page built for completion, not exploration.</p>
-                    </div>
-                  </div>
-                  <div className="row-card landing-showcase-item">
-                    <div>
-                      <strong>Internal work stays internal</strong>
-                      <p className="muted">Preparation, approvals, team controls, and billing visibility stay with your team.</p>
-                    </div>
-                  </div>
-                  <div className="row-card landing-showcase-item">
-                    <div>
-                      <strong>Status stays visible</strong>
-                      <p className="muted">Know who is waiting, who has finished, and when the final export is ready.</p>
-                    </div>
+            <section className="card landing-showcase-panel">
+              <div className="section-heading compact">
+                <p className="eyebrow">Customer focus</p>
+                <span>Clear by design</span>
+              </div>
+              <div className="landing-showcase-list">
+                <div className="row-card landing-showcase-item">
+                  <div>
+                    <strong>Dedicated signing surface</strong>
+                    <p className="muted">External signers act in a focused page built for completion, not exploration.</p>
                   </div>
                 </div>
-              </section>
-            )}
+                <div className="row-card landing-showcase-item">
+                  <div>
+                    <strong>Internal work stays internal</strong>
+                    <p className="muted">Preparation, approvals, team controls, and billing visibility stay with your team.</p>
+                  </div>
+                </div>
+                <div className="row-card landing-showcase-item">
+                  <div>
+                    <strong>Status stays visible</strong>
+                    <p className="muted">Know who is waiting, who has finished, and when the final export is ready.</p>
+                  </div>
+                </div>
+              </div>
+            </section>
             <section className="card landing-side-note">
               <div className="section-heading compact">
                 <p className="eyebrow">{publicPage === "pricing" ? "Owner visibility" : "Current trust model"}</p>
@@ -278,7 +282,7 @@ export function PublicSite({
               </div>
             </section>
           </div>
-        ) : (
+        ) : isTeamPage ? (
           <div className="landing-auth" id="team-access">
             <AuthPanel
               sessionUser={null}
@@ -306,10 +310,10 @@ export function PublicSite({
               </p>
             </section>
           </div>
-        )}
+        ) : null}
       </div>
       {publicPage === "home" ? (
-        <section className="landing-section landing-home-proof">
+        <section className="landing-section landing-home-proof" id="landing-proof">
           <div className="landing-section-header">
             <p className="eyebrow">What changes</p>
             <h3>One flow for the team, a focused path for every signer</h3>
@@ -439,13 +443,15 @@ export function PublicSite({
             From upload through completion, the workflow stays visible to your team while customers only see the action path they need.
           </p>
         </div>
-        <article className="toolbar-card landing-tour-visual">
-          <img
-            className="landing-tour-image"
-            src="/marketing/easydraft-workflow-overview.png"
-            alt="EasyDraft workflow overview showing upload, routing choice, delivery mode, progress tracking, and completion export."
-          />
-        </article>
+        {publicPage === "home" ? null : (
+          <article className="toolbar-card landing-tour-visual">
+            <img
+              className="landing-tour-image"
+              src="/marketing/easydraft-workflow-overview.png"
+              alt="EasyDraft workflow overview showing upload, routing choice, delivery mode, progress tracking, and completion export."
+            />
+          </article>
+        )}
         <div className="landing-tour-grid">
           <article className="toolbar-card landing-tour-card">
             <span className="landing-tour-step">1</span>
