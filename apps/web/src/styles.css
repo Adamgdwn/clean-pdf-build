@@ -23,6 +23,7 @@ body {
   margin: 0;
   min-height: 100vh;
   background: transparent;
+  overflow-x: hidden;
 }
 
 button,
@@ -1259,6 +1260,25 @@ select {
   margin-top: 12px;
 }
 
+.landing-infographic-heroes {
+  width: min(1240px, calc(100vw - 96px));
+  margin: 26px auto 0;
+  display: grid;
+  gap: 18px;
+  box-sizing: border-box;
+}
+
+.landing-infographic-hero-image {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid rgba(37, 108, 94, 0.14);
+  border-radius: 8px;
+  background: #f8efe0;
+  box-shadow: 0 22px 60px rgba(24, 36, 29, 0.1);
+}
+
 .landing-showcase-panel,
 .landing-side-note,
 .landing-access-card {
@@ -1618,6 +1638,13 @@ button.row-card-button p {
 
   .landing-header {
     padding: 20px 24px 0;
+  }
+
+  .landing-infographic-heroes {
+    width: calc(100vw - 48px);
+    max-width: calc(100vw - 48px);
+    margin: 22px 24px 0;
+    gap: 12px;
   }
 
   .landing-auth {

@@ -4,6 +4,7 @@ This project uses a lightweight changelog. Update this file for each release or 
 
 ## Unreleased
 
+- Replaced the public homepage workflow infographic with the new workflow-path and document-lifecycle hero images.
 - Fixed browser session token auto-refresh: browser-side Supabase client is now properly hydrated on sign-in so tokens refresh silently before expiry. Previously tokens expired after one hour with no recovery path.
 - Sign-out now invalidates the refresh token server-side.
 - Wired processor endpoint: `POST /api/processor-run` Vercel function handles notification retries, OCR jobs, and document purges behind a shared secret. A manual GitHub Actions trigger is available; no automatic schedule until real retry volume justifies it.

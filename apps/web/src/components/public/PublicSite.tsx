@@ -16,6 +16,17 @@ const MARKETING_PRICING = {
   tokenPackCount: 12,
 };
 
+const MARKETING_HERO_IMAGES = [
+  {
+    src: "/marketing/easydraft-workflow-paths.png",
+    alt: "EasyDraft three affordable workflow paths: self-managed, collaborative team, and enterprise custom.",
+  },
+  {
+    src: "/marketing/easydraft-document-lifecycle.png",
+    alt: "EasyDraft document lifecycle from upload through prepare, send, sign, finalize, seal, and export.",
+  },
+];
+
 type Props = {
   publicPage: PublicPage;
   pendingInviteToken: string | null;
@@ -111,6 +122,18 @@ export function PublicSite({
           </nav>
         </div>
       </header>
+      {publicPage === "home" ? (
+        <section className="landing-infographic-heroes" id="landing-tour" aria-label="EasyDraft workflow overview">
+          {MARKETING_HERO_IMAGES.map((image) => (
+            <img
+              key={image.src}
+              className="landing-infographic-hero-image"
+              src={image.src}
+              alt={image.alt}
+            />
+          ))}
+        </section>
+      ) : null}
       <div className={`landing-body ${publicPage === "pricing" ? "pricing-page-shell" : ""} ${isTeamPage ? "landing-body-team" : ""}`}>
         <div className="landing-value">
           {publicPage === "home" ? (
@@ -409,13 +432,15 @@ export function PublicSite({
             From upload through completion, the workflow stays visible to your team while customers only see the action path they need.
           </p>
         </div>
-        <article className="toolbar-card landing-tour-visual">
-          <img
-            className="landing-tour-image"
-            src="/marketing/easydraft-workflow-overview.png"
-            alt="EasyDraft workflow overview showing upload, routing choice, delivery mode, progress tracking, and completion export."
-          />
-        </article>
+        {publicPage === "home" ? null : (
+          <article className="toolbar-card landing-tour-visual">
+            <img
+              className="landing-tour-image"
+              src="/marketing/easydraft-document-lifecycle.png"
+              alt="EasyDraft document lifecycle from upload through prepare, send, sign, finalize, seal, and export."
+            />
+          </article>
+        )}
         <div className="landing-tour-grid">
           <article className="toolbar-card landing-tour-card">
             <span className="landing-tour-step">1</span>
