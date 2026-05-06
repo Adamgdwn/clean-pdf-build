@@ -249,7 +249,7 @@ export async function createWorkspaceInvitationForAuthorizationHeader(
   const env = readServerEnv();
 
   if (parsed.role === "owner" && memberRole !== "owner") {
-    throw new AppError(403, "Only the workspace owner can invite another owner.");
+    throw new AppError(403, "Only an account admin can grant account admin access.");
   }
 
   // Check if already a member
@@ -701,7 +701,7 @@ export async function sendWorkspaceMemberPasswordResetForAuthorizationHeader(
   }
 
   if (targetRole === "owner" && memberRole !== "owner" && typedMembership.user_id !== user.id) {
-    throw new AppError(403, "Only the workspace owner can reset another owner's password.");
+    throw new AppError(403, "Only an account admin can reset another account admin's password.");
   }
 
   const authClient = createAuthClient();
@@ -743,9 +743,9 @@ export async function changeWorkspaceMemberRoleForAuthorizationHeader(
     throw new AppError(400, "You cannot change your own role.");
   }
 
-  // Only owners can assign or remove the owner role
+  // Only the primary account admin can assign or remove the internal owner role.
   if (parsed.role === "owner" && memberRole !== "owner") {
-    throw new AppError(403, "Only the workspace owner can assign the owner role.");
+    throw new AppError(403, "Only the primary account admin can grant account admin access.");
   }
 
   // Check the target is actually a member and get their current role
@@ -759,9 +759,9 @@ export async function changeWorkspaceMemberRoleForAuthorizationHeader(
   if (fetchError) throw new AppError(500, fetchError.message);
   if (!membership) throw new AppError(404, "That user is not a member of this workspace.");
 
-  // Admins cannot change the role of owners
+  // Admins cannot change the primary account admin role.
   if (membership.role === "owner" && memberRole !== "owner") {
-    throw new AppError(403, "Only the workspace owner can change another owner's role.");
+    throw new AppError(403, "Only the primary account admin can change another account admin's role.");
   }
 
   const { error } = await adminClient
@@ -820,9 +820,9 @@ export async function removeWorkspaceMemberForAuthorizationHeader(
   if (fetchError) throw new AppError(500, fetchError.message);
   if (!membership) throw new AppError(404, "That user is not a member of this workspace.");
 
-  // Admins cannot remove owners
+  // Admins cannot remove the primary account admin.
   if (membership.role === "owner" && memberRole !== "owner") {
-    throw new AppError(403, "Only the workspace owner can remove another owner.");
+    throw new AppError(403, "Only the primary account admin can remove another account admin.");
   }
 
   const { error } = await adminClient
@@ -950,7 +950,7 @@ async function sendInviteEmail(
   const acceptUrl = `${opts.appOrigin}?invite=${encodeURIComponent(opts.token)}`;
   const roleLabel =
     opts.role === "owner"
-      ? "Owner"
+      ? "Account admin"
       : opts.role === "admin"
         ? "Admin"
         : opts.role === "billing_admin"

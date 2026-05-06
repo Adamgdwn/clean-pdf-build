@@ -47,7 +47,7 @@ function renderLegalPage(page: PublicPage) {
       bullets: [
         "Uploaded PDFs and signature assets stay in private storage.",
         "Audit events, notifications, and completion history are stored to support traceability.",
-        "Workspace owners control member access and can remove users or documents from active views.",
+        "Account admins control member access and can remove users or documents from active views.",
       ],
     };
   }
@@ -194,7 +194,7 @@ export function PublicSite({
               <div className="landing-proof-grid">
                 <div className="landing-proof-card">
                   <strong>No surprise billing</strong>
-                  <span>Trial, seats, plan status, and token balance stay visible to owners inside the control center.</span>
+                  <span>Trial, seats, plan status, and token balance stay visible to account admins inside the control center.</span>
                 </div>
                 <div className="landing-proof-card">
                   <strong>External signers stay free</strong>
@@ -291,7 +291,7 @@ export function PublicSite({
             </section>
             <section className="card landing-side-note">
               <div className="section-heading compact">
-                <p className="eyebrow">{publicPage === "pricing" ? "Owner visibility" : "Current trust model"}</p>
+                <p className="eyebrow">{publicPage === "pricing" ? "Admin visibility" : "Current trust model"}</p>
                 <span>{publicPage === "pricing" ? "Always visible" : "SHA-256 + audit trail"}</span>
               </div>
               <p className="muted">
@@ -412,7 +412,7 @@ export function PublicSite({
               {" "}
               (${MARKETING_PRICING.annualMonthlyEquivalentCad} CAD per user / month equivalent).
             </p>
-            <p className="muted">Owners, admins, editors, and internal members are covered by your plan. Billing stays visible to owners inside the control center.</p>
+            <p className="muted">Account admins, admins, editors, and internal members are covered by your plan. Billing stays visible to account admins inside the control center.</p>
           </article>
           <article className="toolbar-card landing-price-card">
             <p className="eyebrow">External tokens</p>
@@ -455,7 +455,7 @@ export function PublicSite({
           <article className="toolbar-card landing-tour-card">
             <span className="landing-tour-step">3</span>
             <strong>Review and export</strong>
-            <p className="muted">Owners monitor billing, workflow risk, audit history, and final exports from one control center.</p>
+            <p className="muted">Account admins monitor billing, workflow risk, audit history, and final exports from one control center.</p>
           </article>
         </div>
       </section>

@@ -47,6 +47,7 @@ function formatStorageAmount(bytes: number) {
 }
 
 function formatStatusLabel(status: string) {
+  if (status === "owner") return "Account admin";
   return status.replaceAll("_", " ");
 }
 
@@ -229,7 +230,7 @@ export function OwnerPortal({
 
   async function handleTransferOwnership() {
     if (!transferTargetUserId) {
-      setAccountActionError("Choose the new owner first.");
+      setAccountActionError("Choose the new primary account admin first.");
       return;
     }
 
@@ -238,13 +239,13 @@ export function OwnerPortal({
     );
 
     if (!target) {
-      setAccountActionError("The new owner must be an active member.");
+      setAccountActionError("The new primary account admin must be an active member.");
       return;
     }
 
     if (
       !window.confirm(
-        `Transfer ownership to ${target.displayName}? You will become an admin on this account.`,
+        `Make ${target.displayName} the primary account admin? You will remain an admin on this account.`,
       )
     ) {
       return;
@@ -258,7 +259,7 @@ export function OwnerPortal({
         method: "POST",
         body: JSON.stringify({ targetUserId: transferTargetUserId }),
       });
-      setAccountActionNotice("Ownership transferred.");
+      setAccountActionNotice("Primary account admin updated.");
       setTransferTargetUserId("");
       await Promise.all([onRefreshTeam(), onRefreshBilling()]);
     } catch (error) {
@@ -364,7 +365,7 @@ export function OwnerPortal({
         ) : null}
 
         <div className="quick-actions owner-actions">
-          <p className="eyebrow">Owner actions</p>
+          <p className="eyebrow">Account admin actions</p>
           <div className="quick-actions-grid">
             <button className="quick-action-item" onClick={() => scrollToSection("section-attention")} type="button">
               <strong className="quick-action-label">Review watchlist</strong>
@@ -486,7 +487,7 @@ export function OwnerPortal({
                 <div>
                   <strong>Role coverage</strong>
                   <p className="muted">
-                    {ownerCount} super user{ownerCount === 1 ? "" : "s"}, {adminCount} admin{adminCount === 1 ? "" : "s"}, {billingAdminCount} billing admin{billingAdminCount === 1 ? "" : "s"}.
+                    {ownerCount} account admin{ownerCount === 1 ? "" : "s"}, {adminCount} admin{adminCount === 1 ? "" : "s"}, {billingAdminCount} billing admin{billingAdminCount === 1 ? "" : "s"}.
                   </p>
                 </div>
                 <span>{sessionUser.name}</span>
@@ -504,9 +505,9 @@ export function OwnerPortal({
               {accountActionNotice ? <div className="alert success">{accountActionNotice}</div> : null}
               <div className="row-card">
                 <div>
-                  <strong>Transfer ownership</strong>
+                  <strong>Change primary account admin</strong>
                   <p className="muted">
-                    Move ultimate account control to another active member while keeping the audit trail intact.
+                    Move primary account control to another active member while keeping the audit trail intact.
                   </p>
                 </div>
                 <div className="action-row">
@@ -515,7 +516,7 @@ export function OwnerPortal({
                     value={transferTargetUserId}
                     onChange={(event) => setTransferTargetUserId(event.target.value)}
                   >
-                    <option value="">Choose owner</option>
+                    <option value="">Choose account admin</option>
                     {(organizationAdminOverview?.members ?? [])
                       .filter((member) => !member.isOwner)
                       .map((member) => (
@@ -618,7 +619,7 @@ export function OwnerPortal({
                     <strong>{member.displayName}</strong>
                     <p className="muted">
                       {member.email ?? "No email"} · {formatStatusLabel(member.role)}
-                      {member.isOwner ? " · owner" : ""}
+                      {member.isOwner ? " · primary account admin" : ""}
                     </p>
                   </div>
                   <span>{formatStatusLabel(member.licenseStatus)}</span>

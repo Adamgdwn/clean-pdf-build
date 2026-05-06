@@ -272,7 +272,7 @@ export function AuthPanel({
           {hasPendingInvite ? (
             <div className="alert success">
               {pendingInviteDetails?.status === "expired"
-                ? `This invitation for ${pendingInviteDetails.email} has expired. Ask the workspace owner to send a new invite.`
+                ? `This invitation for ${pendingInviteDetails.email} has expired. Ask an account admin to send a new invite.`
                 : pendingInviteDetails?.status === "accepted"
                   ? `This invitation for ${pendingInviteDetails.email} was already accepted. Sign in with that address to continue.`
                   : pendingInviteDetails?.workspace?.name
@@ -404,7 +404,7 @@ export function AuthPanel({
                 <input
                   required
                   autoComplete="organization-title"
-                  placeholder={accountType === "corporate" ? "Operations manager" : "Owner"}
+                  placeholder={accountType === "corporate" ? "Operations manager" : "Account administrator"}
                   value={jobTitle}
                   onChange={(event) => setJobTitle(event.target.value)}
                 />

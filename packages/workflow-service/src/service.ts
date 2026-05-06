@@ -2024,7 +2024,7 @@ export async function transferOrganizationOwnershipForAuthorizationHeader(
   }
 
   if (!targetMembership) {
-    throw new AppError(404, "The new owner must already be an active member of this organization.");
+    throw new AppError(404, "The new primary account admin must already be an active member of this organization.");
   }
 
   const { error: organizationError } = await adminClient
@@ -2076,7 +2076,7 @@ export async function transferOrganizationOwnershipForAuthorizationHeader(
     organizationId: organization.id,
     actorUserId: user.id,
     eventType: "ownership_transferred",
-    summary: "Organization ownership was transferred.",
+    summary: "Primary account admin was changed.",
     metadata: { previous_owner_user_id: user.id, new_owner_user_id: parsed.targetUserId },
   });
 
@@ -2111,7 +2111,7 @@ export async function closeOrganizationForAuthorizationHeader(
     organizationId: organization.id,
     actorUserId: user.id,
     eventType: "closure_requested",
-    summary: "Account closure was requested by the organization owner.",
+    summary: "Account closure was requested by the primary account admin.",
     metadata: { requested_at: closingRequestedAt },
   });
 

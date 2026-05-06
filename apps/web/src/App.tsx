@@ -56,7 +56,7 @@ function formatWorkspaceRoleLabel(role: string | null) {
     return null;
   }
 
-  if (role === "owner") return "Owner";
+  if (role === "owner") return "Account admin";
   if (role === "billing_admin") return "Billing admin";
   return formatState(role);
 }
@@ -190,14 +190,14 @@ function getSignaturePathLabel(signaturePath: WorkflowDocument["signaturePath"])
 
 function getLockPolicyLabel(lockPolicy: WorkflowDocument["lockPolicy"]) {
   if (lockPolicy === "owner_and_editors") {
-    return "Owner and editors can lock";
+    return "Account admin and editors can lock";
   }
 
   if (lockPolicy === "owner_editors_and_active_signer") {
-    return "Owner, editors, and the active signer can lock";
+    return "Account admin, editors, and the active signer can lock";
   }
 
-  return "Only the owner can lock";
+  return "Only the account admin can lock";
 }
 
 function getParticipantTypeLabel(participantType: WorkflowDocument["signers"][number]["participantType"]) {
@@ -665,7 +665,7 @@ export default function App() {
           detail:
             selectedDocument.signers.length > 0
               ? `${selectedDocument.signers.length} participant${selectedDocument.signers.length === 1 ? "" : "s"} added.`
-              : "Add at least one participant so the workflow has an owner for each signing action.",
+              : "Add at least one participant so every signing action has a responsible signer.",
           done: selectedDocument.signers.length > 0,
         },
         {
@@ -2821,7 +2821,7 @@ export default function App() {
             <p className="muted">
               {activeAccountType === "corporate"
                 ? "Billing, shared tokens, and member management are scoped to this corporate account."
-                : "Individual accounts keep billing and document work private to the owner unless they later join a corporate account."}
+                : "Individual accounts keep billing and document work private to the account admin unless they later join a corporate account."}
             </p>
           </section>
         ) : null}
@@ -3488,7 +3488,7 @@ export default function App() {
             {workspaceTeam.members.length === 1 ? (
               <div className="stack">
                 <p className="muted">
-                  You&apos;re the owner of <strong>{currentWorkspaceName}</strong>. Refine. Share. Sign. Start with one complete solo workflow so you can see the full send, sign, and export path.
+                  You&apos;re the account admin for <strong>{currentWorkspaceName}</strong>. Refine. Share. Sign. Start with one complete solo workflow so you can see the full send, sign, and export path.
                 </p>
                 <div className="checklist-grid">
                   <div className="checklist-step checklist-step-active">
@@ -3688,10 +3688,10 @@ export default function App() {
                     )
                   }
                 >
-                  <option value="owner_only">Only the owner can lock</option>
-                  <option value="owner_and_editors">Owner and editors can lock</option>
+                  <option value="owner_only">Only the account admin can lock</option>
+                  <option value="owner_and_editors">Account admin and editors can lock</option>
                   <option value="owner_editors_and_active_signer">
-                    Owner, editors, and the active signer can lock
+                    Account admin, editors, and the active signer can lock
                   </option>
                 </select>
               </label>
