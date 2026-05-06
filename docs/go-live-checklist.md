@@ -139,9 +139,9 @@ Store the future values in your secret manager or Vercel using these names for c
 ## Admin and operations
 
 1. Confirm `admin@agoperations.ca` is included in `EASYDRAFT_ADMIN_EMAILS`.
-2. Create at least one non-admin owner account and two signer accounts for smoke tests.
+2. Create at least one non-admin account admin account and two signer accounts for smoke tests.
 3. Verify:
-   - owner-capable user lands in organization admin by default
+   - account-admin-capable user lands in organization admin by default
    - workspace switcher appears when a user belongs to more than one workspace
    - switching workspace updates documents, billing, and team scope together
    - public `/pricing` route loads and explains seats vs tokens clearly

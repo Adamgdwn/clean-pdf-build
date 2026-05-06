@@ -23,7 +23,7 @@ Responsibilities:
 - upload initiation
 - PDF preview and field-overlay interactions
 - signer setup, review, and send flows
-- owner/admin control-center orchestration
+- account admin control-center orchestration
 - active workspace selection and persistence
 - audit and version history views
 
@@ -90,7 +90,7 @@ The client app (`apps/web/src/`) is being incrementally extracted from a monolit
 ```
 src/
   types.ts                  — shared client-side type definitions
-  App.tsx                   — top-level orchestrator (workspace shell, public routes, signer flow, owner/workspace state)
+  App.tsx                   — top-level orchestrator (workspace shell, public routes, signer flow, document admin/workspace state)
   components/
     AuthPanel.tsx           — sign-in/sign-up form, signed-in view, guest signing banner
     AdminPanel.tsx          — AdminConsole (full panel) + AdminSidebarSummary (card)
@@ -102,7 +102,7 @@ Extraction order (in progress):
 1. ✅ AuthPanel — auth form + guest signing banner, owns its own loading/error state
 2. ✅ AdminPanel — AdminConsole owns invite/delete/reset handlers + scoped error state
 3. ✅ BillingPanel — checkout/portal handlers + scoped redirect/error state
-4. ✅ OwnerPortal — owner-first KPI, watchlist, billing/team/admin composition
+4. ✅ AccountAdminPortal — account-admin KPI, watchlist, billing/team/admin composition
 5. ✅ PublicSite — public landing, pricing, privacy, terms, and security surfaces extracted into focused components
 6. Next: DocumentSidebar, WorkflowChecklistPanel, and FieldEditorPanel
 7. After that: SignerActionPanel and SignatureLibraryPanel extraction, while keeping `App.tsx` as orchestration rather than workflow implementation

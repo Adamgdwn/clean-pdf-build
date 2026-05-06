@@ -47,7 +47,7 @@ function formatStorageAmount(bytes: number) {
 }
 
 function formatStatusLabel(status: string) {
-  if (status === "owner") return "Account admin";
+  if (status === "account_admin") return "Account admin";
   return status.replaceAll("_", " ");
 }
 
@@ -107,7 +107,7 @@ type Props = {
   onNavigateToDocument: (documentId: string) => void;
 };
 
-export function OwnerPortal({
+export function AccountAdminPortal({
   session,
   sessionUser,
   documents,
@@ -183,7 +183,7 @@ export function OwnerPortal({
       adminOverview.metrics.queuedProcessingJobs
     : 0;
 
-  const ownerWatchlist = [...documents]
+  const accountAdminWatchlist = [...documents]
     .filter(
       (document) =>
         document.isOverdue ||
@@ -208,7 +208,7 @@ export function OwnerPortal({
     .sort((left, right) => (right.sentAt ?? right.uploadedAt).localeCompare(left.sentAt ?? left.uploadedAt))
     .slice(0, 6);
 
-  const ownerCount = workspaceTeam?.members.filter((member) => member.role === "owner").length ?? 0;
+  const accountAdminCount = workspaceTeam?.members.filter((member) => member.role === "account_admin").length ?? 0;
   const adminCount = workspaceTeam?.members.filter((member) => member.role === "admin").length ?? 0;
   const billingAdminCount = workspaceTeam?.members.filter((member) => member.role === "billing_admin").length ?? 0;
   const accountStatus = organizationAdminOverview?.account.status ?? "active";
@@ -228,7 +228,7 @@ export function OwnerPortal({
     }
   }
 
-  async function handleTransferOwnership() {
+  async function handleChangePrimaryAccountAdmin() {
     if (!transferTargetUserId) {
       setAccountActionError("Choose the new primary account admin first.");
       return;
@@ -255,7 +255,7 @@ export function OwnerPortal({
     setAccountActionNotice(null);
 
     try {
-      await apiFetch("/organization-transfer-ownership", session, {
+      await apiFetch("/organization-primary-admin", session, {
         method: "POST",
         body: JSON.stringify({ targetUserId: transferTargetUserId }),
       });
@@ -300,8 +300,8 @@ export function OwnerPortal({
   }
 
   return (
-    <section className="owner-portal">
-      <div className="panel owner-hero-panel">
+    <section className="account-admin-portal">
+      <div className="panel account-admin-hero-panel">
         <div className="panel-header">
           <div>
             <p className="eyebrow">Organization control center</p>
@@ -318,7 +318,7 @@ export function OwnerPortal({
         {refreshError ? <div className="alert">{refreshError}</div> : null}
 
         {documents.length === 0 || activeMemberCount <= 1 ? (
-          <section className="toolbar-card owner-summary-card">
+          <section className="toolbar-card account-admin-summary-card">
             <div className="section-heading compact">
               <p className="eyebrow">Launch checklist</p>
               <span>{workspaceTeam?.workspace.name ?? billingOverview?.workspace.name ?? "Workspace"}</span>
@@ -364,12 +364,12 @@ export function OwnerPortal({
           </section>
         ) : null}
 
-        <div className="quick-actions owner-actions">
+        <div className="quick-actions account-admin-actions">
           <p className="eyebrow">Account admin actions</p>
           <div className="quick-actions-grid">
             <button className="quick-action-item" onClick={() => scrollToSection("section-attention")} type="button">
               <strong className="quick-action-label">Review watchlist</strong>
-              <span className="muted">{ownerWatchlist.length} workflow{ownerWatchlist.length === 1 ? "" : "s"} need review</span>
+              <span className="muted">{accountAdminWatchlist.length} workflow{accountAdminWatchlist.length === 1 ? "" : "s"} need review</span>
             </button>
             <button className="quick-action-item" onClick={() => scrollToSection("section-billing")} type="button">
               <strong className="quick-action-label">{subscription ? "Manage billing" : "Start free trial"}</strong>
@@ -404,7 +404,7 @@ export function OwnerPortal({
           </div>
         </div>
 
-        <div className="owner-metrics-grid">
+        <div className="account-admin-metrics-grid">
           <div className="metric">
             <span>Active workflows</span>
             <strong>{activeDocuments}</strong>
@@ -467,8 +467,8 @@ export function OwnerPortal({
           </div>
         </div>
 
-        <div className="owner-summary-grid">
-          <section className="toolbar-card owner-summary-card">
+        <div className="account-admin-summary-grid">
+          <section className="toolbar-card account-admin-summary-card">
             <div className="section-heading compact">
               <p className="eyebrow">Company snapshot</p>
               <span>{workspaceTeam?.workspace.name ?? billingOverview?.workspace.name ?? "Workspace"}</span>
@@ -487,7 +487,7 @@ export function OwnerPortal({
                 <div>
                   <strong>Role coverage</strong>
                   <p className="muted">
-                    {ownerCount} account admin{ownerCount === 1 ? "" : "s"}, {adminCount} admin{adminCount === 1 ? "" : "s"}, {billingAdminCount} billing admin{billingAdminCount === 1 ? "" : "s"}.
+                    {accountAdminCount} account admin{accountAdminCount === 1 ? "" : "s"}, {adminCount} admin{adminCount === 1 ? "" : "s"}, {billingAdminCount} billing admin{billingAdminCount === 1 ? "" : "s"}.
                   </p>
                 </div>
                 <span>{sessionUser.name}</span>
@@ -495,7 +495,7 @@ export function OwnerPortal({
             </div>
           </section>
 
-          <section className="toolbar-card owner-summary-card">
+          <section className="toolbar-card account-admin-summary-card">
             <div className="section-heading compact">
               <p className="eyebrow">Account controls</p>
               <span>{organizationAdminOverview?.account.status ?? "loading"}</span>
@@ -512,13 +512,13 @@ export function OwnerPortal({
                 </div>
                 <div className="action-row">
                   <select
-                    disabled={!organizationAdminOverview?.authority.canTransferOwnership}
+                    disabled={!organizationAdminOverview?.authority.canChangePrimaryAccountAdmin}
                     value={transferTargetUserId}
                     onChange={(event) => setTransferTargetUserId(event.target.value)}
                   >
                     <option value="">Choose account admin</option>
                     {(organizationAdminOverview?.members ?? [])
-                      .filter((member) => !member.isOwner)
+                      .filter((member) => !member.isPrimaryAccountAdmin)
                       .map((member) => (
                         <option key={member.userId} value={member.userId}>
                           {member.displayName}
@@ -527,8 +527,8 @@ export function OwnerPortal({
                   </select>
                   <button
                     className="ghost-button"
-                    disabled={!organizationAdminOverview?.authority.canTransferOwnership || !transferTargetUserId}
-                    onClick={handleTransferOwnership}
+                    disabled={!organizationAdminOverview?.authority.canChangePrimaryAccountAdmin || !transferTargetUserId}
+                    onClick={handleChangePrimaryAccountAdmin}
                     type="button"
                   >
                     Transfer
@@ -565,7 +565,7 @@ export function OwnerPortal({
             </div>
           </section>
 
-          <section className="toolbar-card owner-summary-card">
+          <section className="toolbar-card account-admin-summary-card">
             <div className="section-heading compact">
               <p className="eyebrow">Commercial snapshot</p>
               <span>{billingOverview?.billingMode === "placeholder" ? "Testing mode" : "Live billing"}</span>
@@ -607,7 +607,7 @@ export function OwnerPortal({
             </div>
           </section>
 
-          <section className="toolbar-card owner-summary-card">
+          <section className="toolbar-card account-admin-summary-card">
             <div className="section-heading compact">
               <p className="eyebrow">License assignments</p>
               <span>{organizationAdminOverview?.members.length ?? activeMemberCount} people</span>
@@ -619,7 +619,7 @@ export function OwnerPortal({
                     <strong>{member.displayName}</strong>
                     <p className="muted">
                       {member.email ?? "No email"} · {formatStatusLabel(member.role)}
-                      {member.isOwner ? " · primary account admin" : ""}
+                      {member.isPrimaryAccountAdmin ? " · primary account admin" : ""}
                     </p>
                   </div>
                   <span>{formatStatusLabel(member.licenseStatus)}</span>
@@ -644,7 +644,7 @@ export function OwnerPortal({
             </div>
           </section>
 
-          <section className="toolbar-card owner-summary-card">
+          <section className="toolbar-card account-admin-summary-card">
             <div className="section-heading compact">
               <p className="eyebrow">Workflow snapshot</p>
               <span>{documents.length} total</span>
@@ -666,12 +666,12 @@ export function OwnerPortal({
                     {managedDocuments} workflow{managedDocuments === 1 ? "" : "s"} currently rely on EasyDraft-managed notifications and follow-up.
                   </p>
                 </div>
-                <span>{ownerWatchlist.length} flagged</span>
+                <span>{accountAdminWatchlist.length} flagged</span>
               </div>
             </div>
           </section>
 
-          <section className="toolbar-card owner-summary-card">
+          <section className="toolbar-card account-admin-summary-card">
             <div className="section-heading compact">
               <p className="eyebrow">Storage snapshot</p>
               <span>{formatStorageAmount(usedStorageBytes)}</span>
@@ -702,18 +702,18 @@ export function OwnerPortal({
         </div>
       </div>
 
-      <section className="owner-portal-grid">
+      <section className="account-admin-portal-grid">
         <div className="stack">
           <section className="card" id="section-attention">
             <div className="section-heading compact">
               <p className="eyebrow">Needs attention now</p>
-              <span>{ownerWatchlist.length} items</span>
+              <span>{accountAdminWatchlist.length} items</span>
             </div>
             <div className="stack">
-              {ownerWatchlist.length === 0 ? (
+              {accountAdminWatchlist.length === 0 ? (
                 <p className="muted">No workflows need attention right now.</p>
               ) : (
-                ownerWatchlist.map((document) => {
+                accountAdminWatchlist.map((document) => {
                   const severity = getAttentionSeverity(document);
 
                   return (
@@ -725,7 +725,7 @@ export function OwnerPortal({
                       title="Open in workspace"
                     >
                       <div>
-                        <div className="owner-watchlist-heading">
+                        <div className="account-admin-watchlist-heading">
                           <strong>{document.name}</strong>
                           <span className={`status-chip status-chip-${severity.tone}`}>{severity.label}</span>
                         </div>

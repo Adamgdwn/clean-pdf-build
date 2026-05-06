@@ -461,7 +461,7 @@ export function AdminConsole({
                         </label>
                       </div>
                       <p className="muted">
-                        Owner: {feedbackRequest.ownerDisplayName ?? "Unassigned"}
+                        Assignee: {feedbackRequest.ownerDisplayName ?? "Unassigned"}
                         {feedbackRequest.ownerEmail ? ` (${feedbackRequest.ownerEmail})` : ""}
                       </p>
                       <label className="form-field">

@@ -15,7 +15,7 @@ Use this guide if you are responsible for:
 Current admin and operator capabilities include:
 
 - viewing admin metrics
-- switching between user workspace and owner portal
+- switching between user workspace and account admin portal
 - switching between active workspaces when the signed-in user belongs to more than one
 - reviewing account status
 - sending tester invite emails
@@ -58,7 +58,7 @@ The current admin console provides:
 
 Use the refresh action in the admin console after operational changes if the data looks stale.
 
-The owner/admin experience now also includes:
+The account admin experience now also includes:
 
 - company KPI summary above the fold
 - needs-attention watchlist
@@ -69,12 +69,12 @@ The owner/admin experience now also includes:
 
 1. Sign in as the admin user.
 2. Confirm the admin console appears.
-3. Confirm the owner portal appears and the company dashboard loads.
+3. Confirm the account admin portal appears and the company dashboard loads.
 4. If the account belongs to more than one workspace, confirm the workspace switcher appears.
 5. Switch workspaces and confirm billing, team, and documents all scope correctly.
 6. Send one tester invite email.
 7. Confirm the metrics render without errors.
-8. Confirm at least one non-admin owner and one signer account exist.
+8. Confirm at least one non-admin account admin and one signer account exist.
 9. Trigger one password reset for a test account.
 10. Confirm test-user deletion works only where expected.
 
@@ -213,7 +213,7 @@ For production confidence, admins or operators should test:
 
 - public landing page and `/pricing`
 - upload and preview
-- owner portal and user workspace switching
+- account admin portal and user workspace switching
 - active workspace switching
 - saved signature creation
 - digital-signature profile creation
@@ -347,7 +347,7 @@ For the free tester month, keep operations lightweight and controlled.
 Recommended setup:
 
 - one admin account
-- one owner account
+- one account admin account
 - one editor account
 - one internal signer
 - one external signer

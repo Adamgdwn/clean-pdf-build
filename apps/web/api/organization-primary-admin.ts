@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-import { transferOrganizationOwnershipForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
+import { changePrimaryAccountAdminForAuthorizationHeader } from "../../../packages/workflow-service/src/index.js";
 
 import { readAuthorizationHeader, readWorkspaceIdHeader, sendError } from "./_utils.js";
 
@@ -11,7 +11,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
   try {
     return response.status(200).json(
-      await transferOrganizationOwnershipForAuthorizationHeader(
+      await changePrimaryAccountAdminForAuthorizationHeader(
         readAuthorizationHeader(request),
         request.body,
         readWorkspaceIdHeader(request),

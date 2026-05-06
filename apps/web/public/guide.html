@@ -375,7 +375,7 @@
         <tr><th>Role</th><th>What they can do</th></tr>
       </thead>
       <tbody>
-        <tr><td><strong>Owner</strong></td><td>Full access — manages billing, team membership, workspace settings, and all documents.</td></tr>
+        <tr><td><strong>Account admin</strong></td><td>Full account access — manages billing, team membership, workspace settings, and account administration.</td></tr>
         <tr><td><strong>Admin</strong></td><td>Can invite members, upload documents, and manage workflows. Cannot change billing.</td></tr>
         <tr><td><strong>Member</strong></td><td>Can upload documents and run their own workflows.</td></tr>
         <tr><td><strong>Billing admin</strong></td><td>Can access the Billing panel and manage payment methods and subscriptions, but has no elevated access to documents or team management.</td></tr>
@@ -384,7 +384,7 @@
     <p>Note: workspace roles control access to team and billing features. Individual document access (editor, viewer, signer) is granted separately per document via the document's <em>Access</em> panel.</p>
 
     <h3>Renaming your workspace</h3>
-    <p>Workspace owners can update the workspace name from the <strong>Team</strong> panel using the rename field at the top of the section.</p>
+    <p>Account admins can update the workspace name from the <strong>Team</strong> panel using the rename field at the top of the section.</p>
 
     <h3>Managing pending invitations</h3>
     <p>Pending invitations are listed below the member list. You can <strong>Resend</strong> the invite email or <strong>Revoke</strong> it at any time before it is accepted. Invitations expire after 7 days.</p>
@@ -624,14 +624,14 @@
     <p>A participant can reject the workflow. This closes the current run and notifies the originator. The audit trail is preserved. To start again, duplicate the document and send a fresh workflow.</p>
 
     <h3>Cancel</h3>
-    <p>The document owner can cancel an active workflow at any time from the workflow panel. Canceling stops routing and notifications. The document remains accessible and the audit trail is preserved. You can duplicate the document to start a new workflow run.</p>
+    <p>The document admin can cancel an active workflow at any time from the workflow panel. Canceling stops routing and notifications. The document remains accessible and the audit trail is preserved. You can duplicate the document to start a new workflow run.</p>
 
     <h3>Lock</h3>
     <p>Locking prevents any further edits or workflow changes until the document is explicitly reopened. Use it to preserve a final state — for example, after a completed signature run. Lock availability follows the <em>lock policy</em> you chose on upload:</p>
     <ul>
-      <li><strong>Owner only</strong> — only the document owner can lock or unlock.</li>
-      <li><strong>Owner and editors</strong> — collaborators with editor access can also lock.</li>
-      <li><strong>Owner, editors, and active signer</strong> — the current eligible signer can lock once they have acted.</li>
+      <li><strong>Document admin only</strong> — only the document admin can lock or unlock.</li>
+      <li><strong>Document admin and editors</strong> — collaborators with editor access can also lock.</li>
+      <li><strong>Document admin, editors, and active signer</strong> — the current eligible signer can lock once they have acted.</li>
     </ul>
 
     <h3>Reopen</h3>

@@ -5,7 +5,7 @@ begin
   end if;
 
   if not exists (select 1 from pg_type where typname = 'organization_role') then
-    create type public.organization_role as enum ('owner', 'admin', 'member', 'billing_admin');
+    create type public.organization_role as enum ('account_admin', 'admin', 'member', 'billing_admin');
   end if;
 end $$;
 

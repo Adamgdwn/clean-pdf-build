@@ -22,7 +22,7 @@ Use this document as the repeatable test run workbook for EasyDraftDocs. Start w
 
 | Role | Email | Browser profile / device | Signed in? | Notes |
 |---|---|---|---|---|
-| Owner / sender | `admin@agoperations.ca` |  |  |  |
+| Account admin / sender | `admin@agoperations.ca` |  |  |  |
 | Internal member A | `adamgoodwin@shaw.ca` |  |  |  |
 | Internal member B | `marketing@agoperations.ca` |  |  |  |
 | Internal signer C | `adamgdwn@hotmail.com` |  |  |  |
@@ -71,7 +71,7 @@ Status values: `Pass`, `Fail`, `Blocked`, `Not run`, `N/A`.
 | Scenario | Priority | Status | Tester / accounts | Evidence | Issue IDs | Notes |
 |---|---|---|---|---|---|---|
 | S00 - Test Environment Readiness | P0 | Not run |  |  |  |  |
-| S01 - Owner Signup And First Workspace | P0 | Not run |  |  |  |  |
+| S01 - Account Admin Signup And First Workspace | P0 | Not run |  |  |  |  |
 | S02 - Team Invite Happy Path | P0 | Not run |  |  |  |  |
 | S03 - Wrong-Account Invite Block | P0 | Not run |  |  |  |  |
 | S04 - Workspace Switching And Scope Isolation | P0 | Not run |  |  |  |  |
@@ -141,7 +141,7 @@ Issue or improvement created:
 
 ## Issue Log
 
-| ID | Scenario | Severity | Type | Title | Repro summary | Owner | Status | Resolution |
+| ID | Scenario | Severity | Type | Title | Repro summary | Document admin | Status | Resolution |
 |---|---|---|---|---|---|---|---|---|
 | T-001 |  |  | Bug / Improvement / Question |  |  |  | New |  |
 

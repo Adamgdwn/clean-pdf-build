@@ -129,7 +129,7 @@ function assertOrganizationCanManagePeople(organization: OrganizationRow) {
 
 const createInvitationSchema = z.object({
   email: z.string().trim().email(),
-  role: z.enum(["owner", "member", "admin", "billing_admin"]).default("member"),
+  role: z.enum(["account_admin", "member", "admin", "billing_admin"]).default("member"),
 });
 
 const updateWorkspaceNameSchema = z.object({
@@ -143,7 +143,7 @@ const sendWorkspacePasswordResetSchema = z.object({
 
 const changeMemberRoleSchema = z.object({
   userId: z.string().uuid(),
-  role: z.enum(["owner", "member", "admin", "billing_admin"]),
+  role: z.enum(["account_admin", "member", "admin", "billing_admin"]),
 });
 
 const removeMemberSchema = z.object({
@@ -238,7 +238,7 @@ export async function createWorkspaceInvitationForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const { workspace, memberRole } = await requireWorkspaceWithRole(
     user,
-    ["owner", "admin"],
+    ["account_admin", "admin"],
     preferredWorkspaceId,
   );
   const organization = await getOrganizationForWorkspace(workspace);
@@ -248,7 +248,7 @@ export async function createWorkspaceInvitationForAuthorizationHeader(
   const adminClient = createServiceRoleClient();
   const env = readServerEnv();
 
-  if (parsed.role === "owner" && memberRole !== "owner") {
+  if (parsed.role === "account_admin" && memberRole !== "account_admin") {
     throw new AppError(403, "Only an account admin can grant account admin access.");
   }
 
@@ -361,7 +361,7 @@ export async function resendWorkspaceInvitationForAuthorizationHeader(
   preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace } = await requireWorkspaceWithRole(user, ["owner", "admin"], preferredWorkspaceId);
+  const { workspace } = await requireWorkspaceWithRole(user, ["account_admin", "admin"], preferredWorkspaceId);
   const adminClient = createServiceRoleClient();
   const env = readServerEnv();
 
@@ -410,7 +410,7 @@ export async function revokeWorkspaceInvitationForAuthorizationHeader(
   preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace } = await requireWorkspaceWithRole(user, ["owner", "admin"], preferredWorkspaceId);
+  const { workspace } = await requireWorkspaceWithRole(user, ["account_admin", "admin"], preferredWorkspaceId);
   const adminClient = createServiceRoleClient();
 
   const { error } = await adminClient
@@ -601,7 +601,7 @@ export async function updateWorkspaceNameForAuthorizationHeader(
   preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace } = await requireWorkspaceWithRole(user, ["owner"], preferredWorkspaceId);
+  const { workspace } = await requireWorkspaceWithRole(user, ["account_admin"], preferredWorkspaceId);
   const parsed = updateWorkspaceNameSchema.parse(input);
   const adminClient = createServiceRoleClient();
   const organization = await getOrganizationForWorkspace(workspace);
@@ -673,7 +673,7 @@ export async function sendWorkspaceMemberPasswordResetForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const { workspace, memberRole } = await requireWorkspaceWithRole(
     user,
-    ["owner", "admin"],
+    ["account_admin", "admin"],
     preferredWorkspaceId,
   );
   const parsed = sendWorkspacePasswordResetSchema.parse(input);
@@ -700,7 +700,7 @@ export async function sendWorkspaceMemberPasswordResetForAuthorizationHeader(
     throw new AppError(404, "That user does not have a sign-in email on file.");
   }
 
-  if (targetRole === "owner" && memberRole !== "owner" && typedMembership.user_id !== user.id) {
+  if (targetRole === "account_admin" && memberRole !== "account_admin" && typedMembership.user_id !== user.id) {
     throw new AppError(403, "Only an account admin can reset another account admin's password.");
   }
 
@@ -733,7 +733,7 @@ export async function changeWorkspaceMemberRoleForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const { workspace, memberRole } = await requireWorkspaceWithRole(
     user,
-    ["owner", "admin"],
+    ["account_admin", "admin"],
     preferredWorkspaceId,
   );
   const parsed = changeMemberRoleSchema.parse(input);
@@ -743,8 +743,8 @@ export async function changeWorkspaceMemberRoleForAuthorizationHeader(
     throw new AppError(400, "You cannot change your own role.");
   }
 
-  // Only the primary account admin can assign or remove the internal owner role.
-  if (parsed.role === "owner" && memberRole !== "owner") {
+  // Only the primary account admin can assign or remove account admin access.
+  if (parsed.role === "account_admin" && memberRole !== "account_admin") {
     throw new AppError(403, "Only the primary account admin can grant account admin access.");
   }
 
@@ -760,7 +760,7 @@ export async function changeWorkspaceMemberRoleForAuthorizationHeader(
   if (!membership) throw new AppError(404, "That user is not a member of this workspace.");
 
   // Admins cannot change the primary account admin role.
-  if (membership.role === "owner" && memberRole !== "owner") {
+  if (membership.role === "account_admin" && memberRole !== "account_admin") {
     throw new AppError(403, "Only the primary account admin can change another account admin's role.");
   }
 
@@ -799,7 +799,7 @@ export async function removeWorkspaceMemberForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const { workspace, memberRole } = await requireWorkspaceWithRole(
     user,
-    ["owner", "admin"],
+    ["account_admin", "admin"],
     preferredWorkspaceId,
   );
   const parsed = removeMemberSchema.parse(input);
@@ -821,7 +821,7 @@ export async function removeWorkspaceMemberForAuthorizationHeader(
   if (!membership) throw new AppError(404, "That user is not a member of this workspace.");
 
   // Admins cannot remove the primary account admin.
-  if (membership.role === "owner" && memberRole !== "owner") {
+  if (membership.role === "account_admin" && memberRole !== "account_admin") {
     throw new AppError(403, "Only the primary account admin can remove another account admin.");
   }
 
@@ -949,7 +949,7 @@ async function sendInviteEmail(
 ) {
   const acceptUrl = `${opts.appOrigin}?invite=${encodeURIComponent(opts.token)}`;
   const roleLabel =
-    opts.role === "owner"
+    opts.role === "account_admin"
       ? "Account admin"
       : opts.role === "admin"
         ? "Admin"

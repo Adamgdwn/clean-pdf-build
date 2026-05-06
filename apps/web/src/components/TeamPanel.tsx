@@ -5,7 +5,7 @@ import { apiFetch } from "../lib/api";
 import type { BillingOverview, WorkspaceTeam, WorkspaceTeamInvitation } from "../types";
 
 const ROLE_LABELS: Record<string, string> = {
-  owner: "Account admin",
+  account_admin: "Account admin",
   admin: "Admin",
   member: "Member",
   billing_admin: "Billing admin",
@@ -20,7 +20,7 @@ type Props = {
 
 export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Props) {
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"owner" | "member" | "admin" | "billing_admin">("member");
+  const [inviteRole, setInviteRole] = useState<"account_admin" | "member" | "admin" | "billing_admin">("member");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
@@ -29,14 +29,14 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
     team.organization.accountType === "corporate" ? team.organization.name : team.workspace.name,
   );
   const [editingRoleUserId, setEditingRoleUserId] = useState<string | null>(null);
-  const [editingRoleValue, setEditingRoleValue] = useState<"owner" | "member" | "admin" | "billing_admin">("member");
+  const [editingRoleValue, setEditingRoleValue] = useState<"account_admin" | "member" | "admin" | "billing_admin">("member");
   const [confirmRemoveUserId, setConfirmRemoveUserId] = useState<string | null>(null);
 
   const subscription = billingOverview?.subscription ?? null;
-  const isOwnerOrAdmin = team.members.some(
-    (m) => m.isCurrentUser && ["owner", "admin"].includes(m.role),
+  const isAccountAdminOrAdmin = team.members.some(
+    (m) => m.isCurrentUser && ["account_admin", "admin"].includes(m.role),
   );
-  const isCurrentUserOwner = team.members.some((m) => m.isCurrentUser && m.role === "owner");
+  const isCurrentUserAccountAdmin = team.members.some((m) => m.isCurrentUser && m.role === "account_admin");
 
   const totalOccupied = team.members.length + team.pendingInvitations.length;
   const seatCount = subscription?.seatCount ?? 0;
@@ -198,7 +198,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
     <section className="card">
       <div className="section-heading compact">
         <p className="eyebrow">{team.organization.accountType === "corporate" ? "Organization" : "Team"}</p>
-        {isOwnerOrAdmin && !editingName ? (
+        {isAccountAdminOrAdmin && !editingName ? (
           <button
             className="ghost-button"
             onClick={() => {
@@ -250,13 +250,13 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
               </div>
               <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexShrink: 0 }}>
                 <span className="muted">{ROLE_LABELS[member.role] ?? member.role}</span>
-                {isOwnerOrAdmin && !member.isCurrentUser ? (
+                {isAccountAdminOrAdmin && !member.isCurrentUser ? (
                   <button
                     className="ghost-button small"
                     disabled={isLoading}
                     onClick={() => {
                       setEditingRoleUserId(editingRoleUserId === member.userId ? null : member.userId);
-                      setEditingRoleValue(member.role as "owner" | "member" | "admin" | "billing_admin");
+                      setEditingRoleValue(member.role as "account_admin" | "member" | "admin" | "billing_admin");
                       setConfirmRemoveUserId(null);
                     }}
                     type="button"
@@ -264,7 +264,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
                     Change role
                   </button>
                 ) : null}
-                {isOwnerOrAdmin && member.email ? (
+                {isAccountAdminOrAdmin && member.email ? (
                   <button
                     className="ghost-button small"
                     disabled={isLoading}
@@ -274,7 +274,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
                     Reset
                   </button>
                 ) : null}
-                {isOwnerOrAdmin && !member.isCurrentUser ? (
+                {isAccountAdminOrAdmin && !member.isCurrentUser ? (
                   <button
                     className="ghost-button small"
                     disabled={isLoading}
@@ -296,10 +296,10 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
               <div className="row-inline" style={{ paddingTop: "4px", borderTop: "1px solid var(--border)" }}>
                 <select
                   value={editingRoleValue}
-                  onChange={(e) => setEditingRoleValue(e.target.value as "owner" | "member" | "admin" | "billing_admin")}
+                  onChange={(e) => setEditingRoleValue(e.target.value as "account_admin" | "member" | "admin" | "billing_admin")}
                   style={{ flex: 1 }}
                 >
-                  {isCurrentUserOwner ? <option value="owner">Account admin</option> : null}
+                  {isCurrentUserAccountAdmin ? <option value="account_admin">Account admin</option> : null}
                   <option value="member">Member</option>
                   <option value="admin">Admin</option>
                   <option value="billing_admin">Billing admin</option>
@@ -360,7 +360,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
                   <span>{inv.email}</span>
                   <p className="muted">{ROLE_LABELS[inv.role] ?? inv.role} · invited</p>
                 </div>
-                {isOwnerOrAdmin ? (
+                {isAccountAdminOrAdmin ? (
                   <div style={{ display: "flex", gap: "0.5rem" }}>
                     <button
                       className="ghost-button"
@@ -386,14 +386,14 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
         ) : null}
 
         {/* Invite form */}
-        {isOwnerOrAdmin ? (
+        {isAccountAdminOrAdmin ? (
           <>
             <p className="eyebrow" style={{ marginTop: "0.5rem" }}>Invite a teammate</p>
             <p className="muted">
               Internal members are billed at either $12 CAD per user/month or $120 CAD per
               user/year. External signers are not billed as users, and token purchases are shared across the {team.organization.accountType === "corporate" ? "organization" : "account"}.
             </p>
-            {isCurrentUserOwner ? (
+            {isCurrentUserAccountAdmin ? (
               <p className="muted">
                 As the account admin, you can also grant account admin access to another representative for this organization.
               </p>
@@ -414,9 +414,9 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
                   <span>Role</span>
                   <select
                     value={inviteRole}
-                    onChange={(e) => setInviteRole(e.target.value as "owner" | "member" | "admin" | "billing_admin")}
+                    onChange={(e) => setInviteRole(e.target.value as "account_admin" | "member" | "admin" | "billing_admin")}
                   >
-                    {isCurrentUserOwner ? <option value="owner">Account admin</option> : null}
+                    {isCurrentUserAccountAdmin ? <option value="account_admin">Account admin</option> : null}
                     <option value="member">Member</option>
                     <option value="admin">Admin</option>
                     <option value="billing_admin">Billing admin</option>

@@ -70,7 +70,7 @@ Priority meanings:
 
 Working rules:
 
-- Assign every actionable item to an owner.
+- Assign every actionable item to an assignee.
 - Add a resolution note before or when closing an item.
 - Escalate anything that affects trust, billing, account access, or document completion flow.
 - Keep lightweight process until request volume proves a dedicated support tool is necessary.

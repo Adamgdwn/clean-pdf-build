@@ -118,7 +118,7 @@ export function AuthPanel({
     }
   }, [authMode, email, username]);
 
-  function fallbackToBrowserFormSignIn(nextEmail: string, nextPassword: string) {
+  function submitPasswordSignInForm(nextEmail: string, nextPassword: string) {
     const form = document.createElement("form");
     form.method = "POST";
     form.action = "/api/auth-password-form";
@@ -154,7 +154,7 @@ export function AuthPanel({
 
     try {
       if (authMode === "sign_in") {
-        fallbackToBrowserFormSignIn(email, password);
+        submitPasswordSignInForm(email, password);
         return;
       } else {
         const payload = await apiFetch<{ session: Session | null; user: { email?: string | null } | null }>(

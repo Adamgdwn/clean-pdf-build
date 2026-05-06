@@ -32,7 +32,7 @@ flowchart TD
     %% ── ACCOUNT SETUP ──────────────────────────────────────────────────────
     subgraph ACCOUNT["① Account setup"]
         A1([Sign up]) --> A2[Onboarding prompt\nworkspace name · invite teammates]
-        A2 --> A3[Owner Portal — Billing]
+        A2 --> A3[Account admin portal — Billing]
         A3 --> A4{Choose plan}
         A4 -->|no card required| A5[Free trial — 30 days\n$0 invoice emailed by Stripe]
         A4 --> A6[Monthly — $12 CAD per seat]
@@ -105,18 +105,18 @@ flowchart TD
 
     %% ── OPERATIONAL PAUSES ───────────────────────────────────────────────────
     subgraph PAUSES["Operational pauses — available after Send"]
-        L1[Locked\nno further signing\nowner/editor action]
+        L1[Locked\nno further signing\ndocument admin/editor action]
         CR1[Changes requested\nworkflow paused\nsigner initiates · originator notified]
         X1([Rejected\nworkflow terminated\nsigner declines])
-        X2([Canceled\nworkflow terminated\nowner/editor aborts])
+        X2([Canceled\nworkflow terminated\ndocument admin/editor aborts])
     end
 
-    SND -. owner/editor locks .-> L1
-    L1 -. owner/editor reopens .-> R1
+    SND -. document admin/editor locks .-> L1
+    L1 -. document admin/editor reopens .-> R1
     S1 -. signer requests changes .-> CR1
     CR1 -. originator revises and reopens .-> R1
     S1 -. signer rejects .-> X1
-    SND -. owner/editor cancels .-> X2
+    SND -. document admin/editor cancels .-> X2
 
     %% ── AUDIT TRAIL ──────────────────────────────────────────────────────────
     SND & S9 & C1 & L1 & CR1 & X1 & X2 -.-> AT[(Audit trail\nfull event history\nvisible to all participants)]
@@ -143,7 +143,7 @@ Operational pauses overlay any state: `changes_requested`, `rejected`, `canceled
 
 | Mode | Who gets emailed | Signing access | Token cost |
 |---|---|---|---|
-| Self-managed | Nobody | Internal users sign in; owner distributes links manually | None |
+| Self-managed | Nobody | Internal users sign in; sender distributes links manually | None |
 | Internal-only | Internal signers only | Authenticated EasyDraft users only | None |
 | Platform-managed | All eligible signers | Internal users sign in; external signers use token link plus email verification code | 1 token per external workflow sent |
 
@@ -178,7 +178,7 @@ Only action fields (`signature`, `initial`, `approval`) count toward workflow co
 
 | Role | Send | Lock/Reopen | Cancel | Sign fields | Buy tokens |
 |---|---|---|---|---|---|
-| Owner | ✓ | ✓ | ✓ | — | ✓ |
+| Document admin | ✓ | ✓ | ✓ | — | ✓ |
 | Editor | ✓ | ✓ | ✓ | — | — |
 | Signer | — | — | — | ✓ (assigned only) | — |
 | Viewer | — | — | — | — | — |

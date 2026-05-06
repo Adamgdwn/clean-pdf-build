@@ -198,45 +198,45 @@ select {
   gap: 20px;
 }
 
-.owner-portal {
+.account-admin-portal {
   display: grid;
   gap: 20px;
 }
 
-.owner-hero-panel {
+.account-admin-hero-panel {
   padding: 22px;
 }
 
-.owner-actions {
+.account-admin-actions {
   margin-top: 18px;
   margin-bottom: 0;
 }
 
-.owner-summary-grid {
+.account-admin-summary-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-top: 18px;
 }
 
-.owner-metrics-grid {
+.account-admin-metrics-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-top: 18px;
 }
 
-.owner-portal-grid {
+.account-admin-portal-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
   gap: 20px;
 }
 
-.owner-summary-card {
+.account-admin-summary-card {
   padding: 18px;
 }
 
-.owner-summary-card .row-card span {
+.account-admin-summary-card .row-card span {
   white-space: nowrap;
 }
 
@@ -771,7 +771,7 @@ select {
   .grid,
   .hero,
   .split,
-  .owner-portal-grid {
+  .account-admin-portal-grid {
     grid-template-columns: 1fr;
   }
 
@@ -791,11 +791,11 @@ select {
     align-items: flex-start;
   }
 
-  .owner-metrics-grid {
+  .account-admin-metrics-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .owner-summary-grid {
+  .account-admin-summary-grid {
     grid-template-columns: 1fr;
   }
 
@@ -810,8 +810,8 @@ select {
   .meta-grid,
   .compact-grid,
   .admin-metrics,
-  .owner-summary-grid,
-  .owner-metrics-grid {
+  .account-admin-summary-grid,
+  .account-admin-metrics-grid {
     grid-template-columns: 1fr;
   }
 
@@ -959,7 +959,7 @@ select {
   align-self: flex-start;
 }
 
-/* Billing fuel gauge — slim status strip for owners */
+/* Billing fuel gauge — slim status strip for account admins */
 .billing-gauge {
   display: flex;
   align-items: center;
@@ -1052,7 +1052,7 @@ select {
   color: #18241d;
 }
 
-/* Team summary bar in workspace for owners */
+/* Team summary bar in workspace for account admins */
 .team-summary-bar {
   display: flex;
   align-items: center;
@@ -1585,7 +1585,7 @@ button.row-card-button p {
   pointer-events: none;
 }
 
-.owner-watchlist-heading {
+.account-admin-watchlist-heading {
   display: flex;
   align-items: center;
   gap: 10px;

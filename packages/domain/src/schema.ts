@@ -23,13 +23,13 @@ export const documentRetentionModeSchema = z.enum(["temporary", "retained"]);
 export const signaturePathSchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
 export const signatureStatusSchema = z.enum(["pending", "sent", "signed", "rejected", "archived"]);
 
-export const accessRoleSchema = z.enum(["owner", "editor", "signer", "viewer"]);
+export const accessRoleSchema = z.enum(["document_admin", "editor", "signer", "viewer"]);
 export const routingStrategySchema = z.enum(["sequential", "parallel"]);
 export const participantTypeSchema = z.enum(["internal", "external"]);
 export const lockPolicySchema = z.enum([
-  "owner_only",
-  "owner_and_editors",
-  "owner_editors_and_active_signer",
+  "document_admin_only",
+  "document_admin_and_editors",
+  "document_admin_editors_and_active_signer",
 ]);
 export const deliveryModeSchema = z.enum(["self_managed", "internal_use_only", "platform_managed"]);
 export const fieldKindSchema = z.enum([
@@ -174,7 +174,7 @@ export const documentSchema = z.object({
   status: signatureStatusSchema.default("pending"),
   deliveryMode: deliveryModeSchema.default("self_managed"),
   distributionTarget: z.string().nullable().default(null),
-  lockPolicy: lockPolicySchema.default("owner_only"),
+  lockPolicy: lockPolicySchema.default("document_admin_only"),
   notifyOriginatorOnEachSignature: z.boolean().default(true),
   dueAt: z.string().datetime().nullable().default(null),
   retentionMode: documentRetentionModeSchema.default("temporary"),

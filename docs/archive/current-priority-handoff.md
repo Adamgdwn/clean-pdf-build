@@ -27,7 +27,7 @@ Date: `2026-04-21`
 
 ## Current judgment
 
-Two of the four original ship blockers are now resolved in code (B1 session, B2 processor). The remaining two are operational and owner-executed:
+Two of the four original ship blockers are now resolved in code (B1 session, B2 processor). The remaining two are operational and operator-executed:
 
 - **B3** — run the live commercial smoke test against real Stripe + Resend
 - **B4** — wire Sentry alert rules and assign owners for failed-notification and stuck-job response
@@ -38,13 +38,13 @@ Typecheck, build, and tests all pass clean.
 
 ## Remaining plan
 
-### Ship blockers — owner-executed (no code changes required)
+### Ship blockers — operator-executed (no code changes required)
 
 **B3 — Live smoke test**
 
 Run this against the deployed production stack before any active selling. The scenario matrix is already in `ADAMS_ACTIONS.md`. The minimum path:
 
-1. Sign up as a new owner → confirm org admin landing
+1. Sign up as a new account admin → confirm org admin landing
 2. Stripe checkout with `4242 4242 4242 4242` → confirm subscription in-app and portal loads
 3. Send one `platform_managed` workflow to a real external email → confirm signing link arrives, OTP gate works, link is dead after completion
 4. Accept a workspace invite from a different browser session

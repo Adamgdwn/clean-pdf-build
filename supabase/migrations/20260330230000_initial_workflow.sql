@@ -3,7 +3,7 @@ create extension if not exists pgcrypto;
 do $$
 begin
   if not exists (select 1 from pg_type where typname = 'access_role') then
-    create type public.access_role as enum ('owner', 'editor', 'signer', 'viewer');
+    create type public.access_role as enum ('document_admin', 'editor', 'signer', 'viewer');
   end if;
 
   if not exists (select 1 from pg_type where typname = 'routing_strategy') then

@@ -17,7 +17,7 @@ export type DocumentAction =
   | "reopen_document";
 
 const permissionMatrix: Record<AccessRole, DocumentAction[]> = {
-  owner: [
+  document_admin: [
     "edit_document",
     "manage_editor_history",
     "manage_signers",

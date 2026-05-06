@@ -43,7 +43,7 @@ type WorkspaceRow = {
 type WorkspaceMembershipRow = {
   workspace_id: string;
   user_id: string;
-  role: "owner" | "admin" | "member" | "billing_admin";
+  role: "account_admin" | "admin" | "member" | "billing_admin";
 };
 
 type OrganizationRow = {
@@ -157,7 +157,7 @@ function getStripeClient() {
 // ---------------------------------------------------------------------------
 
 function requireBillingPermission(membership: WorkspaceMembershipRow | null) {
-  if (!membership || !["owner", "billing_admin"].includes(membership.role)) {
+  if (!membership || !["account_admin", "billing_admin"].includes(membership.role)) {
     throw new AppError(403, "You do not have permission to manage billing for this workspace.");
   }
 }
@@ -551,7 +551,7 @@ export async function getBillingOverviewForAuthorizationHeader(
       slug: workspace.slug,
       workspaceType: workspace.workspace_type,
       membershipRole: (organizationMembershipRole ?? membership?.role ?? null) as
-        | "owner"
+        | "account_admin"
         | "admin"
         | "member"
         | "billing_admin"

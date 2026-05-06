@@ -15,23 +15,23 @@ flowchart TD
 
     %% ── PATH A ─────────────────────────────────────────────────────────────
     subgraph PATH_A["2A. Self-managed path"]
-        A1[Owner marks document ready] --> A2[EasyDraft records sentAt\nversion snapshot and audit event]
+        A1[Document admin marks document ready] --> A2[EasyDraft records sentAt\nversion snapshot and audit event]
         A2 --> A3[No platform emails sent]
-        A3 --> A4[Owner downloads, shares, or distributes links manually]
+        A3 --> A4[Document admin downloads, shares, or distributes links manually]
         A4 --> A5{Who signs?}
         A5 -->|Internal signer| A6[Internal signer signs in to EasyDraft]
-        A5 -->|External signer| A7[External signer uses owner-managed link or offline distribution]
+        A5 -->|External signer| A7[External signer uses sender-managed link or offline distribution]
         A6 --> A8[Complete assigned fields]
         A7 --> A8
         A8 --> A9{All required assigned\naction fields complete?}
-        A9 -->|No| A10[Owner follows up manually\nand next signer acts]
+        A9 -->|No| A10[Document admin follows up manually\nand next signer acts]
         A10 --> A5
         A9 -->|Yes| A11[Document completed]
     end
 
     %% ── PATH B ─────────────────────────────────────────────────────────────
     subgraph PATH_B["2B. Internal-use-only path"]
-        B1[Owner sends internal workflow] --> B2[EasyDraft records sentAt\nversion snapshot and audit event]
+        B1[Document admin sends internal workflow] --> B2[EasyDraft records sentAt\nversion snapshot and audit event]
         B2 --> B3[Only authenticated EasyDraft users can act]
         B3 --> B4{Routing strategy}
         B4 -->|Sequential| B5[Lowest stage and order signer becomes active]
@@ -51,7 +51,7 @@ flowchart TD
 
     %% ── PATH C ─────────────────────────────────────────────────────────────
     subgraph PATH_C["2C. Platform-managed path"]
-        C1[Owner sends managed workflow] --> C2{Active subscription?}
+        C1[Document admin sends managed workflow] --> C2{Active subscription?}
         C2 -->|No| C3[Send blocked\nsubscribe first]
         C2 -->|Yes| C4{Any external participants?}
         C4 -->|No| C5[No tokens required]
@@ -84,7 +84,7 @@ flowchart TD
 
     %% ── CHANGE IMPACT ──────────────────────────────────────────────────────
     subgraph IMPACT["4. Post-send changes and impact classification"]
-        M1[Owner or editor changes document\nafter signing has started] --> M2{What changed?}
+        M1[Document admin or editor changes document\nafter signing has started] --> M2{What changed?}
         M2 -->|Rename or due date only| M3[Non-material\nversion and audit entry only]
         M2 -->|Signer routing or unsigned field map| M4[Review required]
         M2 -->|Signed field layout or value impact| M5[Re-sign required]
@@ -98,7 +98,7 @@ flowchart TD
         P1[Locked\nsigning paused]
         P2[Changes requested\nworkflow paused]
         P3[Rejected\nworkflow ends]
-        P4[Canceled by owner/editor\nworkflow ends]
+        P4[Canceled by document admin/editor\nworkflow ends]
         P5[Reopened\nworkflow resumes]
     end
 
@@ -110,7 +110,7 @@ flowchart TD
         O3 -->|Yes| O5[Review admin queues\nand feedback queue]
         O5 --> O6{Any issue needs action?}
         O6 -->|No| O7[Continue beta operations]
-        O6 -->|Yes| O8[Assign owner\nset priority and status]
+        O6 -->|Yes| O8[Assign assignee\nset priority and status]
         O8 --> O9[Resolve or escalate\nadd closure note and changelog entry]
     end
 
@@ -123,9 +123,9 @@ flowchart TD
     B14 --> X1
     C19 --> X1
 
-    A2 -. owner/editor locks .-> P1
-    B2 -. owner/editor locks .-> P1
-    C9 -. owner/editor locks .-> P1
+    A2 -. document admin/editor locks .-> P1
+    B2 -. document admin/editor locks .-> P1
+    C9 -. document admin/editor locks .-> P1
 
     A8 -. post-send edit .-> M1
     B11 -. post-send edit .-> M1
@@ -145,9 +145,9 @@ flowchart TD
     B7 -. signer rejects .-> P3
     C11 -. signer rejects .-> P3
 
-    A2 -. owner/editor cancels .-> P4
-    B2 -. owner/editor cancels .-> P4
-    C9 -. owner/editor cancels .-> P4
+    A2 -. document admin/editor cancels .-> P4
+    B2 -. document admin/editor cancels .-> P4
+    C9 -. document admin/editor cancels .-> P4
 
     P1 -. reopen .-> P5
     P2 -. revise and reopen .-> P5

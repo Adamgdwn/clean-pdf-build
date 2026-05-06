@@ -8,7 +8,7 @@ For this product, charge for internal team usage and workflow volume, not for ex
 
 That means:
 
-- owners, editors, and billing admins count as paid seats
+- account admins, editors, and billing admins count as paid seats
 - signers and viewers from outside the workspace do not
 - usage charges should track completed documents, OCR pages, and storage
 
@@ -36,8 +36,8 @@ Recommended user data split:
 - `public.organization_memberships`: which organization the user belongs to and their account role
 - `public.workspace_memberships`: which workspace the user belongs to and their workspace role
 - `public.organization_license_assignments`: which purchased or trial seats are assigned, invited, suspended, or revoked
-- `public.organization_account_events`: account-administration audit events such as ownership transfer and closure requests
-- `public.document_access`: document-level access for owner, editor, signer, viewer
+- `public.organization_account_events`: account-administration audit events such as primary account admin change and closure requests
+- `public.document_access`: document-level access for document_admin, editor, signer, viewer
 
 Avoid storing more PII than necessary in v1.
 
@@ -83,7 +83,7 @@ Use two account types:
 
 Keep account administration as membership authority, not as a third profile type:
 
-- `owner`: controls account/workspace setup, member access, billing posture, ownership transfer, and account closure
+- `account_admin`: controls account/workspace setup, member access, billing posture, primary account admin change, and account closure
 - `admin`: manages team access and can assign already-purchased licenses
 - `billing_admin`: manages subscription, purchased seats, payment methods, and token purchases
 - `member`: uses assigned product access without account-administration authority
@@ -111,13 +111,13 @@ Corporate signup is a first-class path, not a profile fallback:
 3. Supabase Auth stores login identity and metadata
 4. EasyDraft creates or resolves the role-specific profile row
 5. the account boundary is a `corporate` organization
-6. the creator becomes `owner` in both organization and workspace memberships
+6. the creator becomes `account_admin` in both organization and workspace memberships
 7. the user lands in the organization admin dashboard
 
 The organization admin dashboard should answer the operational questions immediately:
 
 - account status
-- current owner
+- current primary account admin
 - plan and subscription status
 - purchased seats, assigned seats, pending invited seats, available seats, and over-assignment
 - token balance, tokens purchased, and tokens used
@@ -127,9 +127,9 @@ The organization admin dashboard should answer the operational questions immedia
 
 Billing spend is intentionally narrower than people administration:
 
-- `owner` and `billing_admin` can buy seats, open the billing portal, and purchase token packs
-- `owner` and `admin` can manage people and assign available access
-- only `owner` can transfer ownership or request account closure
+- `account_admin` and `billing_admin` can buy seats, open the billing portal, and purchase token packs
+- `account_admin` and `admin` can manage people and assign available access
+- only `account_admin` can change primary account admin or request account closure
 
 ## Monetization model
 

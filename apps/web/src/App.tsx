@@ -15,7 +15,7 @@ import {
 import { AuthPanel } from "./components/AuthPanel";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { FeedbackPanel } from "./components/FeedbackPanel";
-import { OwnerPortal } from "./components/OwnerPortal";
+import { AccountAdminPortal } from "./components/AccountAdminPortal";
 import { PublicSite, type PublicPage } from "./components/public/PublicSite";
 import type {
   AccountProfile,
@@ -56,7 +56,7 @@ function formatWorkspaceRoleLabel(role: string | null) {
     return null;
   }
 
-  if (role === "owner") return "Account admin";
+  if (role === "account_admin") return "Account admin";
   if (role === "billing_admin") return "Billing admin";
   return formatState(role);
 }
@@ -189,15 +189,15 @@ function getSignaturePathLabel(signaturePath: WorkflowDocument["signaturePath"])
 }
 
 function getLockPolicyLabel(lockPolicy: WorkflowDocument["lockPolicy"]) {
-  if (lockPolicy === "owner_and_editors") {
-    return "Account admin and editors can lock";
+  if (lockPolicy === "document_admin_and_editors") {
+    return "Document admin and editors can lock";
   }
 
-  if (lockPolicy === "owner_editors_and_active_signer") {
-    return "Account admin, editors, and the active signer can lock";
+  if (lockPolicy === "document_admin_editors_and_active_signer") {
+    return "Document admin, editors, and the active signer can lock";
   }
 
-  return "Only the account admin can lock";
+  return "Only the document admin can lock";
 }
 
 function getParticipantTypeLabel(participantType: WorkflowDocument["signers"][number]["participantType"]) {
@@ -221,20 +221,20 @@ function canCurrentUserLockDocument(document: WorkflowDocument | null) {
     return false;
   }
 
-  if (document.currentUserRole === "owner") {
+  if (document.currentUserRole === "document_admin") {
     return true;
   }
 
   if (
     document.currentUserRole === "editor" &&
-    (document.lockPolicy === "owner_and_editors" ||
-      document.lockPolicy === "owner_editors_and_active_signer")
+    (document.lockPolicy === "document_admin_and_editors" ||
+      document.lockPolicy === "document_admin_editors_and_active_signer")
   ) {
     return true;
   }
 
   if (
-    document.lockPolicy === "owner_editors_and_active_signer" &&
+    document.lockPolicy === "document_admin_editors_and_active_signer" &&
     document.currentUserSignerId &&
     document.fields.some(
       (field) =>
@@ -328,28 +328,6 @@ function getQuickRouteLabels(deliveryMode: WorkflowDocument["deliveryMode"]) {
     heading: "Next step",
     primary: "Queue next participant",
     secondary: "Add parallel participant",
-  };
-}
-
-function getFallbackSessionUser(currentSession: Session): SessionUser | null {
-  const user = currentSession.user;
-  const email = user.email ?? null;
-
-  if (!user.id || !email) {
-    return null;
-  }
-
-  const rawName = user.user_metadata?.full_name;
-  const name =
-    typeof rawName === "string" && rawName.trim().length > 0
-      ? rawName.trim()
-      : email.split("@")[0] || "EasyDraft user";
-
-  return {
-    id: user.id,
-    name,
-    email,
-    isAdmin: false,
   };
 }
 
@@ -501,8 +479,8 @@ export default function App() {
     useState<"self_managed" | "internal_use_only" | "platform_managed">("self_managed");
   const [distributionTarget, setDistributionTarget] = useState("");
   const [lockPolicy, setLockPolicy] = useState<
-    "owner_only" | "owner_and_editors" | "owner_editors_and_active_signer"
-  >("owner_only");
+    "document_admin_only" | "document_admin_and_editors" | "document_admin_editors_and_active_signer"
+  >("document_admin_only");
   const [notifyOriginatorOnEachSignature, setNotifyOriginatorOnEachSignature] = useState(true);
   const [dueAt, setDueAt] = useState("");
   const [signerName, setSignerName] = useState("");
@@ -597,8 +575,8 @@ export default function App() {
     savedSignatures[0] ??
     null;
   const canEdit =
-    selectedDocument?.currentUserRole === "owner" || selectedDocument?.currentUserRole === "editor";
-  const canManageAccess = selectedDocument?.currentUserRole === "owner";
+    selectedDocument?.currentUserRole === "document_admin" || selectedDocument?.currentUserRole === "editor";
+  const canManageAccess = selectedDocument?.currentUserRole === "document_admin";
   const canManageWorkflow = canEdit;
   const sendReadiness = selectedDocument ? getDocumentSendReadiness(selectedDocument) : null;
   const requiredActionFields =
@@ -768,21 +746,9 @@ export default function App() {
       return;
     }
 
-    const fallbackUser = getFallbackSessionUser(currentSession);
-    if (fallbackUser) {
-      setSessionUser(fallbackUser);
-    }
-
-    try {
-      const payload = await apiFetch<{ user: SessionUser }>("/session", currentSession);
-      setSessionUser(payload.user);
-      return payload.user;
-    } catch (error) {
-      if (!fallbackUser) {
-        throw error;
-      }
-    }
-    return fallbackUser;
+    const payload = await apiFetch<{ user: SessionUser }>("/session", currentSession);
+    setSessionUser(payload.user);
+    return payload.user;
   }
 
   async function refreshWorkspaceDirectory(activeSession: Session) {
@@ -2156,7 +2122,10 @@ export default function App() {
       if (event === "INITIAL_SESSION") {
         if (supabaseSession) {
           // Returning user — Supabase already has a valid session in its own storage.
-          const user = await refreshSession(supabaseSession).catch(() => null);
+          const user = await refreshSession(supabaseSession).catch((error) => {
+            setErrorMessage((error as Error).message);
+            return null;
+          });
           if (shouldRestoreSessionFromRedirect && user) {
             showToast(`Welcome back, ${user.name.split(" ")[0]}.`);
           }
@@ -2176,7 +2145,10 @@ export default function App() {
         }
       } else if (event === "SIGNED_IN" && supabaseSession) {
         // Fires after setSession() (handoff sign-in) and after registration via onSessionCreated.
-        const user = await refreshSession(supabaseSession).catch(() => null);
+        const user = await refreshSession(supabaseSession).catch((error) => {
+          setErrorMessage((error as Error).message);
+          return null;
+        });
         if (shouldRestoreSessionFromRedirect && user) {
           showToast(`Welcome back, ${user.name.split(" ")[0]}.`);
         }
@@ -2391,7 +2363,7 @@ export default function App() {
   const canAccessOrgAdmin = Boolean(
     sessionUser &&
       (sessionUser.isAdmin ||
-        (isCorporateAccount && ["owner", "admin", "billing_admin"].includes(workspaceMembershipRole ?? ""))),
+        (isCorporateAccount && ["account_admin", "admin", "billing_admin"].includes(workspaceMembershipRole ?? ""))),
   );
 
   function updatePortalView(nextView: PortalView) {
@@ -2492,7 +2464,7 @@ export default function App() {
       accountProfile?.companyName ??
       "Workspace";
     const documentOwner =
-      selectedDocument.accessParticipants.find((entry) => entry.role === "owner")?.displayName ??
+      selectedDocument.accessParticipants.find((entry) => entry.role === "document_admin")?.displayName ??
       "The sender";
     const guestAssignedFields = selectedDocument.fields.filter(
       (field) =>
@@ -3297,7 +3269,7 @@ export default function App() {
         ) : null}
 
         {/* Onboarding prompt — shown once to new users */}
-        {portalView === "workspace" && sessionUser && session && showOnboarding && workspaceTeam && workspaceMembershipRole === "owner" ? (
+        {portalView === "workspace" && sessionUser && session && showOnboarding && workspaceTeam && workspaceMembershipRole === "account_admin" ? (
           <OnboardingPrompt
             session={session}
             workspaceTeam={workspaceTeam}
@@ -3535,11 +3507,11 @@ export default function App() {
         {portalView === "org_admin" && sessionUser && session ? (
           <ErrorBoundary label="Organization admin">
             {isWorkspaceHydrating ? (
-              <section className="owner-portal">
-                <div className="panel owner-hero-panel skeleton-stack">
+              <section className="account-admin-portal">
+                <div className="panel account-admin-hero-panel skeleton-stack">
                   <div className="skeleton-line skeleton-line-title" />
                   <div className="skeleton-line" />
-                  <div className="owner-kpi-grid">
+                  <div className="account-admin-kpi-grid">
                     <div className="skeleton-card" />
                     <div className="skeleton-card" />
                     <div className="skeleton-card" />
@@ -3548,7 +3520,7 @@ export default function App() {
                 </div>
               </section>
             ) : (
-              <OwnerPortal
+              <AccountAdminPortal
                 session={session}
                 sessionUser={sessionUser}
                 documents={documents}
@@ -3682,16 +3654,16 @@ export default function App() {
                   onChange={(event) =>
                     setLockPolicy(
                       event.target.value as
-                        | "owner_only"
-                        | "owner_and_editors"
-                        | "owner_editors_and_active_signer",
+                        | "document_admin_only"
+                        | "document_admin_and_editors"
+                        | "document_admin_editors_and_active_signer",
                     )
                   }
                 >
-                  <option value="owner_only">Only the account admin can lock</option>
-                  <option value="owner_and_editors">Account admin and editors can lock</option>
-                  <option value="owner_editors_and_active_signer">
-                    Account admin, editors, and the active signer can lock
+                  <option value="document_admin_only">Only the document admin can lock</option>
+                  <option value="document_admin_and_editors">Document admin and editors can lock</option>
+                  <option value="document_admin_editors_and_active_signer">
+                    Document admin, editors, and the active signer can lock
                   </option>
                 </select>
               </label>

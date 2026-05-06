@@ -8,12 +8,12 @@ export type SessionUser = {
 };
 
 export type WorkflowDocument = DocumentRecord & {
-  currentUserRole: "owner" | "editor" | "signer" | "viewer" | null;
+  currentUserRole: "document_admin" | "editor" | "signer" | "viewer" | null;
   currentUserIsSigner: boolean;
   currentUserSignerId: string | null;
   accessParticipants: Array<{
     userId: string;
-    role: "owner" | "editor" | "signer" | "viewer";
+    role: "document_admin" | "editor" | "signer" | "viewer";
     displayName: string;
     email: string | null;
   }>;
@@ -53,7 +53,7 @@ export type BillingOverview = {
     name: string;
     slug: string;
     accountType: "individual" | "corporate";
-    membershipRole: "owner" | "admin" | "member" | "billing_admin" | null;
+    membershipRole: "account_admin" | "admin" | "member" | "billing_admin" | null;
     memberCount: number;
   };
   workspace: {
@@ -61,7 +61,7 @@ export type BillingOverview = {
     name: string;
     slug: string;
     workspaceType: "personal" | "team";
-    membershipRole: "owner" | "admin" | "member" | "billing_admin" | null;
+    membershipRole: "account_admin" | "admin" | "member" | "billing_admin" | null;
     internalMemberCount: number;
   };
   subscription: {
@@ -260,7 +260,7 @@ export type WorkspaceTeam = {
     name: string;
     slug: string;
     accountType: "individual" | "corporate";
-    membershipRole: "owner" | "admin" | "member" | "billing_admin" | null;
+    membershipRole: "account_admin" | "admin" | "member" | "billing_admin" | null;
   };
   workspace: {
     id: string;
@@ -277,13 +277,13 @@ export type WorkspaceOption = {
   name: string;
   slug: string;
   workspaceType: "personal" | "team";
-  role: "owner" | "admin" | "member" | "billing_admin" | null;
+  role: "account_admin" | "admin" | "member" | "billing_admin" | null;
   organization: {
     id: string;
     name: string;
     slug: string;
     accountType: "individual" | "corporate";
-    role: "owner" | "admin" | "member" | "billing_admin" | null;
+    role: "account_admin" | "admin" | "member" | "billing_admin" | null;
   } | null;
 };
 
@@ -300,8 +300,8 @@ export type OrganizationAdminOverview = {
     accountType: "individual" | "corporate";
     status: "active" | "payment_required" | "suspended" | "closing" | "closed";
     billingEmail: string | null;
-    ownerUserId: string;
-    membershipRole: "owner" | "admin" | "member" | "billing_admin" | null;
+    primaryAccountAdminUserId: string;
+    membershipRole: "account_admin" | "admin" | "member" | "billing_admin" | null;
     suspendedAt: string | null;
     closingRequestedAt: string | null;
     closedAt: string | null;
@@ -315,7 +315,7 @@ export type OrganizationAdminOverview = {
   authority: {
     canManagePeople: boolean;
     canManageBilling: boolean;
-    canTransferOwnership: boolean;
+    canChangePrimaryAccountAdmin: boolean;
     canCloseAccount: boolean;
   };
   licenseSummary: {
@@ -346,16 +346,16 @@ export type OrganizationAdminOverview = {
     userId: string;
     displayName: string;
     email: string | null;
-    role: "owner" | "admin" | "member" | "billing_admin";
+    role: "account_admin" | "admin" | "member" | "billing_admin";
     licenseStatus: "assigned" | "invited" | "suspended" | "revoked";
     joinedAt: string;
-    isOwner: boolean;
+    isPrimaryAccountAdmin: boolean;
     isCurrentUser: boolean;
   }>;
   pendingInvitations: Array<{
     id: string;
     email: string;
-    role: "owner" | "admin" | "member" | "billing_admin";
+    role: "account_admin" | "admin" | "member" | "billing_admin";
     licenseStatus: "assigned" | "invited" | "suspended" | "revoked";
     expiresAt: string;
     createdAt: string;

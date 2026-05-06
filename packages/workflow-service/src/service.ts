@@ -378,7 +378,7 @@ type WorkspaceMembershipWithWorkspaceRow = {
 type OrganizationMembershipRow = {
   organization_id: string;
   user_id: string;
-  role: "owner" | "admin" | "member" | "billing_admin";
+  role: "account_admin" | "admin" | "member" | "billing_admin";
   created_at: string;
 };
 
@@ -704,8 +704,8 @@ const createDocumentInputSchema = z.object({
   deliveryMode: z.enum(["self_managed", "internal_use_only", "platform_managed"]).default("self_managed"),
   distributionTarget: z.string().trim().max(200).nullable().default(null),
   lockPolicy: z
-    .enum(["owner_only", "owner_and_editors", "owner_editors_and_active_signer"])
-    .default("owner_only"),
+    .enum(["document_admin_only", "document_admin_and_editors", "document_admin_editors_and_active_signer"])
+    .default("document_admin_only"),
   notifyOriginatorOnEachSignature: z.boolean().default(true),
   dueAt: z.string().datetime().nullable().default(null),
   pageCount: z.number().int().positive().nullable().default(null),
@@ -878,7 +878,7 @@ const updateAdminFeedbackRequestInputSchema = z.object({
   resolutionNote: z.string().trim().max(4000).nullable().optional(),
 });
 
-const transferOrganizationOwnershipInputSchema = z.object({
+const changePrimaryAccountAdminInputSchema = z.object({
   targetUserId: z.string().uuid(),
 });
 
@@ -943,7 +943,7 @@ export async function syncProfileIdentity(input: SyncProfileIdentityInput) {
   }
 
   const preferredOrganization = ((organizationMembershipsResult.data ?? []) as Array<{
-    role: "owner" | "admin" | "member" | "billing_admin";
+    role: "account_admin" | "admin" | "member" | "billing_admin";
     created_at: string;
     organizations:
       | {
@@ -968,7 +968,7 @@ export async function syncProfileIdentity(input: SyncProfileIdentityInput) {
     .filter((entry) => entry.organization)
     .sort((left, right) => {
       const roleWeight = (role: string) =>
-        role === "owner" ? 0 : role === "admin" ? 1 : role === "billing_admin" ? 2 : 3;
+        role === "account_admin" ? 0 : role === "admin" ? 1 : role === "billing_admin" ? 2 : 3;
       return (
         roleWeight(left.role) - roleWeight(right.role) ||
         left.createdAt.localeCompare(right.createdAt)
@@ -976,7 +976,7 @@ export async function syncProfileIdentity(input: SyncProfileIdentityInput) {
     })[0]?.organization ?? null;
 
   const preferredWorkspace = ((workspaceMembershipsResult.data ?? []) as Array<{
-    role: "owner" | "admin" | "member" | "billing_admin";
+    role: "account_admin" | "admin" | "member" | "billing_admin";
     created_at: string;
     workspaces:
       | {
@@ -1001,7 +1001,7 @@ export async function syncProfileIdentity(input: SyncProfileIdentityInput) {
     .filter((entry) => entry.workspace)
     .sort((left, right) => {
       const roleWeight = (role: string) =>
-        role === "owner" ? 0 : role === "admin" ? 1 : role === "billing_admin" ? 2 : 3;
+        role === "account_admin" ? 0 : role === "admin" ? 1 : role === "billing_admin" ? 2 : 3;
       return (
         roleWeight(left.role) - roleWeight(right.role) ||
         left.createdAt.localeCompare(right.createdAt)
@@ -1023,7 +1023,7 @@ export async function syncProfileIdentity(input: SyncProfileIdentityInput) {
     workspaceName: normalizedWorkspaceName,
     accountType: normalizedAccountType,
     profileKind: normalizedProfileKind,
-    fallbackCompanyName: preferredOrganization?.account_type === "corporate" ? preferredOrganization.name : null,
+    existingCompanyName: preferredOrganization?.account_type === "corporate" ? preferredOrganization.name : null,
   });
 
   const identity: ProfileIdentity = {
@@ -1229,7 +1229,7 @@ const accessRolePriority: Record<AccessRole, number> = {
   signer: 1,
   viewer: 2,
   editor: 3,
-  owner: 4,
+  document_admin: 4,
 };
 
 function mergeAccessRole(existingRole: AccessRole | null, incomingRole: AccessRole) {
@@ -1532,7 +1532,7 @@ export async function ensureOrganizationForWorkspace(workspace: WorkspaceRow) {
       {
         organization_id: organization.id,
         user_id: workspace.owner_user_id,
-        role: "owner",
+        role: "account_admin",
       },
       { onConflict: "organization_id,user_id" },
     );
@@ -1563,7 +1563,7 @@ export async function getOrganizationMembershipRole(organizationId: string, user
 async function requireOrganizationAdminContext(
   user: AuthenticatedUser,
   preferredWorkspaceId?: string | null,
-  allowedRoles: Array<OrganizationMembershipRow["role"]> = ["owner", "admin", "billing_admin"],
+  allowedRoles: Array<OrganizationMembershipRow["role"]> = ["account_admin", "admin", "billing_admin"],
 ) {
   const workspace = (await resolveWorkspaceForUser(user, preferredWorkspaceId)) as WorkspaceRow;
   const organization = (await ensureOrganizationForWorkspace(workspace)) as OrganizationRow;
@@ -1907,7 +1907,7 @@ export async function getOrganizationAdminOverviewForAuthorizationHeader(
       accountType: organization.account_type,
       status: organization.status ?? "active",
       billingEmail: organization.billing_email,
-      ownerUserId: organization.owner_user_id,
+      primaryAccountAdminUserId: organization.owner_user_id,
       membershipRole,
       suspendedAt: organization.suspended_at ?? null,
       closingRequestedAt: organization.closing_requested_at ?? null,
@@ -1920,10 +1920,10 @@ export async function getOrganizationAdminOverviewForAuthorizationHeader(
       workspaceType: workspace.workspace_type,
     },
     authority: {
-      canManagePeople: ["owner", "admin"].includes(membershipRole),
-      canManageBilling: ["owner", "billing_admin"].includes(membershipRole),
-      canTransferOwnership: membershipRole === "owner",
-      canCloseAccount: membershipRole === "owner",
+      canManagePeople: ["account_admin", "admin"].includes(membershipRole),
+      canManageBilling: ["account_admin", "billing_admin"].includes(membershipRole),
+      canChangePrimaryAccountAdmin: membershipRole === "account_admin",
+      canCloseAccount: membershipRole === "account_admin",
     },
     licenseSummary: {
       purchasedSeats,
@@ -1962,7 +1962,7 @@ export async function getOrganizationAdminOverviewForAuthorizationHeader(
         role: member.role,
         licenseStatus: license?.status ?? "assigned",
         joinedAt: member.created_at,
-        isOwner: member.user_id === organization.owner_user_id,
+        isPrimaryAccountAdmin: member.user_id === organization.owner_user_id,
         isCurrentUser: member.user_id === user.id,
       };
     }),
@@ -1994,22 +1994,22 @@ export async function getOrganizationAdminOverviewForAuthorizationHeader(
   };
 }
 
-export async function transferOrganizationOwnershipForAuthorizationHeader(
+export async function changePrimaryAccountAdminForAuthorizationHeader(
   authorizationHeader: string | undefined,
   input: unknown,
   preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const parsed = transferOrganizationOwnershipInputSchema.parse(input);
+  const parsed = changePrimaryAccountAdminInputSchema.parse(input);
   const { workspace, organization } = await requireOrganizationAdminContext(
     user,
     preferredWorkspaceId,
-    ["owner"],
+    ["account_admin"],
   );
   const adminClient = createServiceRoleClient();
 
   if (parsed.targetUserId === organization.owner_user_id) {
-    return { transferred: false, ownerUserId: organization.owner_user_id };
+    return { changed: false, primaryAccountAdminUserId: organization.owner_user_id };
   }
 
   const { data: targetMembership, error: targetMembershipError } = await adminClient
@@ -2047,11 +2047,11 @@ export async function transferOrganizationOwnershipForAuthorizationHeader(
 
   const membershipUpdates = await Promise.all([
     adminClient.from("organization_memberships").upsert(
-      { organization_id: organization.id, user_id: parsed.targetUserId, role: "owner" },
+      { organization_id: organization.id, user_id: parsed.targetUserId, role: "account_admin" },
       { onConflict: "organization_id,user_id" },
     ),
     adminClient.from("workspace_memberships").upsert(
-      { workspace_id: workspace.id, user_id: parsed.targetUserId, role: "owner" },
+      { workspace_id: workspace.id, user_id: parsed.targetUserId, role: "account_admin" },
       { onConflict: "workspace_id,user_id" },
     ),
     adminClient
@@ -2075,12 +2075,12 @@ export async function transferOrganizationOwnershipForAuthorizationHeader(
   await writeOrganizationAccountEvent({
     organizationId: organization.id,
     actorUserId: user.id,
-    eventType: "ownership_transferred",
+    eventType: "primary_account_admin_changed",
     summary: "Primary account admin was changed.",
-    metadata: { previous_owner_user_id: user.id, new_owner_user_id: parsed.targetUserId },
+    metadata: { previous_primary_account_admin_user_id: user.id, new_primary_account_admin_user_id: parsed.targetUserId },
   });
 
-  return { transferred: true, ownerUserId: parsed.targetUserId };
+  return { changed: true, primaryAccountAdminUserId: parsed.targetUserId };
 }
 
 export async function closeOrganizationForAuthorizationHeader(
@@ -2090,7 +2090,7 @@ export async function closeOrganizationForAuthorizationHeader(
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const parsed = closeOrganizationInputSchema.parse(input);
-  const { organization } = await requireOrganizationAdminContext(user, preferredWorkspaceId, ["owner"]);
+  const { organization } = await requireOrganizationAdminContext(user, preferredWorkspaceId, ["account_admin"]);
 
   if (parsed.confirmName !== organization.name) {
     throw new AppError(400, "Type the exact organization name to request account closure.");
@@ -2163,7 +2163,7 @@ export async function resolveWorkspaceForUser(
       {
         workspace_id: existingWorkspace.id,
         user_id: user.id,
-        role: "owner",
+        role: "account_admin",
       },
       {
         onConflict: "workspace_id,user_id",
@@ -2225,7 +2225,7 @@ export async function resolveWorkspaceForUser(
   const { error: membershipError } = await adminClient.from("workspace_memberships").insert({
     workspace_id: createdWorkspace.id,
     user_id: user.id,
-    role: "owner",
+    role: "account_admin",
   });
 
   if (membershipError) {
@@ -2235,7 +2235,7 @@ export async function resolveWorkspaceForUser(
   const { error: orgMembershipError } = await adminClient.from("organization_memberships").insert({
     organization_id: createdOrganization.id,
     user_id: user.id,
-    role: "owner",
+    role: "account_admin",
   });
 
   if (orgMembershipError) {
@@ -4534,11 +4534,11 @@ async function assertPermission(
   if (action === "lock_document") {
     const document = await requireDocumentBundle(documentId);
 
-    if (role === "editor" && document.lockPolicy !== "owner_only") {
+    if (role === "editor" && document.lockPolicy !== "document_admin_only") {
       return role;
     }
 
-    if (document.lockPolicy === "owner_editors_and_active_signer") {
+    if (document.lockPolicy === "document_admin_editors_and_active_signer") {
       const signer = findSignerForUser(document, user);
       const eligibleSignerIds = getEligibleSignerIdsForNotifications(document);
 
@@ -5116,7 +5116,7 @@ export async function listAdminUsersForAuthorizationHeader(
   const memberships = (membershipsResponse.data ?? []) as Array<{
     workspace_id: string;
     user_id: string;
-    role: "owner" | "admin" | "member" | "billing_admin";
+    role: "account_admin" | "admin" | "member" | "billing_admin";
   }>;
   const workspaceIds = [...new Set(memberships.map((membership) => membership.workspace_id))];
   const workspacesResponse =
@@ -5622,7 +5622,7 @@ export async function createDocumentForAuthorizationHeader(
   await adminClient.from("document_access").insert({
     document_id: parsed.id,
     user_id: user.id,
-    role: "owner",
+    role: "document_admin",
   });
   await ensureInitialEditorSnapshot(parsed.id, user.id, []);
 
@@ -7365,7 +7365,7 @@ export async function duplicateDocumentForAuthorizationHeader(
   await adminClient.from("document_access").insert({
     document_id: newDocumentId,
     user_id: user.id,
-    role: "owner",
+    role: "document_admin",
   });
 
   const signerIdMap = new Map<string, string>();

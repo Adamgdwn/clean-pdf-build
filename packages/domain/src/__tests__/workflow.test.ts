@@ -22,7 +22,7 @@ const baseDocument: DocumentRecord = {
   status: "pending",
   deliveryMode: "self_managed",
   distributionTarget: null,
-  lockPolicy: "owner_only",
+  lockPolicy: "document_admin_only",
   notifyOriginatorOnEachSignature: true,
   dueAt: null,
   retentionMode: "temporary",
@@ -56,7 +56,7 @@ const baseDocument: DocumentRecord = {
   latestChangeImpactSummary: null,
   latestChangeImpactAt: null,
   access: [
-    { userId: "user_owner", role: "owner" },
+    { userId: "user_owner", role: "document_admin" },
     { userId: "user_signer_1", role: "signer" },
     { userId: "user_signer_2", role: "signer" },
   ],

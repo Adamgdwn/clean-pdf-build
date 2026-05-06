@@ -8,7 +8,7 @@ import {
   getOrganizationAdminOverviewForAuthorizationHeader,
   getProfileForAuthorizationHeader,
   listDigitalSignatureProfilesForAuthorizationHeader,
-  transferOrganizationOwnershipForAuthorizationHeader,
+  changePrimaryAccountAdminForAuthorizationHeader,
   updateProfileForAuthorizationHeader,
 } from "@clean-pdf/workflow-service";
 
@@ -41,9 +41,9 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
-  app.post("/organization-transfer-ownership", async (request, reply) => {
+  app.post("/organization-primary-admin", async (request, reply) => {
     try {
-      return await transferOrganizationOwnershipForAuthorizationHeader(
+      return await changePrimaryAccountAdminForAuthorizationHeader(
         request.headers.authorization,
         request.body,
         readWorkspaceIdHeader(request),

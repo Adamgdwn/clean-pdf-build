@@ -6,7 +6,7 @@ The companion execution document is [manual-testing-protocol.md](/home/adamgoodw
 
 ## Purpose
 
-Validate the product from owner setup through document completion, including:
+Validate the product from account admin setup through document completion, including:
 
 - single-user preparation and lock-down behavior
 - internal-only signing
@@ -23,7 +23,7 @@ Use the real inboxes consistently so results are comparable across runs.
 
 | Persona | Email | Primary use |
 |---|---|---|
-| Owner / sender | `admin@agoperations.ca` | Application owner, organization owner, workflow sender, admin checks |
+| Account admin / sender | `admin@agoperations.ca` | Application administrator, organization account admin, workflow sender, admin checks |
 | Internal member A | `adamgoodwin@shaw.ca` | Workspace teammate, editor, internal signer |
 | Internal member B | `marketing@agoperations.ca` | Billing/admin or marketing workspace member |
 | Internal signer C | `adamgdwn@hotmail.com` | Internal signer or invited member |
@@ -85,11 +85,11 @@ Expected result:
 - No missing environment errors appear.
 - Testers know whether billing actions are test-mode or real.
 
-### S01 - Owner Signup And First Workspace
+### S01 - Account Admin Signup And First Workspace
 
 Priority: P0
 
-Goal: Validate owner onboarding and default landing.
+Goal: Validate account admin onboarding and default landing.
 
 Tester:
 
@@ -97,15 +97,15 @@ Tester:
 
 Steps:
 
-1. Sign up or sign in as the owner.
-2. Confirm the owner/admin experience loads first.
+1. Sign up or sign in as the account admin.
+2. Confirm the account admin experience loads first.
 3. Confirm organization, workspace, billing, team, and document areas appear.
 4. Create or confirm a saved signature.
 5. Complete onboarding if prompted.
 
 Expected result:
 
-- Owner lands in the organization/admin experience.
+- Account admin lands in the organization/admin experience.
 - Workspace navigation is clear.
 - Saved signature can be created without errors.
 
@@ -122,7 +122,7 @@ Tester:
 
 Steps:
 
-1. Owner invites `adamgoodwin@shaw.ca` to the workspace.
+1. Account admin invites `adamgoodwin@shaw.ca` to the workspace.
 2. Confirm invite email arrives.
 3. Accept invite while signed out or in a clean browser profile.
 4. Sign in or create the account with `adamgoodwin@shaw.ca`.
@@ -148,7 +148,7 @@ Tester:
 
 Steps:
 
-1. Owner invites `marketing@agoperations.ca`.
+1. Account admin invites `marketing@agoperations.ca`.
 2. Open the invite link while signed in as `adamgdwn@hotmail.com`.
 3. Attempt to accept the invite.
 4. Sign out and retry with `marketing@agoperations.ca`.
@@ -175,7 +175,7 @@ Steps:
 1. Ensure tester belongs to at least two workspaces.
 2. Create or identify one document in each workspace.
 3. Switch active workspace.
-4. Check document list, billing, team, and owner/admin panels.
+4. Check document list, billing, team, and account admin panels.
 5. Refresh the browser and confirm the selected workspace persists.
 
 Expected result:
@@ -254,7 +254,7 @@ Steps:
 4. Place a required signature field.
 5. Open for internal signing.
 6. Sign in as the signer and complete the field.
-7. Return as owner and inspect status, audit trail, and certificate.
+7. Return as account admin and inspect status, audit trail, and certificate.
 
 Expected result:
 
@@ -338,7 +338,7 @@ Steps:
 10. Confirm verification email arrives.
 11. Enter code and complete signature, reason, and optional location.
 12. Attempt to reuse the completed link.
-13. Download the signed PDF and certificate as owner.
+13. Download the signed PDF and certificate as account admin.
 14. Compare certificate hash with local `sha256sum`.
 
 Expected result:
@@ -373,7 +373,7 @@ Steps:
 Expected result:
 
 - Stage 2 cannot complete before stage 1.
-- Stage transition is visible to the owner.
+- Stage transition is visible to the sender.
 - Final completion and certificate include both signers.
 
 ### S12 - External Parallel Routing
@@ -455,13 +455,13 @@ Steps:
 Expected result:
 
 - Internal and external paths can run in parallel.
-- Owner status display stays accurate.
+- Sender status display stays accurate.
 
 ### S15 - Request Changes, Reopen, Resend
 
 Priority: P0
 
-Goal: Validate a signer can stop the flow and the owner can resume it.
+Goal: Validate a signer can stop the flow and the account admin can resume it.
 
 Tester:
 
@@ -471,16 +471,16 @@ Steps:
 
 1. Send a document to a signer.
 2. As signer, request changes.
-3. Confirm owner sees paused or changes-requested state.
-4. Confirm notification or queue behavior for the owner.
-5. Owner reopens or updates the document.
+3. Confirm account admin sees paused or changes-requested state.
+4. Confirm notification or queue behavior for the sender.
+5. Sender reopens or updates the document.
 6. Resend or continue the workflow.
 7. Complete the signer action.
 
 Expected result:
 
 - Workflow pauses clearly.
-- Owner can recover without losing audit history.
+- Account admin can recover without losing audit history.
 - Resend/reminder behavior remains correct.
 
 ### S16 - Reject And Cancel
@@ -497,14 +497,14 @@ Steps:
 
 1. Send a document.
 2. As signer, reject if the UI exposes reject.
-3. Confirm owner status and audit entry.
-4. Create a second document and cancel it as owner.
+3. Confirm account admin status and audit entry.
+4. Create a second document and cancel it as account admin.
 5. Confirm signers cannot complete canceled documents.
 
 Expected result:
 
 - Rejection and cancellation block further signing.
-- Owner sees a clear status and audit trail.
+- Account admin sees a clear status and audit trail.
 
 ### S17 - Reassign Signer After Send
 
@@ -545,7 +545,7 @@ Steps:
 
 1. Send a platform-managed workflow.
 2. Do not complete the signer action.
-3. As owner, send reminder/resend to the pending signer.
+3. As sender, send reminder/resend to the pending signer.
 4. Confirm reminder email arrives.
 5. Complete from the latest valid link.
 
@@ -678,7 +678,7 @@ Goal: Validate commercial flow and external token accounting.
 
 Tester:
 
-- Owner: `admin@agoperations.ca`
+- Account admin: `admin@agoperations.ca`
 
 Steps:
 
@@ -724,7 +724,7 @@ Goal: Validate irreversible cleanup using only disposable test accounts.
 
 Tester:
 
-- Use a disposable non-owner account only.
+- Use a disposable non-account admin account only.
 
 Steps:
 

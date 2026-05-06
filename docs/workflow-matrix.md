@@ -23,7 +23,7 @@ The goal is to avoid inventing a new workflow type for every customer story. Mos
 | F5 | Shared-folder mixed signing | Internal or external | Mixed | Sequential, parallel, or staged | Depends on recipient handling | Shared folder and originator | Team-managed document pool with revision trace by user identity |
 | F6 | External-only signing | Internal | External | Single, sequential, or parallel | Platform-managed or self-managed | Originator | Send directly to customer, tenant, supplier, or applicant without internal signers |
 | F7 | External intake and return | External | Mixed | Staged | Self-managed or platform-managed | Internal originator | Outside party drops in a file, internal team edits or signs, then returns it |
-| F8 | Approval without signature | Internal or external | Internal, external, or mixed | Sequential, parallel, or staged | Any | Originator or record owner | Review, approve, reject, acknowledge, or comment without every step being a legal signature |
+| F8 | Approval without signature | Internal or external | Internal, external, or mixed | Sequential, parallel, or staged | Any | Originator or document admin | Review, approve, reject, acknowledge, or comment without every step being a legal signature |
 
 ## Recommended v1 workflow rules
 
@@ -52,7 +52,7 @@ Do not assume any signer can lock at any time.
 
 Safer defaults:
 
-- owner can lock
+- document admin can lock
 - originator can lock
 - admins can lock
 - optionally current active signer can lock if policy allows
@@ -105,7 +105,7 @@ For the product spec, describe the experience as a workflow builder with a small
 
 The existing domain model already supports the main shape of this matrix:
 
-- access roles: owner, editor, signer, viewer
+- access roles: document_admin, editor, signer, viewer
 - routing strategies: sequential, parallel
 - delivery modes: self-managed, internal-use-only, platform-managed
 - workflow states: draft, prepared, sent, partially signed, completed, reopened

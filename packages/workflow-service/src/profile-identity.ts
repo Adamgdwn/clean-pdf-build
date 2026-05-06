@@ -29,13 +29,13 @@ export function inferProfileKind(email: string, preferredProfileKind?: string | 
 
 export function inferAccountType(
   preferredAccountType?: string | null,
-  fallbackAccountType?: AccountType | null,
+  existingAccountType?: AccountType | null,
 ): AccountType {
   if (preferredAccountType === "corporate" || preferredAccountType === "individual") {
     return preferredAccountType;
   }
 
-  return fallbackAccountType ?? "individual";
+  return existingAccountType ?? "individual";
 }
 
 export function inferCompanyName(input: {
@@ -44,16 +44,16 @@ export function inferCompanyName(input: {
   workspaceName?: string | null;
   accountType?: AccountType | null;
   profileKind?: ProfileKind | null;
-  fallbackCompanyName?: string | null;
+  existingCompanyName?: string | null;
 }) {
   const preferredCompanyName = trimToNull(input.preferredCompanyName);
   if (preferredCompanyName) {
     return preferredCompanyName;
   }
 
-  const fallbackCompanyName = trimToNull(input.fallbackCompanyName);
-  if (fallbackCompanyName) {
-    return fallbackCompanyName;
+  const existingCompanyName = trimToNull(input.existingCompanyName);
+  if (existingCompanyName) {
+    return existingCompanyName;
   }
 
   const workspaceName = trimToNull(input.workspaceName);

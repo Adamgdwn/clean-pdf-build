@@ -21,7 +21,7 @@ describe("profile identity helpers", () => {
   it("keeps corporate account type and workspace name aligned for company inference", () => {
     expect(
       inferCompanyName({
-        email: "owner@example.com",
+        email: "admin@example.com",
         accountType: inferAccountType("corporate"),
         workspaceName: "Acme Corp",
       }),
@@ -55,8 +55,8 @@ describe("profile identity helpers", () => {
   it("creates a corporate team workspace only for explicit corporate account signups", () => {
     expect(
       planDefaultAccountWorkspace({
-        email: "owner@example.com",
-        name: "Org Owner",
+        email: "admin@example.com",
+        name: "Org Admin",
         accountType: "corporate",
         workspaceName: "Acme Operations",
       }),
