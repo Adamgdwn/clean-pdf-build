@@ -58,6 +58,7 @@ type OrganizationRow = {
   account_type: "individual" | "corporate";
   owner_user_id: string;
   billing_email: string | null;
+  status?: "active" | "payment_required" | "suspended" | "closing" | "closed";
 };
 
 // ---------------------------------------------------------------------------
@@ -109,6 +110,17 @@ async function requireWorkspaceWithRole(
 async function getOrganizationForWorkspace(workspace: WorkspaceRow) {
   const organization = await ensureOrganizationForWorkspace(workspace);
   return organization as OrganizationRow;
+}
+
+function assertOrganizationCanManagePeople(organization: OrganizationRow) {
+  const status = organization.status ?? "active";
+
+  if (["suspended", "closing", "closed"].includes(status)) {
+    throw new AppError(
+      409,
+      `${organization.name} is ${status.replaceAll("_", " ")}. Resolve the account status before inviting or changing team access.`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -229,6 +241,8 @@ export async function createWorkspaceInvitationForAuthorizationHeader(
     ["owner", "admin"],
     preferredWorkspaceId,
   );
+  const organization = await getOrganizationForWorkspace(workspace);
+  assertOrganizationCanManagePeople(organization);
   const parsed = createInvitationSchema.parse(input);
   const email = normalizeEmail(parsed.email);
   const adminClient = createServiceRoleClient();

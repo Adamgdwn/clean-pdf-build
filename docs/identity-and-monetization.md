@@ -35,6 +35,8 @@ Recommended user data split:
 - `public.organizations`: parent account for individual or corporate customers
 - `public.organization_memberships`: which organization the user belongs to and their account role
 - `public.workspace_memberships`: which workspace the user belongs to and their workspace role
+- `public.organization_license_assignments`: which purchased or trial seats are assigned, invited, suspended, or revoked
+- `public.organization_account_events`: account-administration audit events such as ownership transfer and closure requests
 - `public.document_access`: document-level access for owner, editor, signer, viewer
 
 Avoid storing more PII than necessary in v1.
@@ -81,9 +83,9 @@ Use two account types:
 
 Keep account administration as membership authority, not as a third profile type:
 
-- `owner`: controls account/workspace setup, member access, and billing posture
-- `admin`: manages team access and operational account settings
-- `billing_admin`: manages subscription, seats, payment methods, and token purchases
+- `owner`: controls account/workspace setup, member access, billing posture, ownership transfer, and account closure
+- `admin`: manages team access and can assign already-purchased licenses
+- `billing_admin`: manages subscription, purchased seats, payment methods, and token purchases
 - `member`: uses assigned product access without account-administration authority
 
 Recommended hierarchy:
@@ -99,6 +101,35 @@ That means:
 - corporate admins add or remove member access
 - billing and shared token usage belong to the corporate account
 - workspaces remain the operational container for document flows
+
+### 5. Organization admin operating path
+
+Corporate signup is a first-class path, not a profile fallback:
+
+1. the user chooses an organization account
+2. the signup form requires full name, username, organization/workspace name, company legal name, role/title, locale, timezone, email, and password
+3. Supabase Auth stores login identity and metadata
+4. EasyDraft creates or resolves the role-specific profile row
+5. the account boundary is a `corporate` organization
+6. the creator becomes `owner` in both organization and workspace memberships
+7. the user lands in the organization admin dashboard
+
+The organization admin dashboard should answer the operational questions immediately:
+
+- account status
+- current owner
+- plan and subscription status
+- purchased seats, assigned seats, pending invited seats, available seats, and over-assignment
+- token balance, tokens purchased, and tokens used
+- member names, emails, roles, and license status
+- pending invitations
+- account events
+
+Billing spend is intentionally narrower than people administration:
+
+- `owner` and `billing_admin` can buy seats, open the billing portal, and purchase token packs
+- `owner` and `admin` can manage people and assign available access
+- only `owner` can transfer ownership or request account closure
 
 ## Monetization model
 

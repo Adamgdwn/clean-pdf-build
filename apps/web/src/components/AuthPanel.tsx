@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 
 import { apiFetch } from "../lib/api";
+import { validateAuthForm as validateAuthFormInput } from "../lib/auth-validation";
 import type { GuestSigningSession, SessionUser, WorkspaceInviteDetails } from "../types";
 
 type Props = {
@@ -33,11 +34,52 @@ export function AuthPanel({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
   const [accountType, setAccountType] = useState<"individual" | "corporate">("corporate");
   const [workspaceName, setWorkspaceName] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
+  const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Etc/UTC");
+  const [locale, setLocale] = useState(() =>
+    typeof navigator === "undefined" ? "en-CA" : navigator.language || "en-CA",
+  );
+  const [marketingOptIn, setMarketingOptIn] = useState(false);
+  const [productUpdatesOptIn, setProductUpdatesOptIn] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+
+  function switchAuthMode(nextMode: "sign_in" | "sign_up") {
+    setErrorMessage(null);
+
+    if (authMode === nextMode) {
+      setNoticeMessage(
+        nextMode === "sign_up"
+          ? "You are in sign-up mode. Complete the account fields below to create your workspace."
+          : "You are in sign-in mode. Enter your email and password to continue.",
+      );
+      return;
+    }
+
+    setNoticeMessage(null);
+    setAuthMode(nextMode);
+  }
+
+  function validateAuthForm() {
+    return validateAuthFormInput({
+      authMode,
+      email,
+      password,
+      fullName,
+      username,
+      accountType,
+      workspaceName,
+      companyName,
+      jobTitle,
+      timezone,
+      locale,
+    });
+  }
 
   useEffect(() => {
     if (canSignUp || authMode !== "sign_up") {
@@ -53,8 +95,28 @@ export function AuthPanel({
     }
 
     setEmail((currentValue) => currentValue || pendingInviteDetails.email);
+    const invitedWorkspaceName = pendingInviteDetails.workspace?.name || "Invited workspace";
+    setWorkspaceName((currentValue) => currentValue || invitedWorkspaceName);
+    setCompanyName((currentValue) => currentValue || invitedWorkspaceName);
+    setAccountType("corporate");
     setAuthMode("sign_up");
   }, [pendingInviteDetails?.email]);
+
+  useEffect(() => {
+    if (authMode !== "sign_up") {
+      return;
+    }
+
+    if (!username.trim() && email.includes("@")) {
+      setUsername(
+        email
+          .split("@")[0]
+          .toLowerCase()
+          .replace(/[^a-z0-9._-]+/g, "-")
+          .replace(/^[._-]+|[._-]+$/g, ""),
+      );
+    }
+  }, [authMode, email, username]);
 
   function fallbackToBrowserFormSignIn(nextEmail: string, nextPassword: string) {
     const form = document.createElement("form");
@@ -78,6 +140,14 @@ export function AuthPanel({
 
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const validationError = validateAuthForm();
+
+    if (validationError) {
+      setErrorMessage(validationError);
+      setNoticeMessage(null);
+      return;
+    }
+
     setIsLoading(true);
     setErrorMessage(null);
     setNoticeMessage(null);
@@ -96,9 +166,15 @@ export function AuthPanel({
                 email,
                 password,
                 fullName,
+                username,
                 accountType,
-                workspaceName:
-                  accountType === "corporate" ? workspaceName.trim() || undefined : undefined,
+                workspaceName: workspaceName.trim(),
+                companyName: companyName.trim(),
+                jobTitle: jobTitle.trim(),
+                timezone: timezone.trim(),
+                locale: locale.trim(),
+                marketingOptIn,
+                productUpdatesOptIn,
               }),
             },
           );
@@ -190,7 +266,7 @@ export function AuthPanel({
       {errorMessage ? <div className="alert">{errorMessage}</div> : null}
       {noticeMessage ? <div className="alert success">{noticeMessage}</div> : null}
 
-      <form className="stack" onSubmit={handleAuthSubmit}>
+      <form className="stack" noValidate onSubmit={handleAuthSubmit}>
           <p className="muted">{introCopy}</p>
 
           {hasPendingInvite ? (
@@ -209,14 +285,14 @@ export function AuthPanel({
             <div className="pill-row">
               <button
                 className={`pill-button ${authMode === "sign_in" ? "active" : ""}`}
-                onClick={() => setAuthMode("sign_in")}
+                onClick={() => switchAuthMode("sign_in")}
                 type="button"
               >
                 Sign in
               </button>
               <button
                 className={`pill-button ${authMode === "sign_up" ? "active" : ""}`}
-                onClick={() => setAuthMode("sign_up")}
+                onClick={() => switchAuthMode("sign_up")}
                 type="button"
               >
                 Sign up
@@ -238,6 +314,16 @@ export function AuthPanel({
                   autoComplete="name"
                   value={fullName}
                   onChange={(event) => setFullName(event.target.value)}
+                />
+              </label>
+              <label className="form-field">
+                <span>Username</span>
+                <input
+                  required
+                  autoComplete="username"
+                  placeholder="adam.goodwin"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
                 />
               </label>
               {!hasPendingInvite ? (
@@ -267,7 +353,12 @@ export function AuthPanel({
                           autoComplete="organization"
                           placeholder="e.g. Acme Corp"
                           value={workspaceName}
-                          onChange={(event) => setWorkspaceName(event.target.value)}
+                          onChange={(event) => {
+                            setWorkspaceName(event.target.value);
+                            if (!companyName.trim()) {
+                              setCompanyName(event.target.value);
+                            }
+                          }}
                         />
                       </label>
                       <p className="muted">
@@ -275,12 +366,85 @@ export function AuthPanel({
                       </p>
                     </>
                   ) : (
-                    <p className="muted">
-                      Start with your own account and workspace. You can prepare, send, and manage documents without setting up a company account first.
-                    </p>
+                    <>
+                      <label className="form-field">
+                        <span>Workspace name</span>
+                        <input
+                          required
+                          autoComplete="organization"
+                          placeholder="Adam's workspace"
+                          value={workspaceName}
+                          onChange={(event) => setWorkspaceName(event.target.value)}
+                        />
+                      </label>
+                      <p className="muted">
+                        Start with your own account and workspace. You can prepare, send, and manage documents without setting up a company account first.
+                      </p>
+                    </>
                   )}
                 </>
-              ) : null}
+              ) : (
+                <label className="form-field">
+                  <span>Invited workspace</span>
+                  <input required readOnly value={workspaceName} />
+                </label>
+              )}
+              <label className="form-field">
+                <span>{accountType === "corporate" ? "Company legal name" : "Company or account name"}</span>
+                <input
+                  required
+                  autoComplete="organization"
+                  placeholder={accountType === "corporate" ? "Acme Corp" : "Adam Goodwin"}
+                  value={companyName}
+                  onChange={(event) => setCompanyName(event.target.value)}
+                />
+              </label>
+              <label className="form-field">
+                <span>Role or title</span>
+                <input
+                  required
+                  autoComplete="organization-title"
+                  placeholder={accountType === "corporate" ? "Operations manager" : "Owner"}
+                  value={jobTitle}
+                  onChange={(event) => setJobTitle(event.target.value)}
+                />
+              </label>
+              <div className="form-grid compact-grid">
+                <label className="form-field">
+                  <span>Timezone</span>
+                  <input
+                    required
+                    autoComplete="off"
+                    value={timezone}
+                    onChange={(event) => setTimezone(event.target.value)}
+                  />
+                </label>
+                <label className="form-field">
+                  <span>Locale</span>
+                  <input
+                    required
+                    autoComplete="language"
+                    value={locale}
+                    onChange={(event) => setLocale(event.target.value)}
+                  />
+                </label>
+              </div>
+              <label className="checkbox-row">
+                <input
+                  checked={productUpdatesOptIn}
+                  onChange={(event) => setProductUpdatesOptIn(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>Send me product and account updates.</span>
+              </label>
+              <label className="checkbox-row">
+                <input
+                  checked={marketingOptIn}
+                  onChange={(event) => setMarketingOptIn(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>Send occasional launch and pricing updates.</span>
+              </label>
             </>
           ) : null}
 

@@ -25,6 +25,7 @@ import type {
   BillingOverview,
   DigitalSignatureProfile,
   GuestSigningSession,
+  OrganizationAdminOverview,
   SavedSignature,
   SessionUser,
   SignatureEvent,
@@ -464,6 +465,8 @@ export default function App() {
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [documents, setDocuments] = useState<WorkflowDocument[]>([]);
   const [billingOverview, setBillingOverview] = useState<BillingOverview | null>(null);
+  const [organizationAdminOverview, setOrganizationAdminOverview] =
+    useState<OrganizationAdminOverview | null>(null);
   const [savedSignatures, setSavedSignatures] = useState<SavedSignature[]>([]);
   const [accountProfile, setAccountProfile] = useState<AccountProfile | null>(null);
   const [digitalSignatureProfiles, setDigitalSignatureProfiles] = useState<DigitalSignatureProfile[]>([]);
@@ -751,6 +754,7 @@ export default function App() {
       setSessionUser(null);
       setDocuments([]);
       setBillingOverview(null);
+      setOrganizationAdminOverview(null);
       setSavedSignatures([]);
       setAccountProfile(null);
       setDigitalSignatureProfiles([]);
@@ -792,6 +796,18 @@ export default function App() {
   async function refreshBilling(activeSession: Session) {
     const payload = await apiFetch<BillingOverview>("/billing-overview", activeSession);
     setBillingOverview(payload);
+  }
+
+  async function refreshOrganizationAdmin(activeSession: Session) {
+    try {
+      const payload = await apiFetch<OrganizationAdminOverview>(
+        "/organization-admin-overview",
+        activeSession,
+      );
+      setOrganizationAdminOverview(payload);
+    } catch {
+      setOrganizationAdminOverview(null);
+    }
   }
 
   async function refreshTeam(activeSession: Session) {
@@ -892,10 +908,12 @@ export default function App() {
     setSelectedDocumentId(null);
     setPreviewUrl(null);
     setLocalPreviewUrl(null);
+    setOrganizationAdminOverview(null);
 
     try {
       await refreshWorkspaceDirectory(session);
       await Promise.allSettled([
+        refreshOrganizationAdmin(session),
         refreshBilling(session),
         refreshTeam(session),
         refreshDocuments(session),
@@ -2218,6 +2236,7 @@ export default function App() {
         await refreshWorkspaceDirectory(activeSession);
 
         await Promise.allSettled([
+          refreshOrganizationAdmin(activeSession),
           refreshBilling(activeSession),
           refreshTeam(activeSession),
           refreshDocuments(activeSession),
@@ -2343,6 +2362,7 @@ export default function App() {
     availableWorkspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
   const activeAccountType =
     activeWorkspace?.organization?.accountType ??
+    organizationAdminOverview?.account.accountType ??
     billingOverview?.organization.accountType ??
     workspaceTeam?.organization.accountType ??
     accountProfile?.accountType ??
@@ -2365,7 +2385,9 @@ export default function App() {
       (isWorkspaceSwitching ||
         (!workspaceTeam && !billingOverview && !accountProfile && availableWorkspaces.length === 0)),
   );
-  const orgAdminAccessResolved = Boolean(sessionUser && (sessionUser.isAdmin || billingOverview || workspaceTeam));
+  const orgAdminAccessResolved = Boolean(
+    sessionUser && (sessionUser.isAdmin || organizationAdminOverview || billingOverview || workspaceTeam),
+  );
   const canAccessOrgAdmin = Boolean(
     sessionUser &&
       (sessionUser.isAdmin ||
@@ -3532,16 +3554,21 @@ export default function App() {
                 documents={documents}
                 workspaceTeam={workspaceTeam}
                 billingOverview={billingOverview}
+                organizationAdminOverview={organizationAdminOverview}
                 adminOverview={adminOverview}
                 adminUsers={adminUsers}
                 adminFeedbackRequests={adminFeedbackRequests}
                 onRefreshTeam={() => refreshTeam(session)}
-                onRefreshBilling={() => refreshBilling(session)}
+                onRefreshBilling={() =>
+                  Promise.all([refreshBilling(session), refreshOrganizationAdmin(session)]).then(
+                    () => undefined,
+                  )
+                }
                 onRefreshAdmin={() => {
                   const requests = sessionUser.isAdmin
                     ? [refreshAdminOverview(session), refreshAdminUsers(session), refreshAdminFeedback(session)]
                     : [];
-                  return Promise.all(requests).then(() => undefined);
+                  return Promise.all([refreshOrganizationAdmin(session), ...requests]).then(() => undefined);
                 }}
                 onSwitchToWorkspace={() => updatePortalView("workspace")}
                 onNavigateToDocument={(documentId) => {

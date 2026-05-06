@@ -142,6 +142,7 @@ Reference:
    - `20260407120000_onboarding_flag.sql` — server-side onboarding flag on role-specific profile directories
    - `20260417120000_invite_and_signing_verification.sql` — guest email-code verification state plus Stripe object-level webhook dedupe
    - `20260502133000_profile_identity_directory.sql` — username, company, account type, workspace name, and populated role-specific profile directories
+   - `20260505203000_organization_admin_lifecycle.sql` — organization status, license assignments, and account-administration event trail
 3. Confirm the private `documents-unsigned`, `documents-signed`, and `signatures` buckets exist. The legacy `documents` bucket may remain for compatibility.
 4. Enable Email auth.
 5. Set your site URL and allowed redirect URLs to your Vercel domains.
@@ -163,6 +164,10 @@ Recommended production auth values:
 
 - `easydraft_user_profiles`
 - `easydraft_staff_profiles`
+- `organizations`
+- `organization_memberships`
+- `organization_license_assignments`
+- `organization_account_events`
 - `documents`
 - `document_access`
 - `document_invites`

@@ -4,11 +4,13 @@ import type { Session } from "@supabase/supabase-js";
 import { AdminConsole } from "./AdminPanel";
 import { BillingPanel } from "./BillingPanel";
 import { TeamPanel } from "./TeamPanel";
+import { apiFetch } from "../lib/api";
 import type {
   AdminFeedbackRequest,
   AdminManagedUser,
   AdminOverview,
   BillingOverview,
+  OrganizationAdminOverview,
   SessionUser,
   WorkflowDocument,
   WorkspaceTeam,
@@ -93,6 +95,7 @@ type Props = {
   documents: WorkflowDocument[];
   workspaceTeam: WorkspaceTeam | null;
   billingOverview: BillingOverview | null;
+  organizationAdminOverview: OrganizationAdminOverview | null;
   adminOverview: AdminOverview | null;
   adminUsers: AdminManagedUser[];
   adminFeedbackRequests: AdminFeedbackRequest[];
@@ -109,6 +112,7 @@ export function OwnerPortal({
   documents,
   workspaceTeam,
   billingOverview,
+  organizationAdminOverview,
   adminOverview,
   adminUsers,
   adminFeedbackRequests,
@@ -120,6 +124,10 @@ export function OwnerPortal({
 }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [accountActionError, setAccountActionError] = useState<string | null>(null);
+  const [accountActionNotice, setAccountActionNotice] = useState<string | null>(null);
+  const [transferTargetUserId, setTransferTargetUserId] = useState("");
+  const [closeConfirmName, setCloseConfirmName] = useState("");
   const completedDocuments = documents.filter((document) => document.workflowState === "completed").length;
   const activeDocuments = documents.filter(
     (document) => document.operationalStatus === "active" && document.workflowState !== "completed",
@@ -136,8 +144,11 @@ export function OwnerPortal({
   const occupiedSeats = workspaceTeam
     ? workspaceTeam.members.length + workspaceTeam.pendingInvitations.length
     : 0;
-  const availableSeats = billingOverview?.subscription?.seatCount ?? 0;
-  const tokenBalance = billingOverview?.externalTokens.available ?? 0;
+  const licenseSummary = organizationAdminOverview?.licenseSummary ?? null;
+  const occupiedLicenseSeats = licenseSummary?.occupiedSeats ?? occupiedSeats;
+  const purchasedLicenseSeats = licenseSummary?.purchasedSeats ?? billingOverview?.subscription?.seatCount ?? 0;
+  const availableLicenseSeats = licenseSummary?.availableSeats ?? Math.max(0, purchasedLicenseSeats - occupiedSeats);
+  const tokenBalance = organizationAdminOverview?.tokens.available ?? billingOverview?.externalTokens.available ?? 0;
   const activeMemberCount = workspaceTeam?.members.length ?? 0;
   const pendingInvitationCount = workspaceTeam?.pendingInvitations.length ?? 0;
   const currentMembershipRole =
@@ -199,6 +210,9 @@ export function OwnerPortal({
   const ownerCount = workspaceTeam?.members.filter((member) => member.role === "owner").length ?? 0;
   const adminCount = workspaceTeam?.members.filter((member) => member.role === "admin").length ?? 0;
   const billingAdminCount = workspaceTeam?.members.filter((member) => member.role === "billing_admin").length ?? 0;
+  const accountStatus = organizationAdminOverview?.account.status ?? "active";
+  const billingAuthority = organizationAdminOverview?.authority.canManageBilling ?? false;
+  const peopleAuthority = organizationAdminOverview?.authority.canManagePeople ?? false;
 
   async function handleRefreshAll() {
     setIsRefreshing(true);
@@ -210,6 +224,77 @@ export function OwnerPortal({
       setRefreshError((error as Error).message);
     } finally {
       setIsRefreshing(false);
+    }
+  }
+
+  async function handleTransferOwnership() {
+    if (!transferTargetUserId) {
+      setAccountActionError("Choose the new owner first.");
+      return;
+    }
+
+    const target = organizationAdminOverview?.members.find(
+      (member) => member.userId === transferTargetUserId,
+    );
+
+    if (!target) {
+      setAccountActionError("The new owner must be an active member.");
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Transfer ownership to ${target.displayName}? You will become an admin on this account.`,
+      )
+    ) {
+      return;
+    }
+
+    setAccountActionError(null);
+    setAccountActionNotice(null);
+
+    try {
+      await apiFetch("/organization-transfer-ownership", session, {
+        method: "POST",
+        body: JSON.stringify({ targetUserId: transferTargetUserId }),
+      });
+      setAccountActionNotice("Ownership transferred.");
+      setTransferTargetUserId("");
+      await Promise.all([onRefreshTeam(), onRefreshBilling()]);
+    } catch (error) {
+      setAccountActionError((error as Error).message);
+    }
+  }
+
+  async function handleRequestClosure() {
+    const accountName = organizationAdminOverview?.account.name;
+
+    if (!accountName || closeConfirmName !== accountName) {
+      setAccountActionError("Type the exact organization name before requesting closure.");
+      return;
+    }
+
+    if (
+      !window.confirm(
+        "Request account closure? This will mark the account as closing and block new rollout work until the closure is resolved.",
+      )
+    ) {
+      return;
+    }
+
+    setAccountActionError(null);
+    setAccountActionNotice(null);
+
+    try {
+      await apiFetch("/organization-close", session, {
+        method: "POST",
+        body: JSON.stringify({ confirmName: closeConfirmName }),
+      });
+      setAccountActionNotice("Account closure requested.");
+      setCloseConfirmName("");
+      await onRefreshBilling();
+    } catch (error) {
+      setAccountActionError((error as Error).message);
     }
   }
 
@@ -336,8 +421,16 @@ export function OwnerPortal({
           </div>
           <div className="metric">
             <span>Seats in use</span>
-            <strong>{availableSeats > 0 ? `${occupiedSeats}/${availableSeats}` : occupiedSeats}</strong>
-            <p>Members plus pending invitations compared with subscribed capacity.</p>
+            <strong>
+              {purchasedLicenseSeats > 0
+                ? `${occupiedLicenseSeats}/${purchasedLicenseSeats}`
+                : occupiedLicenseSeats}
+            </strong>
+            <p>
+              {licenseSummary?.overAssignedBy
+                ? `${licenseSummary.overAssignedBy} assignment${licenseSummary.overAssignedBy === 1 ? "" : "s"} need more purchased seats.`
+                : `${availableLicenseSeats} seat${availableLicenseSeats === 1 ? "" : "s"} available for assignment.`}
+            </p>
           </div>
           <div className="metric">
             <span>Token balance</span>
@@ -348,6 +441,19 @@ export function OwnerPortal({
             <span>Subscription</span>
             <strong>{subscriptionStatus}</strong>
             <p>{trialEndsOn ? `Trial ends ${trialEndsOn}.` : renewsOn ? `Renews ${renewsOn}.` : "No renewal date scheduled yet."}</p>
+          </div>
+          <div className="metric">
+            <span>Account status</span>
+            <strong>{formatStatusLabel(accountStatus)}</strong>
+            <p>
+              {organizationAdminOverview?.account.closingRequestedAt
+                ? `Closure requested ${formatShortDate(organizationAdminOverview.account.closingRequestedAt)}.`
+                : billingAuthority
+                  ? "You can manage billing, seats, tokens, and account posture."
+                  : peopleAuthority
+                    ? "You can manage people and assigned access without billing authority."
+                    : "Your account authority is limited to workspace operations."}
+            </p>
           </div>
           <div className="metric">
             <span>Document storage</span>
@@ -390,6 +496,76 @@ export function OwnerPortal({
 
           <section className="toolbar-card owner-summary-card">
             <div className="section-heading compact">
+              <p className="eyebrow">Account controls</p>
+              <span>{organizationAdminOverview?.account.status ?? "loading"}</span>
+            </div>
+            <div className="stack">
+              {accountActionError ? <div className="alert">{accountActionError}</div> : null}
+              {accountActionNotice ? <div className="alert success">{accountActionNotice}</div> : null}
+              <div className="row-card">
+                <div>
+                  <strong>Transfer ownership</strong>
+                  <p className="muted">
+                    Move ultimate account control to another active member while keeping the audit trail intact.
+                  </p>
+                </div>
+                <div className="action-row">
+                  <select
+                    disabled={!organizationAdminOverview?.authority.canTransferOwnership}
+                    value={transferTargetUserId}
+                    onChange={(event) => setTransferTargetUserId(event.target.value)}
+                  >
+                    <option value="">Choose owner</option>
+                    {(organizationAdminOverview?.members ?? [])
+                      .filter((member) => !member.isOwner)
+                      .map((member) => (
+                        <option key={member.userId} value={member.userId}>
+                          {member.displayName}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    className="ghost-button"
+                    disabled={!organizationAdminOverview?.authority.canTransferOwnership || !transferTargetUserId}
+                    onClick={handleTransferOwnership}
+                    type="button"
+                  >
+                    Transfer
+                  </button>
+                </div>
+              </div>
+              <div className="row-card">
+                <div>
+                  <strong>Request account closure</strong>
+                  <p className="muted">
+                    Puts the organization into a closing state so billing, retention, and export can be handled deliberately.
+                  </p>
+                </div>
+                <div className="stack">
+                  <input
+                    disabled={!organizationAdminOverview?.authority.canCloseAccount}
+                    placeholder={organizationAdminOverview?.account.name ?? "Organization name"}
+                    value={closeConfirmName}
+                    onChange={(event) => setCloseConfirmName(event.target.value)}
+                  />
+                  <button
+                    className="ghost-button"
+                    disabled={
+                      !organizationAdminOverview?.authority.canCloseAccount ||
+                      closeConfirmName !== organizationAdminOverview.account.name
+                    }
+                    onClick={handleRequestClosure}
+                    type="button"
+                  >
+                    Request closure
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="toolbar-card owner-summary-card">
+            <div className="section-heading compact">
               <p className="eyebrow">Commercial snapshot</p>
               <span>{billingOverview?.billingMode === "placeholder" ? "Testing mode" : "Live billing"}</span>
             </div>
@@ -409,13 +585,61 @@ export function OwnerPortal({
                 <div>
                   <strong>Seat usage</strong>
                   <p className="muted">
-                    {availableSeats > 0
-                      ? `${occupiedSeats} occupied against ${availableSeats} subscribed seats.`
-                      : `${occupiedSeats} occupied seats tracked right now.`}
+                    {purchasedLicenseSeats > 0
+                      ? `${occupiedLicenseSeats} occupied against ${purchasedLicenseSeats} purchased seats.`
+                      : `${occupiedLicenseSeats} occupied seats tracked right now.`}
                   </p>
                 </div>
-                <span>{tokenBalance} tokens</span>
+                <span>{availableLicenseSeats} available</span>
               </div>
+              <div className="row-card">
+                <div>
+                  <strong>Token balance</strong>
+                  <p className="muted">
+                    {organizationAdminOverview
+                      ? `${organizationAdminOverview.tokens.purchased} purchased and ${organizationAdminOverview.tokens.used} consumed.`
+                      : "Token usage will appear here after billing loads."}
+                  </p>
+                </div>
+                <span>{tokenBalance} available</span>
+              </div>
+            </div>
+          </section>
+
+          <section className="toolbar-card owner-summary-card">
+            <div className="section-heading compact">
+              <p className="eyebrow">License assignments</p>
+              <span>{organizationAdminOverview?.members.length ?? activeMemberCount} people</span>
+            </div>
+            <div className="stack">
+              {(organizationAdminOverview?.members ?? []).slice(0, 4).map((member) => (
+                <div className="row-card" key={member.userId}>
+                  <div>
+                    <strong>{member.displayName}</strong>
+                    <p className="muted">
+                      {member.email ?? "No email"} · {formatStatusLabel(member.role)}
+                      {member.isOwner ? " · owner" : ""}
+                    </p>
+                  </div>
+                  <span>{formatStatusLabel(member.licenseStatus)}</span>
+                </div>
+              ))}
+              {(organizationAdminOverview?.pendingInvitations ?? []).slice(0, 3).map((invitation) => (
+                <div className="row-card" key={invitation.id}>
+                  <div>
+                    <strong>{invitation.email}</strong>
+                    <p className="muted">
+                      Pending invite · {formatStatusLabel(invitation.role)} · expires {formatShortDate(invitation.expiresAt)}
+                    </p>
+                  </div>
+                  <span>{formatStatusLabel(invitation.licenseStatus)}</span>
+                </div>
+              ))}
+              {!organizationAdminOverview ? (
+                <p className="muted">Account license detail is loading. Refresh if this persists.</p>
+              ) : organizationAdminOverview.members.length === 0 && organizationAdminOverview.pendingInvitations.length === 0 ? (
+                <p className="muted">No license assignments exist yet.</p>
+              ) : null}
             </div>
           </section>
 

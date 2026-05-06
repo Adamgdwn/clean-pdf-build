@@ -53,6 +53,7 @@ type OrganizationRow = {
   account_type: "individual" | "corporate";
   owner_user_id: string;
   billing_email: string | null;
+  status?: "active" | "payment_required" | "suspended" | "closing" | "closed";
 };
 
 type WorkspaceBillingCustomerRow = {
@@ -156,8 +157,19 @@ function getStripeClient() {
 // ---------------------------------------------------------------------------
 
 function requireBillingPermission(membership: WorkspaceMembershipRow | null) {
-  if (!membership || !["owner", "admin", "billing_admin"].includes(membership.role)) {
+  if (!membership || !["owner", "billing_admin"].includes(membership.role)) {
     throw new AppError(403, "You do not have permission to manage billing for this workspace.");
+  }
+}
+
+function assertOrganizationCanStartBillingChange(organization: OrganizationRow) {
+  const status = organization.status ?? "active";
+
+  if (["suspended", "closing", "closed"].includes(status)) {
+    throw new AppError(
+      409,
+      `${organization.name} is ${status.replaceAll("_", " ")}. Resolve the account status before changing billing or buying tokens.`,
+    );
   }
 }
 
@@ -590,6 +602,7 @@ export async function createCheckoutSessionForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const { workspace, organization, organizationMembershipRole } =
     await getBillingWorkspaceForUser(user, preferredWorkspaceId);
+  assertOrganizationCanStartBillingChange(organization);
   requireBillingPermission(
     organizationMembershipRole ? { workspace_id: workspace.id, user_id: user.id, role: organizationMembershipRole } : null,
   );
@@ -699,6 +712,7 @@ export async function createTokenCheckoutSessionForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const { workspace, organization, organizationMembershipRole } =
     await getBillingWorkspaceForUser(user, preferredWorkspaceId);
+  assertOrganizationCanStartBillingChange(organization);
   requireBillingPermission(
     organizationMembershipRole ? { workspace_id: workspace.id, user_id: user.id, role: organizationMembershipRole } : null,
   );

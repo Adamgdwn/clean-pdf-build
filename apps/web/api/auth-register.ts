@@ -26,8 +26,13 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const email = typeof request.body?.email === "string" ? request.body.email.trim() : "";
     const password = typeof request.body?.password === "string" ? request.body.password : "";
     const fullName = typeof request.body?.fullName === "string" ? request.body.fullName.trim() : "";
+    const username = typeof request.body?.username === "string" ? request.body.username.trim() : "";
     const accountType =
-      request.body?.accountType === "corporate" ? "corporate" : "individual";
+      request.body?.accountType === "corporate"
+        ? "corporate"
+        : request.body?.accountType === "individual"
+          ? "individual"
+          : "";
     const profileKind = inferProfileKind(
       email,
       request.body?.profileKind === "easydraft_user" || request.body?.profileKind === "easydraft_staff"
@@ -36,16 +41,38 @@ export default async function handler(request: VercelRequest, response: VercelRe
     );
     const workspaceName =
       typeof request.body?.workspaceName === "string" ? request.body.workspaceName.trim() : "";
-    const username = deriveUsername(email);
+    const companyNameInput =
+      typeof request.body?.companyName === "string" ? request.body.companyName.trim() : "";
+    const jobTitle = typeof request.body?.jobTitle === "string" ? request.body.jobTitle.trim() : "";
+    const locale = typeof request.body?.locale === "string" ? request.body.locale.trim() : "";
+    const timezone = typeof request.body?.timezone === "string" ? request.body.timezone.trim() : "";
+    const marketingOptIn = request.body?.marketingOptIn === true;
+    const productUpdatesOptIn = request.body?.productUpdatesOptIn !== false;
+    const normalizedUsername = deriveUsername(email, username);
     const companyName = inferCompanyName({
       email,
-      accountType,
+      accountType: accountType || null,
+      preferredCompanyName: companyNameInput,
       workspaceName,
       profileKind,
     });
 
-    if (!email || !password || !fullName) {
-      return response.status(400).json({ message: "Full name, email, and password are required." });
+    if (
+      !email ||
+      !password ||
+      !fullName ||
+      !username ||
+      !accountType ||
+      !workspaceName ||
+      !companyNameInput ||
+      !jobTitle ||
+      !locale ||
+      !timezone
+    ) {
+      return response.status(400).json({
+        message:
+          "Full name, username, account type, workspace name, company or account name, role/title, locale, timezone, email, and password are required.",
+      });
     }
 
     const env = readServerEnv();
@@ -57,11 +84,16 @@ export default async function handler(request: VercelRequest, response: VercelRe
         emailRedirectTo: getCanonicalAppOrigin(env),
         data: {
           full_name: fullName,
-          username,
-          company_name: companyName ?? undefined,
+          username: normalizedUsername,
+          company_name: companyName ?? companyNameInput,
           account_type: accountType,
           profile_kind: profileKind,
-          workspace_name: workspaceName || undefined,
+          workspace_name: workspaceName,
+          job_title: jobTitle,
+          locale,
+          timezone,
+          marketing_opt_in: marketingOptIn,
+          product_updates_opt_in: productUpdatesOptIn,
         },
       },
     });

@@ -50,6 +50,9 @@ import documentsListHandler from "../apps/web/api/documents-list.js";
 import feedbackHandler from "../apps/web/api/feedback.js";
 import healthHandler from "../apps/web/api/health.js";
 import onboardingCompleteHandler from "../apps/web/api/onboarding-complete.js";
+import organizationAdminOverviewHandler from "../apps/web/api/organization-admin-overview.js";
+import organizationCloseHandler from "../apps/web/api/organization-close.js";
+import organizationTransferOwnershipHandler from "../apps/web/api/organization-transfer-ownership.js";
 import processorRunHandler from "../apps/web/api/processor-run.js";
 import profileHandler from "../apps/web/api/profile.js";
 import savedSignaturesHandler from "../apps/web/api/saved-signatures.js";
@@ -127,6 +130,9 @@ const routeHandlers: Record<string, RouteHandler> = {
   feedback: feedbackHandler,
   health: healthHandler,
   "onboarding-complete": onboardingCompleteHandler,
+  "organization-admin-overview": organizationAdminOverviewHandler,
+  "organization-close": organizationCloseHandler,
+  "organization-transfer-ownership": organizationTransferOwnershipHandler,
   "processor-run": processorRunHandler,
   profile: profileHandler,
   "saved-signatures": savedSignaturesHandler,

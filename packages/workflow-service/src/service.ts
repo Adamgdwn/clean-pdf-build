@@ -50,6 +50,7 @@ import {
   inferAccountType,
   inferCompanyName,
   inferProfileKind,
+  planDefaultAccountWorkspace,
   type AccountType,
   type ProfileKind,
 } from "./profile-identity.js";
@@ -363,6 +364,10 @@ type OrganizationRow = {
   account_type: "individual" | "corporate";
   owner_user_id: string;
   billing_email: string | null;
+  status?: "active" | "payment_required" | "suspended" | "closing" | "closed";
+  suspended_at?: string | null;
+  closing_requested_at?: string | null;
+  closed_at?: string | null;
 };
 
 type WorkspaceMembershipWithWorkspaceRow = {
@@ -871,6 +876,14 @@ const updateAdminFeedbackRequestInputSchema = z.object({
   priority: z.enum(["low", "medium", "high"]).optional(),
   ownerUserId: z.string().uuid().nullable().optional(),
   resolutionNote: z.string().trim().max(4000).nullable().optional(),
+});
+
+const transferOrganizationOwnershipInputSchema = z.object({
+  targetUserId: z.string().uuid(),
+});
+
+const closeOrganizationInputSchema = z.object({
+  confirmName: z.string().trim().min(1).max(120),
 });
 
 function slugify(value: string) {
@@ -1465,7 +1478,7 @@ export async function getOrganizationById(organizationId: string) {
   const adminClient = createServiceRoleClient();
   const { data, error } = await adminClient
     .from("organizations")
-    .select("id, name, slug, account_type, owner_user_id, billing_email")
+    .select("id, name, slug, account_type, owner_user_id, billing_email, status, suspended_at, closing_requested_at, closed_at")
     .eq("id", organizationId)
     .maybeSingle();
 
@@ -1497,7 +1510,7 @@ export async function ensureOrganizationForWorkspace(workspace: WorkspaceRow) {
   const { data: organization, error: organizationError } = await adminClient
     .from("organizations")
     .upsert(organizationPayload, { onConflict: "slug" })
-    .select("id, name, slug, account_type, owner_user_id, billing_email")
+    .select("id, name, slug, account_type, owner_user_id, billing_email, status, suspended_at, closing_requested_at, closed_at")
     .single();
 
   if (organizationError || !organization) {
@@ -1547,6 +1560,202 @@ export async function getOrganizationMembershipRole(organizationId: string, user
   return (data?.role ?? null) as OrganizationMembershipRow["role"] | null;
 }
 
+async function requireOrganizationAdminContext(
+  user: AuthenticatedUser,
+  preferredWorkspaceId?: string | null,
+  allowedRoles: Array<OrganizationMembershipRow["role"]> = ["owner", "admin", "billing_admin"],
+) {
+  const workspace = (await resolveWorkspaceForUser(user, preferredWorkspaceId)) as WorkspaceRow;
+  const organization = (await ensureOrganizationForWorkspace(workspace)) as OrganizationRow;
+  const membershipRole = await getOrganizationMembershipRole(organization.id, user.id);
+
+  if (!membershipRole || !allowedRoles.includes(membershipRole)) {
+    throw new AppError(403, "You do not have permission to administer this account.");
+  }
+
+  if (organization.account_type !== "corporate") {
+    throw new AppError(403, "Organization administration is available for corporate accounts.");
+  }
+
+  return { workspace, organization, membershipRole };
+}
+
+function assertOrganizationCanStartNewWork(
+  organization: Pick<OrganizationRow, "status" | "name">,
+  actionLabel: string,
+) {
+  const status = organization.status ?? "active";
+
+  if (["suspended", "closing", "closed"].includes(status)) {
+    throw new AppError(
+      409,
+      `${organization.name} is ${status.replaceAll("_", " ")}. Resolve the account status before ${actionLabel}.`,
+    );
+  }
+}
+
+async function assertWorkspaceCanStartNewWork(workspaceId: string, actionLabel: string) {
+  const adminClient = createServiceRoleClient();
+  const { data: workspace, error } = await adminClient
+    .from("workspaces")
+    .select("id, name, slug, workspace_type, organization_id, owner_user_id, billing_email")
+    .eq("id", workspaceId)
+    .maybeSingle();
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  if (!workspace) {
+    throw new AppError(404, "Workspace not found.");
+  }
+
+  const organization = (await ensureOrganizationForWorkspace(workspace as WorkspaceRow)) as OrganizationRow;
+  assertOrganizationCanStartNewWork(organization, actionLabel);
+}
+
+async function writeOrganizationAccountEvent(input: {
+  organizationId: string;
+  actorUserId: string | null;
+  eventType: string;
+  summary: string;
+  metadata?: Record<string, string | number | boolean | null>;
+}) {
+  const adminClient = createServiceRoleClient();
+  const { error } = await adminClient.from("organization_account_events").insert({
+    organization_id: input.organizationId,
+    actor_user_id: input.actorUserId,
+    event_type: input.eventType,
+    summary: input.summary,
+    metadata: input.metadata ?? {},
+  });
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+}
+
+async function syncOrganizationLicenseAssignments(organization: OrganizationRow, workspace: WorkspaceRow) {
+  const adminClient = createServiceRoleClient();
+
+  const [membershipsResult, invitationsResult] = await Promise.all([
+    adminClient
+      .from("organization_memberships")
+      .select("organization_id, user_id, role, created_at")
+      .eq("organization_id", organization.id),
+    adminClient
+      .from("workspace_invitations")
+      .select("workspace_id, email, role, invited_by_user_id, accepted_at, expires_at, created_at")
+      .eq("workspace_id", workspace.id)
+      .is("accepted_at", null)
+      .gt("expires_at", new Date().toISOString()),
+  ]);
+
+  if (membershipsResult.error) {
+    throw new AppError(500, membershipsResult.error.message);
+  }
+
+  if (invitationsResult.error) {
+    throw new AppError(500, invitationsResult.error.message);
+  }
+
+  const memberRows = (membershipsResult.data ?? []) as OrganizationMembershipRow[];
+  const invitationRows = (invitationsResult.data ?? []) as Array<{
+    workspace_id: string;
+    email: string;
+    role: OrganizationMembershipRow["role"];
+    invited_by_user_id: string;
+    accepted_at: string | null;
+    expires_at: string;
+    created_at: string;
+  }>;
+  const activeMemberIds = new Set(memberRows.map((member) => member.user_id));
+  const activeInvitationEmails = new Set(
+    invitationRows.map((invitation) => normalizeEmailAddress(invitation.email)),
+  );
+
+  const { data: existingActiveLicenses, error: existingActiveLicensesError } = await adminClient
+    .from("organization_license_assignments")
+    .select("id, user_id, invited_email, status")
+    .eq("organization_id", organization.id)
+    .eq("workspace_id", workspace.id)
+    .in("status", ["assigned", "invited", "suspended"]);
+
+  if (existingActiveLicensesError) {
+    throw new AppError(500, existingActiveLicensesError.message);
+  }
+
+  const staleLicenseIds = ((existingActiveLicenses ?? []) as Array<{
+    id: string;
+    user_id: string | null;
+    invited_email: string | null;
+    status: "assigned" | "invited" | "suspended";
+  }>)
+    .filter((license) => {
+      if (license.user_id) {
+        return !activeMemberIds.has(license.user_id);
+      }
+
+      if (license.invited_email) {
+        return !activeInvitationEmails.has(normalizeEmailAddress(license.invited_email));
+      }
+
+      return true;
+    })
+    .map((license) => license.id);
+
+  if (staleLicenseIds.length > 0) {
+    const { error } = await adminClient
+      .from("organization_license_assignments")
+      .update({ status: "revoked", revoked_at: new Date().toISOString() })
+      .in("id", staleLicenseIds);
+
+    if (error) {
+      throw new AppError(500, error.message);
+    }
+  }
+
+  if (memberRows.length > 0) {
+    const { error } = await adminClient.from("organization_license_assignments").upsert(
+      memberRows.map((member) => ({
+        organization_id: organization.id,
+        workspace_id: workspace.id,
+        user_id: member.user_id,
+        role: member.role,
+        status: "assigned",
+        assigned_by_user_id: organization.owner_user_id,
+        assigned_at: member.created_at,
+        revoked_at: null,
+      })),
+      { onConflict: "organization_id,user_id" },
+    );
+
+    if (error) {
+      throw new AppError(500, error.message);
+    }
+  }
+
+  if (invitationRows.length > 0) {
+    const { error } = await adminClient.from("organization_license_assignments").upsert(
+      invitationRows.map((invitation) => ({
+        organization_id: organization.id,
+        workspace_id: workspace.id,
+        invited_email: normalizeEmailAddress(invitation.email),
+        role: invitation.role,
+        status: "invited",
+        assigned_by_user_id: invitation.invited_by_user_id,
+        assigned_at: invitation.created_at,
+        revoked_at: null,
+      })),
+      { onConflict: "organization_id,invited_email" },
+    );
+
+    if (error) {
+      throw new AppError(500, error.message);
+    }
+  }
+}
+
 export async function listAccessibleWorkspacesForUser(user: AuthenticatedUser) {
   const memberships = await listWorkspaceMembershipsForUser(user.id);
   return flattenWorkspaceMemberships(memberships)
@@ -1558,6 +1767,355 @@ export async function listAccessibleWorkspacesForUser(user: AuthenticatedUser) {
 
       return left.workspace.name.localeCompare(right.workspace.name);
     });
+}
+
+export async function getOrganizationAdminOverviewForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  preferredWorkspaceId?: string | null,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const { workspace, organization, membershipRole } = await requireOrganizationAdminContext(
+    user,
+    preferredWorkspaceId,
+  );
+  const adminClient = createServiceRoleClient();
+
+  await syncOrganizationLicenseAssignments(organization, workspace);
+
+  const [
+    membersResult,
+    invitationsResult,
+    subscriptionResult,
+    licenseResult,
+    tokenCreditResult,
+    tokenUsageResult,
+    eventsResult,
+  ] = await Promise.all([
+    adminClient
+      .from("organization_memberships")
+      .select("organization_id, user_id, role, created_at")
+      .eq("organization_id", organization.id)
+      .order("created_at", { ascending: true }),
+    adminClient
+      .from("workspace_invitations")
+      .select("id, workspace_id, email, role, invited_by_user_id, expires_at, accepted_at, created_at")
+      .eq("workspace_id", workspace.id)
+      .is("accepted_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: true }),
+    adminClient
+      .from("workspace_subscriptions")
+      .select("id, billing_plan_key, status, seat_count, current_period_end, cancel_at_period_end, trial_ends_at, updated_at")
+      .eq("workspace_id", workspace.id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    adminClient
+      .from("organization_license_assignments")
+      .select("id, organization_id, workspace_id, user_id, invited_email, role, status, assigned_by_user_id, assigned_at, revoked_at, created_at, updated_at")
+      .eq("organization_id", organization.id)
+      .neq("status", "revoked")
+      .order("assigned_at", { ascending: true }),
+    adminClient
+      .from("billing_usage_events")
+      .select("quantity")
+      .eq("workspace_id", workspace.id)
+      .eq("meter_key", "external_token_credit"),
+    adminClient
+      .from("billing_usage_events")
+      .select("quantity")
+      .eq("workspace_id", workspace.id)
+      .eq("meter_key", "signing_token"),
+    adminClient
+      .from("organization_account_events")
+      .select("id, event_type, summary, metadata, actor_user_id, created_at")
+      .eq("organization_id", organization.id)
+      .order("created_at", { ascending: false })
+      .limit(12),
+  ]);
+
+  for (const result of [
+    membersResult,
+    invitationsResult,
+    subscriptionResult,
+    licenseResult,
+    tokenCreditResult,
+    tokenUsageResult,
+    eventsResult,
+  ]) {
+    if (result.error) {
+      throw new AppError(500, result.error.message);
+    }
+  }
+
+  const members = (membersResult.data ?? []) as OrganizationMembershipRow[];
+  const invitations = (invitationsResult.data ?? []) as Array<{
+    id: string;
+    workspace_id: string;
+    email: string;
+    role: OrganizationMembershipRow["role"];
+    invited_by_user_id: string;
+    expires_at: string;
+    accepted_at: string | null;
+    created_at: string;
+  }>;
+  const licenses = (licenseResult.data ?? []) as Array<{
+    id: string;
+    user_id: string | null;
+    invited_email: string | null;
+    role: OrganizationMembershipRow["role"];
+    status: "assigned" | "invited" | "suspended" | "revoked";
+    assigned_by_user_id: string | null;
+    assigned_at: string;
+    revoked_at: string | null;
+  }>;
+  const profilesById = await getProfileIdentitiesById(
+    adminClient,
+    members.map((member) => member.user_id),
+  );
+  const subscription = subscriptionResult.data as
+    | {
+        id: string;
+        billing_plan_key: string;
+        status: string;
+        seat_count: number;
+        current_period_end: string | null;
+        cancel_at_period_end: boolean;
+        trial_ends_at: string | null;
+        updated_at: string;
+      }
+    | null;
+  const tokenPurchased = (tokenCreditResult.data ?? []).reduce(
+    (sum: number, row: { quantity: number }) => sum + (row.quantity ?? 0),
+    0,
+  );
+  const tokenUsed = (tokenUsageResult.data ?? []).reduce(
+    (sum: number, row: { quantity: number }) => sum + (row.quantity ?? 0),
+    0,
+  );
+  const assignedSeats = licenses.filter((license) => license.status === "assigned").length;
+  const invitedSeats = licenses.filter((license) => license.status === "invited").length;
+  const suspendedSeats = licenses.filter((license) => license.status === "suspended").length;
+  const occupiedSeats = assignedSeats + invitedSeats + suspendedSeats;
+  const purchasedSeats = subscription?.seat_count ?? 0;
+
+  return {
+    account: {
+      id: organization.id,
+      name: organization.name,
+      slug: organization.slug,
+      accountType: organization.account_type,
+      status: organization.status ?? "active",
+      billingEmail: organization.billing_email,
+      ownerUserId: organization.owner_user_id,
+      membershipRole,
+      suspendedAt: organization.suspended_at ?? null,
+      closingRequestedAt: organization.closing_requested_at ?? null,
+      closedAt: organization.closed_at ?? null,
+    },
+    workspace: {
+      id: workspace.id,
+      name: workspace.name,
+      slug: workspace.slug,
+      workspaceType: workspace.workspace_type,
+    },
+    authority: {
+      canManagePeople: ["owner", "admin"].includes(membershipRole),
+      canManageBilling: ["owner", "billing_admin"].includes(membershipRole),
+      canTransferOwnership: membershipRole === "owner",
+      canCloseAccount: membershipRole === "owner",
+    },
+    licenseSummary: {
+      purchasedSeats,
+      occupiedSeats,
+      assignedSeats,
+      invitedSeats,
+      suspendedSeats,
+      availableSeats: Math.max(0, purchasedSeats - occupiedSeats),
+      overAssignedBy: Math.max(0, occupiedSeats - purchasedSeats),
+    },
+    tokens: {
+      available: Math.max(0, tokenPurchased - tokenUsed),
+      purchased: tokenPurchased,
+      used: tokenUsed,
+    },
+    subscription: subscription
+      ? {
+          id: subscription.id,
+          planKey: subscription.billing_plan_key,
+          status: subscription.status,
+          seatCount: subscription.seat_count,
+          currentPeriodEnd: subscription.current_period_end,
+          cancelAtPeriodEnd: subscription.cancel_at_period_end,
+          trialEndsAt: subscription.trial_ends_at,
+          updatedAt: subscription.updated_at,
+        }
+      : null,
+    members: members.map((member) => {
+      const profile = profilesById.get(member.user_id);
+      const license = licenses.find((candidate) => candidate.user_id === member.user_id);
+
+      return {
+        userId: member.user_id,
+        displayName: profile?.display_name ?? profile?.email ?? "Unknown member",
+        email: profile?.email ?? null,
+        role: member.role,
+        licenseStatus: license?.status ?? "assigned",
+        joinedAt: member.created_at,
+        isOwner: member.user_id === organization.owner_user_id,
+        isCurrentUser: member.user_id === user.id,
+      };
+    }),
+    pendingInvitations: invitations.map((invitation) => ({
+      id: invitation.id,
+      email: invitation.email,
+      role: invitation.role,
+      licenseStatus:
+        licenses.find((license) => license.invited_email === normalizeEmailAddress(invitation.email))?.status ??
+        "invited",
+      expiresAt: invitation.expires_at,
+      createdAt: invitation.created_at,
+    })),
+    recentEvents: ((eventsResult.data ?? []) as Array<{
+      id: string;
+      event_type: string;
+      summary: string;
+      metadata: Record<string, string | number | boolean | null>;
+      actor_user_id: string | null;
+      created_at: string;
+    }>).map((event) => ({
+      id: event.id,
+      eventType: event.event_type,
+      summary: event.summary,
+      metadata: event.metadata,
+      actorUserId: event.actor_user_id,
+      createdAt: event.created_at,
+    })),
+  };
+}
+
+export async function transferOrganizationOwnershipForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  input: unknown,
+  preferredWorkspaceId?: string | null,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const parsed = transferOrganizationOwnershipInputSchema.parse(input);
+  const { workspace, organization } = await requireOrganizationAdminContext(
+    user,
+    preferredWorkspaceId,
+    ["owner"],
+  );
+  const adminClient = createServiceRoleClient();
+
+  if (parsed.targetUserId === organization.owner_user_id) {
+    return { transferred: false, ownerUserId: organization.owner_user_id };
+  }
+
+  const { data: targetMembership, error: targetMembershipError } = await adminClient
+    .from("organization_memberships")
+    .select("user_id, role")
+    .eq("organization_id", organization.id)
+    .eq("user_id", parsed.targetUserId)
+    .maybeSingle();
+
+  if (targetMembershipError) {
+    throw new AppError(500, targetMembershipError.message);
+  }
+
+  if (!targetMembership) {
+    throw new AppError(404, "The new owner must already be an active member of this organization.");
+  }
+
+  const { error: organizationError } = await adminClient
+    .from("organizations")
+    .update({ owner_user_id: parsed.targetUserId })
+    .eq("id", organization.id);
+
+  if (organizationError) {
+    throw new AppError(500, organizationError.message);
+  }
+
+  const { error: workspaceError } = await adminClient
+    .from("workspaces")
+    .update({ owner_user_id: parsed.targetUserId })
+    .eq("organization_id", organization.id);
+
+  if (workspaceError) {
+    throw new AppError(500, workspaceError.message);
+  }
+
+  const membershipUpdates = await Promise.all([
+    adminClient.from("organization_memberships").upsert(
+      { organization_id: organization.id, user_id: parsed.targetUserId, role: "owner" },
+      { onConflict: "organization_id,user_id" },
+    ),
+    adminClient.from("workspace_memberships").upsert(
+      { workspace_id: workspace.id, user_id: parsed.targetUserId, role: "owner" },
+      { onConflict: "workspace_id,user_id" },
+    ),
+    adminClient
+      .from("organization_memberships")
+      .update({ role: "admin" })
+      .eq("organization_id", organization.id)
+      .eq("user_id", user.id),
+    adminClient
+      .from("workspace_memberships")
+      .update({ role: "admin" })
+      .eq("workspace_id", workspace.id)
+      .eq("user_id", user.id),
+  ]);
+
+  const membershipError = membershipUpdates.find((result) => result.error)?.error;
+
+  if (membershipError) {
+    throw new AppError(500, membershipError.message);
+  }
+
+  await writeOrganizationAccountEvent({
+    organizationId: organization.id,
+    actorUserId: user.id,
+    eventType: "ownership_transferred",
+    summary: "Organization ownership was transferred.",
+    metadata: { previous_owner_user_id: user.id, new_owner_user_id: parsed.targetUserId },
+  });
+
+  return { transferred: true, ownerUserId: parsed.targetUserId };
+}
+
+export async function closeOrganizationForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  input: unknown,
+  preferredWorkspaceId?: string | null,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const parsed = closeOrganizationInputSchema.parse(input);
+  const { organization } = await requireOrganizationAdminContext(user, preferredWorkspaceId, ["owner"]);
+
+  if (parsed.confirmName !== organization.name) {
+    throw new AppError(400, "Type the exact organization name to request account closure.");
+  }
+
+  const adminClient = createServiceRoleClient();
+  const closingRequestedAt = new Date().toISOString();
+  const { error } = await adminClient
+    .from("organizations")
+    .update({ status: "closing", closing_requested_at: closingRequestedAt })
+    .eq("id", organization.id);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  await writeOrganizationAccountEvent({
+    organizationId: organization.id,
+    actorUserId: user.id,
+    eventType: "closure_requested",
+    summary: "Account closure was requested by the organization owner.",
+    metadata: { requested_at: closingRequestedAt },
+  });
+
+  return { status: "closing", closingRequestedAt };
 }
 
 export async function resolveWorkspaceForUser(
@@ -1615,21 +2173,15 @@ export async function resolveWorkspaceForUser(
     return existingWorkspace;
   }
 
-  const wantsCorporateAccount = user.accountType === "corporate" || Boolean(user.workspaceName?.trim());
-  const workspaceType = wantsCorporateAccount ? "team" : "personal";
-  const organizationName = wantsCorporateAccount
-    ? user.workspaceName?.trim() || (user.name?.trim() ? `${user.name.trim()}'s organization` : "My organization")
-    : user.name?.trim()
-      ? `${user.name.trim()}'s account`
-      : "My account";
-  const workspaceName = wantsCorporateAccount
-    ? organizationName
-    : user.name?.trim()
-      ? `${user.name.trim()}'s workspace`
-      : "My workspace";
-  const baseSlug = slugify(
-    wantsCorporateAccount ? organizationName : user.name || user.email.split("@")[0],
-  );
+  const plannedAccount = planDefaultAccountWorkspace({
+    email: user.email,
+    name: user.name,
+    accountType: user.accountType ?? null,
+    workspaceName: user.workspaceName ?? null,
+  });
+  const organizationName = plannedAccount.organizationName;
+  const workspaceName = plannedAccount.workspaceName;
+  const baseSlug = slugify(plannedAccount.slugBase);
   const workspaceSlug = [baseSlug, user.id.slice(0, 8)]
     .filter(Boolean)
     .join("-");
@@ -1639,7 +2191,7 @@ export async function resolveWorkspaceForUser(
     .insert({
       name: organizationName,
       slug: workspaceSlug,
-      account_type: wantsCorporateAccount ? "corporate" : "individual",
+      account_type: plannedAccount.accountType,
       owner_user_id: user.id,
       billing_email: user.email,
     })
@@ -1658,7 +2210,7 @@ export async function resolveWorkspaceForUser(
     .insert({
       name: workspaceName,
       slug: workspaceSlug,
-      workspace_type: workspaceType,
+      workspace_type: plannedAccount.workspaceType,
       organization_id: createdOrganization.id,
       owner_user_id: user.id,
       billing_email: user.email,
@@ -5012,6 +5564,7 @@ export async function createDocumentForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const parsed = createDocumentInputSchema.parse(input);
   const workspace = await resolveWorkspaceForUser(user, preferredWorkspaceId);
+  await assertWorkspaceCanStartNewWork(workspace.id, "creating new documents");
   const now = new Date().toISOString();
 
   if (!parsed.storagePath.startsWith(`${user.id}/`)) {
@@ -6109,6 +6662,7 @@ export async function sendDocumentForAuthorizationHeader(
   }
 
   if (currentDocument.workspaceId) {
+    await assertWorkspaceCanStartNewWork(currentDocument.workspaceId, "sending documents");
     await assertWorkspaceHasActivePlan(currentDocument.workspaceId);
   }
 
@@ -6724,6 +7278,9 @@ export async function duplicateDocumentForAuthorizationHeader(
   await assertPermission(documentId, user, "edit_document");
   const adminClient = createServiceRoleClient();
   const sourceDocument = await requireDocumentBundle(documentId);
+  if (sourceDocument.workspaceId) {
+    await assertWorkspaceCanStartNewWork(sourceDocument.workspaceId, "duplicating documents");
+  }
   const { data: sourceRow, error: sourceError } = await adminClient
     .from("documents")
     .select("*")

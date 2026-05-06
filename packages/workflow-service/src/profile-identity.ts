@@ -68,3 +68,30 @@ export function inferCompanyName(input: {
 
   return null;
 }
+
+export function planDefaultAccountWorkspace(input: {
+  email: string;
+  name?: string | null;
+  accountType?: AccountType | null;
+  workspaceName?: string | null;
+}) {
+  const wantsCorporateAccount = input.accountType === "corporate";
+  const requestedWorkspaceName = trimToNull(input.workspaceName);
+  const displayName = trimToNull(input.name);
+  const emailLocalPart = trimToNull(input.email.split("@")[0]);
+
+  const organizationName = wantsCorporateAccount
+    ? requestedWorkspaceName || (displayName ? `${displayName}'s organization` : "My organization")
+    : requestedWorkspaceName || (displayName ? `${displayName}'s account` : "My account");
+  const workspaceName = wantsCorporateAccount
+    ? organizationName
+    : requestedWorkspaceName || (displayName ? `${displayName}'s workspace` : "My workspace");
+
+  return {
+    accountType: wantsCorporateAccount ? ("corporate" as const) : ("individual" as const),
+    workspaceType: wantsCorporateAccount ? ("team" as const) : ("personal" as const),
+    organizationName,
+    workspaceName,
+    slugBase: wantsCorporateAccount ? organizationName : workspaceName || emailLocalPart || "workspace",
+  };
+}

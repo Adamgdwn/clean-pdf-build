@@ -5,6 +5,7 @@ import {
   inferAccountType,
   inferCompanyName,
   inferProfileKind,
+  planDefaultAccountWorkspace,
 } from "./profile-identity.js";
 
 describe("profile identity helpers", () => {
@@ -33,5 +34,37 @@ describe("profile identity helpers", () => {
         email: "ops@agoperations.ca",
       }),
     ).toBe("AG Operations");
+  });
+
+  it("keeps an individual signup personal even when the required workspace name is present", () => {
+    expect(
+      planDefaultAccountWorkspace({
+        email: "solo@example.com",
+        name: "Solo User",
+        accountType: "individual",
+        workspaceName: "Solo Desk",
+      }),
+    ).toMatchObject({
+      accountType: "individual",
+      workspaceType: "personal",
+      organizationName: "Solo Desk",
+      workspaceName: "Solo Desk",
+    });
+  });
+
+  it("creates a corporate team workspace only for explicit corporate account signups", () => {
+    expect(
+      planDefaultAccountWorkspace({
+        email: "owner@example.com",
+        name: "Org Owner",
+        accountType: "corporate",
+        workspaceName: "Acme Operations",
+      }),
+    ).toMatchObject({
+      accountType: "corporate",
+      workspaceType: "team",
+      organizationName: "Acme Operations",
+      workspaceName: "Acme Operations",
+    });
   });
 });

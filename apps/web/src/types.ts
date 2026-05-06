@@ -292,6 +292,84 @@ export type WorkspaceDirectory = {
   workspaces: WorkspaceOption[];
 };
 
+export type OrganizationAdminOverview = {
+  account: {
+    id: string;
+    name: string;
+    slug: string;
+    accountType: "individual" | "corporate";
+    status: "active" | "payment_required" | "suspended" | "closing" | "closed";
+    billingEmail: string | null;
+    ownerUserId: string;
+    membershipRole: "owner" | "admin" | "member" | "billing_admin" | null;
+    suspendedAt: string | null;
+    closingRequestedAt: string | null;
+    closedAt: string | null;
+  };
+  workspace: {
+    id: string;
+    name: string;
+    slug: string;
+    workspaceType: string;
+  };
+  authority: {
+    canManagePeople: boolean;
+    canManageBilling: boolean;
+    canTransferOwnership: boolean;
+    canCloseAccount: boolean;
+  };
+  licenseSummary: {
+    purchasedSeats: number;
+    occupiedSeats: number;
+    assignedSeats: number;
+    invitedSeats: number;
+    suspendedSeats: number;
+    availableSeats: number;
+    overAssignedBy: number;
+  };
+  tokens: {
+    available: number;
+    purchased: number;
+    used: number;
+  };
+  subscription: {
+    id: string;
+    planKey: string;
+    status: string;
+    seatCount: number;
+    currentPeriodEnd: string | null;
+    cancelAtPeriodEnd: boolean;
+    trialEndsAt: string | null;
+    updatedAt: string;
+  } | null;
+  members: Array<{
+    userId: string;
+    displayName: string;
+    email: string | null;
+    role: "owner" | "admin" | "member" | "billing_admin";
+    licenseStatus: "assigned" | "invited" | "suspended" | "revoked";
+    joinedAt: string;
+    isOwner: boolean;
+    isCurrentUser: boolean;
+  }>;
+  pendingInvitations: Array<{
+    id: string;
+    email: string;
+    role: "owner" | "admin" | "member" | "billing_admin";
+    licenseStatus: "assigned" | "invited" | "suspended" | "revoked";
+    expiresAt: string;
+    createdAt: string;
+  }>;
+  recentEvents: Array<{
+    id: string;
+    eventType: string;
+    summary: string;
+    metadata: Record<string, string | number | boolean | null>;
+    actorUserId: string | null;
+    createdAt: string;
+  }>;
+};
+
 export type AdminManagedUser = {
   id: string;
   email: string;
