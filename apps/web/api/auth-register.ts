@@ -99,6 +99,13 @@ export default async function handler(request: VercelRequest, response: VercelRe
     });
 
     if (error) {
+      if (error.message.toLowerCase().includes("already registered")) {
+        return response.status(409).json({
+          message:
+            "That email is still registered in Supabase Auth. Sign in, reset the password, or delete the user from Authentication > Users before recreating the test account.",
+        });
+      }
+
       return response.status(400).json({ message: error.message });
     }
 

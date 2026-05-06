@@ -78,6 +78,31 @@ The owner/admin experience now also includes:
 9. Trigger one password reset for a test account.
 10. Confirm test-user deletion works only where expected.
 
+## Recreating test accounts
+
+When you want to recreate a test account with the same email, delete the Supabase Auth user first. Removing rows from EasyDraft tables such as `easydraft_user_profiles`, `organizations`, or `workspaces` does not free the email address for signup because Supabase Auth still owns the identity.
+
+Recommended cleanup:
+
+1. Open Supabase Dashboard.
+2. Go to `Authentication > Users`.
+3. Search for the exact test email.
+4. Delete that Auth user.
+5. If deletion fails because the user owns Storage objects, delete the test files or use the EasyDraft account deletion/admin deletion path first.
+6. Confirm the email no longer appears in `auth.users` before signing up again.
+
+Useful SQL check:
+
+```sql
+select id, email, created_at, deleted_at, email_confirmed_at
+from auth.users
+where lower(email) = lower('test@example.com');
+
+select id, user_id, provider, identity_data
+from auth.identities
+where lower(identity_data ->> 'email') = lower('test@example.com');
+```
+
 ## Tester invitation flow
 
 Current recommended tester onboarding flow:
