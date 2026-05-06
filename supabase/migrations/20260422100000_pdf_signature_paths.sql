@@ -23,7 +23,7 @@ create table if not exists public.signature_events (
   document_id uuid not null references public.documents(id) on delete cascade,
   signer_type public.participant_type not null,
   signer_email text,
-  signer_user_id uuid references public.profiles(id) on delete set null,
+  signer_user_id uuid references auth.users(id) on delete set null,
   event_type text not null,
   ip_address text,
   user_agent text,

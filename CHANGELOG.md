@@ -4,6 +4,8 @@ This project uses a lightweight changelog. Update this file for each release or 
 
 ## Unreleased
 
+- Removed the legacy shared profile table dependency; profile identity now resolves from Supabase Auth and the EasyDraft role-specific profile tables.
+- Clarified the account model: individual/team users use product profile rows, while group account administrators are represented by organization/workspace membership roles that can manage seats and billing.
 - Replaced the public homepage workflow infographic with the new workflow-path and document-lifecycle hero images.
 - Fixed browser session token auto-refresh: browser-side Supabase client is now properly hydrated on sign-in so tokens refresh silently before expiry. Previously tokens expired after one hour with no recovery path.
 - Sign-out now invalidates the refresh token server-side.

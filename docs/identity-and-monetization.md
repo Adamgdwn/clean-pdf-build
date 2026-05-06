@@ -18,9 +18,9 @@ This matches the customer value better than charging by raw recipient count and 
 
 ### 1. Keep identity in Supabase Auth
 
-Store the authentication identity in `auth.users` and keep only product-facing profile data in `public.profiles`.
+Store the authentication identity in `auth.users` and keep product-facing profile data in EasyDraft's role-specific profile tables.
 
-Official guidance from Supabase says Auth data lives in the Auth schema and that you should create your own `public` user table for API access and RLS-protected product data:
+Official guidance from Supabase says Auth data lives in the Auth schema and that you should create your own `public` tables for API access and RLS-protected product data:
 
 - https://supabase.com/docs/guides/auth/managing-user-data
 - https://supabase.com/docs/guides/auth/users
@@ -30,9 +30,8 @@ Official guidance from Supabase says Auth data lives in the Auth schema and that
 Recommended user data split:
 
 - `auth.users`: login identity, provider, email verification state
-- `public.profiles`: shared account identity, display name, avatar URL, company name, locale, timezone, opt-in flags, and `profile_kind`
-- `public.easydraft_user_profiles`: product-user profile extension rows
-- `public.easydraft_staff_profiles`: internal EasyDraft staff profile extension rows
+- `public.easydraft_user_profiles`: customer/product-user profile rows for individual users and team members
+- `public.easydraft_staff_profiles`: internal EasyDraft staff profile rows
 - `public.organizations`: parent account for individual or corporate customers
 - `public.organization_memberships`: which organization the user belongs to and their account role
 - `public.workspace_memberships`: which workspace the user belongs to and their workspace role
@@ -79,6 +78,13 @@ Use two account types:
 
 - `individual`: one user operating alone, with their own billing and private workspace
 - `corporate`: a parent account that owns billing, members, and shared external signer tokens
+
+Keep account administration as membership authority, not as a third profile type:
+
+- `owner`: controls account/workspace setup, member access, and billing posture
+- `admin`: manages team access and operational account settings
+- `billing_admin`: manages subscription, seats, payment methods, and token purchases
+- `member`: uses assigned product access without account-administration authority
 
 Recommended hierarchy:
 

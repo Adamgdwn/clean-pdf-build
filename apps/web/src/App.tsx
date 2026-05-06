@@ -2184,6 +2184,8 @@ export default function App() {
 
     async function loadWorkspaceState() {
       try {
+        setErrorMessage(null);
+
         if (pendingInviteToken) {
           const payload = await apiFetch<{
             joined: boolean;
@@ -2258,7 +2260,7 @@ export default function App() {
   }, [accountProfile?.onboardingCompletedAt]);
 
   useEffect(() => {
-    if (!session || !selectedDocument?.id) {
+    if (!session || !selectedDocument?.id || portalView !== "workspace") {
       return;
     }
 
@@ -2271,7 +2273,7 @@ export default function App() {
     )
       .then((payload) => setSignatureEvents(payload.events))
       .catch((error) => setErrorMessage((error as Error).message));
-  }, [selectedDocument?.id, session]);
+  }, [selectedDocument?.id, session, portalView]);
 
   useEffect(() => {
     setInternalSignatureFieldId((currentValue) => currentValue || selectedDocument?.fields.find((field) => field.kind === "signature")?.id || "");
@@ -2339,6 +2341,13 @@ export default function App() {
     null;
   const activeWorkspace =
     availableWorkspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
+  const activeAccountType =
+    activeWorkspace?.organization?.accountType ??
+    billingOverview?.organization.accountType ??
+    workspaceTeam?.organization.accountType ??
+    accountProfile?.accountType ??
+    null;
+  const isCorporateAccount = activeAccountType === "corporate";
   const currentWorkspaceName =
     activeWorkspace?.organization?.name ??
     activeWorkspace?.name ??
@@ -2359,7 +2368,8 @@ export default function App() {
   const orgAdminAccessResolved = Boolean(sessionUser && (sessionUser.isAdmin || billingOverview || workspaceTeam));
   const canAccessOrgAdmin = Boolean(
     sessionUser &&
-      (sessionUser.isAdmin || ["owner", "admin", "billing_admin"].includes(workspaceMembershipRole ?? "")),
+      (sessionUser.isAdmin ||
+        (isCorporateAccount && ["owner", "admin", "billing_admin"].includes(workspaceMembershipRole ?? ""))),
   );
 
   function updatePortalView(nextView: PortalView) {
@@ -2373,7 +2383,7 @@ export default function App() {
 
   useEffect(() => {
     if (portalView === "org_admin" && !canAccessOrgAdmin) {
-      setPortalView("workspace");
+      updatePortalView("workspace");
     }
   }, [portalView, canAccessOrgAdmin]);
 
@@ -2448,7 +2458,7 @@ export default function App() {
           });
           refreshSession(nextSession).catch((error) => setErrorMessage((error as Error).message));
         }}
-        onRegistered={() => updatePortalView("org_admin")}
+        onRegistered={() => updatePortalView("workspace")}
       />
     );
   }
@@ -2762,7 +2772,7 @@ export default function App() {
             <div className="section-heading compact">
               <p className="eyebrow">Active workspace</p>
               <span>
-                {activeWorkspace?.organization?.accountType === "corporate"
+                {activeAccountType === "corporate"
                   ? "Corporate account"
                   : "Individual account"}
               </span>
@@ -2787,7 +2797,7 @@ export default function App() {
               </select>
             </label>
             <p className="muted">
-              {activeWorkspace?.organization?.accountType === "corporate"
+              {activeAccountType === "corporate"
                 ? "Billing, shared tokens, and member management are scoped to this corporate account."
                 : "Individual accounts keep billing and document work private to the owner unless they later join a corporate account."}
             </p>
@@ -2823,7 +2833,7 @@ export default function App() {
             });
             refreshSession(nextSession).catch((error) => setErrorMessage((error as Error).message));
           }}
-          onRegistered={() => updatePortalView("org_admin")}
+          onRegistered={() => updatePortalView("workspace")}
         />
 
         {sessionUser ? (

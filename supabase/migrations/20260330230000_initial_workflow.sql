@@ -27,14 +27,6 @@ begin
   end if;
 end $$;
 
-create table if not exists public.profiles (
-  id uuid primary key,
-  email text not null unique,
-  display_name text not null,
-  created_at timestamptz not null default timezone('utc', now()),
-  updated_at timestamptz not null default timezone('utc', now())
-);
-
 create table if not exists public.documents (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -42,14 +34,14 @@ create table if not exists public.documents (
   storage_path text not null unique,
   page_count integer,
   uploaded_at timestamptz not null default timezone('utc', now()),
-  uploaded_by_user_id uuid not null references public.profiles(id) on delete cascade,
+  uploaded_by_user_id uuid not null references auth.users(id) on delete cascade,
   prepared_at timestamptz,
   sent_at timestamptz,
   completed_at timestamptz,
   reopened_at timestamptz,
-  reopened_by_user_id uuid references public.profiles(id) on delete set null,
+  reopened_by_user_id uuid references auth.users(id) on delete set null,
   locked_at timestamptz,
-  locked_by_user_id uuid references public.profiles(id) on delete set null,
+  locked_by_user_id uuid references auth.users(id) on delete set null,
   routing_strategy public.routing_strategy not null default 'sequential',
   is_scanned boolean not null default false,
   is_ocr_complete boolean not null default false,
@@ -60,7 +52,7 @@ create table if not exists public.documents (
 
 create table if not exists public.document_access (
   document_id uuid not null references public.documents(id) on delete cascade,
-  user_id uuid not null references public.profiles(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
   role public.access_role not null,
   created_at timestamptz not null default timezone('utc', now()),
   primary key (document_id, user_id)
@@ -71,7 +63,7 @@ create table if not exists public.document_invites (
   document_id uuid not null references public.documents(id) on delete cascade,
   email text not null,
   role public.access_role not null,
-  invited_by_user_id uuid not null references public.profiles(id) on delete cascade,
+  invited_by_user_id uuid not null references auth.users(id) on delete cascade,
   accepted_at timestamptz,
   created_at timestamptz not null default timezone('utc', now()),
   unique (document_id, email, role)
@@ -80,7 +72,7 @@ create table if not exists public.document_invites (
 create table if not exists public.document_signers (
   id uuid primary key default gen_random_uuid(),
   document_id uuid not null references public.documents(id) on delete cascade,
-  user_id uuid references public.profiles(id) on delete set null,
+  user_id uuid references auth.users(id) on delete set null,
   name text not null,
   email text not null,
   required boolean not null default true,
@@ -112,7 +104,7 @@ create table if not exists public.document_versions (
   document_id uuid not null references public.documents(id) on delete cascade,
   label text not null,
   created_at timestamptz not null default timezone('utc', now()),
-  created_by_user_id uuid not null references public.profiles(id) on delete cascade,
+  created_by_user_id uuid not null references auth.users(id) on delete cascade,
   note text not null
 );
 
@@ -129,7 +121,7 @@ create table if not exists public.document_audit_events (
 create table if not exists public.document_processing_jobs (
   id uuid primary key default gen_random_uuid(),
   document_id uuid not null references public.documents(id) on delete cascade,
-  requested_by_user_id uuid not null references public.profiles(id) on delete cascade,
+  requested_by_user_id uuid not null references auth.users(id) on delete cascade,
   type public.processing_job_type not null,
   status public.processing_job_status not null default 'queued',
   provider text not null default 'pending',
@@ -149,12 +141,6 @@ begin
   return new;
 end;
 $$;
-
-drop trigger if exists set_profiles_updated_at on public.profiles;
-create trigger set_profiles_updated_at
-before update on public.profiles
-for each row
-execute function public.set_updated_at();
 
 drop trigger if exists set_documents_updated_at on public.documents;
 create trigger set_documents_updated_at
@@ -191,7 +177,6 @@ as $$
   limit 1;
 $$;
 
-alter table public.profiles enable row level security;
 alter table public.documents enable row level security;
 alter table public.document_access enable row level security;
 alter table public.document_invites enable row level security;
@@ -200,19 +185,6 @@ alter table public.document_fields enable row level security;
 alter table public.document_versions enable row level security;
 alter table public.document_audit_events enable row level security;
 alter table public.document_processing_jobs enable row level security;
-
-create policy "profiles can view themselves"
-on public.profiles
-for select
-to authenticated
-using (id = auth.uid());
-
-create policy "profiles can update themselves"
-on public.profiles
-for update
-to authenticated
-using (id = auth.uid())
-with check (id = auth.uid());
 
 create policy "collaborators can read documents"
 on public.documents

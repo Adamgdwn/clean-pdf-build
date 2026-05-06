@@ -39,7 +39,7 @@ Use this document as the repeatable test run workbook for EasyDraftDocs. Start w
 | Test inboxes are accessible | Not run |  |
 | Latest build confirmed | Not run |  |
 | Required migrations confirmed | Not run |  |
-| Profile identity fields populated in Supabase | Not run | Confirm `profiles` plus role-specific profile tables show email, username, company, account type, and workspace name after signup/invite tests. |
+| Profile identity fields populated in Supabase | Not run | Confirm role-specific profile tables show email, username, company, account type, and workspace name after signup/invite tests. |
 | Storage buckets confirmed private | Not run |  |
 | Email provider configured | Not run |  |
 | Billing mode confirmed | Not run |  |

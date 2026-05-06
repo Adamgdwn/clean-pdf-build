@@ -29,7 +29,7 @@ create table if not exists public.document_notifications (
   channel public.notification_channel not null default 'email',
   status public.notification_status not null default 'queued',
   recipient_email text not null,
-  recipient_user_id uuid references public.profiles(id) on delete set null,
+  recipient_user_id uuid references auth.users(id) on delete set null,
   recipient_signer_id uuid references public.document_signers(id) on delete set null,
   provider text not null default 'pending',
   metadata jsonb not null default '{}'::jsonb,

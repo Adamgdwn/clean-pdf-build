@@ -19,8 +19,8 @@ alter table public.feedback_requests
 alter table public.feedback_requests
   alter column status set default 'new'::public.feedback_request_status,
   add column if not exists priority public.feedback_request_priority not null default 'medium',
-  add column if not exists owner_user_id uuid references public.profiles(id) on delete set null,
-  add column if not exists updated_by_user_id uuid references public.profiles(id) on delete set null,
+  add column if not exists owner_user_id uuid references auth.users(id) on delete set null,
+  add column if not exists updated_by_user_id uuid references auth.users(id) on delete set null,
   add column if not exists resolution_note text,
   add column if not exists resolved_at timestamptz,
   add column if not exists updated_at timestamptz not null default timezone('utc', now());

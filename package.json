@@ -16,11 +16,12 @@
     "dev:vercel": "npx vercel dev apps/web",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck": "node scripts/check-api-route-map.mjs && npm run typecheck --workspaces --if-present",
     "supabase:start": "npx supabase start",
     "supabase:stop": "npx supabase stop",
     "supabase:db:reset": "npx supabase db reset",
     "smoke:public-routes": "node scripts/smoke-public-routes.mjs",
+    "smoke:api-routes": "node scripts/smoke-api-routes.mjs",
     "processor:run-queued": "curl -s -X POST http://localhost:4010/jobs/run-queued",
     "processor:run-notifications": "curl -s -X POST http://localhost:4010/notifications/run-queued",
     "processor:run-purges": "curl -s -X POST http://localhost:4010/retention/run-due"

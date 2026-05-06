@@ -6,8 +6,10 @@ import { deliverNotificationEmail } from "./notifications.js";
 import {
   ensureDefaultWorkspaceForUser,
   ensureOrganizationForWorkspace,
+  findProfileIdentityByEmail,
   getOrganizationById,
   getOrganizationMembershipRole,
+  getProfileIdentitiesById,
   listAccessibleWorkspacesForUser,
   resolveAuthenticatedUser,
   resolveWorkspaceForUser,
@@ -25,24 +27,6 @@ type WorkspaceMemberRow = {
   user_id: string;
   role: string;
   created_at: string;
-  profiles: {
-    id: string;
-    display_name: string | null;
-    email: string;
-  } | null;
-};
-
-type WorkspaceMemberResetRow = {
-  user_id: string;
-  role: string;
-  profiles:
-    | {
-        email: string;
-      }
-    | Array<{
-        email: string;
-      }>
-    | null;
 };
 
 type WorkspaceInvitationRow = {
@@ -94,16 +78,6 @@ function mapInvitationStatus(invitation: Pick<WorkspaceInvitationRow, "accepted_
   }
 
   return "pending" as const;
-}
-
-function getMembershipEmail(
-  profiles: WorkspaceMemberResetRow["profiles"],
-): string | null {
-  if (!profiles) {
-    return null;
-  }
-
-  return Array.isArray(profiles) ? profiles[0]?.email ?? null : profiles.email;
 }
 
 async function requireWorkspaceWithRole(
@@ -181,7 +155,7 @@ export async function getWorkspaceTeamForAuthorizationHeader(
   const [membersResult, invitationsResult] = await Promise.all([
     adminClient
       .from("workspace_memberships")
-      .select("workspace_id, user_id, role, created_at, profiles(id, display_name, email)")
+      .select("workspace_id, user_id, role, created_at")
       .eq("workspace_id", workspace.id)
       .order("created_at", { ascending: true }),
 
@@ -199,6 +173,10 @@ export async function getWorkspaceTeamForAuthorizationHeader(
 
   const members = (membersResult.data ?? []) as unknown as WorkspaceMemberRow[];
   const invitations = (invitationsResult.data ?? []) as WorkspaceInvitationRow[];
+  const profilesById = await getProfileIdentitiesById(
+    adminClient,
+    members.map((member) => member.user_id),
+  );
 
   return {
     organization: {
@@ -214,14 +192,18 @@ export async function getWorkspaceTeamForAuthorizationHeader(
       slug: workspace.slug,
       organizationId: organization.id,
     },
-    members: members.map((m) => ({
-      userId: m.user_id,
-      role: m.role,
-      displayName: m.profiles?.display_name ?? m.profiles?.email ?? "Unknown",
-      email: m.profiles?.email ?? null,
-      isCurrentUser: m.user_id === user.id,
-      joinedAt: m.created_at,
-    })),
+    members: members.map((m) => {
+      const profile = profilesById.get(m.user_id);
+
+      return {
+        userId: m.user_id,
+        role: m.role,
+        displayName: profile?.display_name ?? profile?.email ?? "Unknown",
+        email: profile?.email ?? null,
+        isCurrentUser: m.user_id === user.id,
+        joinedAt: m.created_at,
+      };
+    }),
     pendingInvitations: invitations.map((inv) => ({
       id: inv.id,
       email: inv.email,
@@ -257,11 +239,7 @@ export async function createWorkspaceInvitationForAuthorizationHeader(
   }
 
   // Check if already a member
-  const { data: existingProfile } = await adminClient
-    .from("profiles")
-    .select("id")
-    .ilike("email", email)
-    .maybeSingle();
+  const existingProfile = await findProfileIdentityByEmail(adminClient, email);
 
   if (existingProfile?.id) {
     const { data: existingMembership } = await adminClient
@@ -634,38 +612,27 @@ export async function updateWorkspaceNameForAuthorizationHeader(
 
   const { data: memberProfiles, error: memberProfilesError } = await adminClient
     .from("workspace_memberships")
-    .select("user_id, profiles(email, display_name, username, profile_kind)")
+    .select("user_id")
     .eq("workspace_id", workspace.id);
 
   if (memberProfilesError) {
     throw new AppError(500, memberProfilesError.message);
   }
 
+  const workspaceMemberIds = ((memberProfiles ?? []) as Array<{ user_id: string }>).map(
+    (entry) => entry.user_id,
+  );
+  const profilesById = await getProfileIdentitiesById(adminClient, workspaceMemberIds);
+
   await Promise.all(
-    ((memberProfiles ?? []) as Array<{
-      user_id: string;
-      profiles:
-        | {
-            email: string;
-            display_name: string | null;
-            username: string | null;
-            profile_kind: "easydraft_user" | "easydraft_staff" | null;
-          }
-        | Array<{
-            email: string;
-            display_name: string | null;
-            username: string | null;
-            profile_kind: "easydraft_user" | "easydraft_staff" | null;
-          }>
-        | null;
-    }>).map(async (entry) => {
-      const profile = Array.isArray(entry.profiles) ? entry.profiles[0] ?? null : entry.profiles;
+    workspaceMemberIds.map(async (userId) => {
+      const profile = profilesById.get(userId);
       if (!profile?.email) {
         return;
       }
 
       await syncProfileIdentity({
-        id: entry.user_id,
+        id: userId,
         email: profile.email,
         displayName: profile.display_name,
         username: profile.username,
@@ -700,19 +667,20 @@ export async function sendWorkspaceMemberPasswordResetForAuthorizationHeader(
 
   const { data: membership, error } = await adminClient
     .from("workspace_memberships")
-    .select("user_id, role, profiles(email)")
+    .select("user_id, role")
     .eq("workspace_id", workspace.id)
     .eq("user_id", parsed.userId)
     .maybeSingle();
-  const typedMembership = membership as WorkspaceMemberResetRow | null;
 
   if (error) throw new AppError(500, error.message);
-  if (!typedMembership) {
+  if (!membership) {
     throw new AppError(404, "That user is not a member of this workspace.");
   }
 
+  const typedMembership = membership as { user_id: string; role: string };
   const targetRole = typedMembership.role;
-  const targetEmail = getMembershipEmail(typedMembership.profiles);
+  const targetProfile = (await getProfileIdentitiesById(adminClient, [parsed.userId])).get(parsed.userId);
+  const targetEmail = targetProfile?.email ?? null;
 
   if (!targetEmail) {
     throw new AppError(404, "That user does not have a sign-in email on file.");

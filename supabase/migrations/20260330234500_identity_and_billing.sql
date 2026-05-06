@@ -9,22 +9,12 @@ begin
   end if;
 end $$;
 
-alter table public.profiles
-  add column if not exists avatar_url text,
-  add column if not exists company_name text,
-  add column if not exists job_title text,
-  add column if not exists locale text,
-  add column if not exists timezone text,
-  add column if not exists marketing_opt_in boolean not null default false,
-  add column if not exists product_updates_opt_in boolean not null default true,
-  add column if not exists last_seen_at timestamptz;
-
 create table if not exists public.workspaces (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   slug text not null unique,
   workspace_type public.workspace_type not null default 'personal',
-  owner_user_id uuid not null references public.profiles(id) on delete cascade,
+  owner_user_id uuid not null references auth.users(id) on delete cascade,
   billing_email text,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
@@ -32,7 +22,7 @@ create table if not exists public.workspaces (
 
 create table if not exists public.workspace_memberships (
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
-  user_id uuid not null references public.profiles(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
   role public.workspace_role not null,
   created_at timestamptz not null default timezone('utc', now()),
   primary key (workspace_id, user_id)
@@ -117,7 +107,7 @@ create table if not exists public.billing_usage_events (
   quantity numeric(12,2) not null default 1,
   occurred_at timestamptz not null default timezone('utc', now()),
   source_document_id uuid references public.documents(id) on delete set null,
-  source_user_id uuid references public.profiles(id) on delete set null,
+  source_user_id uuid references auth.users(id) on delete set null,
   metadata jsonb not null default '{}'::jsonb
 );
 

@@ -15,4 +15,4 @@ alter table public.documents
   add column if not exists workflow_status public.workflow_status not null default 'active',
   add column if not exists workflow_status_reason text,
   add column if not exists workflow_status_updated_at timestamptz,
-  add column if not exists workflow_status_updated_by_user_id uuid references public.profiles(id) on delete set null;
+  add column if not exists workflow_status_updated_by_user_id uuid references auth.users(id) on delete set null;

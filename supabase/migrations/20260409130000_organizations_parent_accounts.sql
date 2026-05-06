@@ -14,7 +14,7 @@ create table if not exists public.organizations (
   name text not null,
   slug text not null unique,
   account_type public.account_type not null default 'individual',
-  owner_user_id uuid not null references public.profiles(id) on delete cascade,
+  owner_user_id uuid not null references auth.users(id) on delete cascade,
   billing_email text,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
@@ -22,7 +22,7 @@ create table if not exists public.organizations (
 
 create table if not exists public.organization_memberships (
   organization_id uuid not null references public.organizations(id) on delete cascade,
-  user_id uuid not null references public.profiles(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
   role public.organization_role not null,
   created_at timestamptz not null default timezone('utc', now()),
   primary key (organization_id, user_id)

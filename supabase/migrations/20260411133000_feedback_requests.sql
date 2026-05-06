@@ -11,7 +11,7 @@ create table if not exists public.feedback_requests (
   title text not null,
   details text not null,
   requester_email text not null,
-  requester_user_id uuid references public.profiles(id) on delete set null,
+  requester_user_id uuid references auth.users(id) on delete set null,
   source text not null default 'web_app',
   requested_path text,
   status text not null default 'new',

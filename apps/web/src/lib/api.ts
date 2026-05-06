@@ -29,7 +29,8 @@ export async function apiFetch<T>(
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-    throw new Error(payload?.message ?? `Request failed for ${path}`);
+    const message = payload?.message ?? "Request failed";
+    throw new Error(`${message} (${response.status} ${path})`);
   }
 
   return (await response.json()) as T;

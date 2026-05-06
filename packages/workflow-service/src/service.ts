@@ -26,7 +26,7 @@ import {
 import { createHash, randomInt, timingSafeEqual } from "crypto";
 import { pdflibAddPlaceholder } from "@signpdf/placeholder-pdf-lib";
 import { P12Signer } from "@signpdf/signer-p12";
-import signpdf from "@signpdf/signpdf";
+import { SignPdf } from "@signpdf/signpdf";
 import { SUBFILTER_ETSI_CADES_DETACHED } from "@signpdf/utils";
 import forge from "node-forge";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
@@ -55,9 +55,6 @@ import {
 } from "./profile-identity.js";
 import { createAuthClient, createServiceRoleClient } from "./supabase.js";
 import { getWorkspaceSigningTokenBalance } from "./billing.js";
-
-const PROFILE_COLUMNS =
-  "id, email, display_name, username, avatar_url, company_name, account_type, workspace_name, job_title, locale, timezone, marketing_opt_in, product_updates_opt_in, last_seen_at, onboarding_completed_at, profile_kind" as const;
 
 type DocumentRow = {
   id: string;
@@ -504,6 +501,8 @@ export type AuthenticatedUser = User & {
   rawEmail: string;
   accountType?: "individual" | "corporate";
   workspaceName?: string;
+  profileKind?: ProfileKind;
+  profileMetadata?: Record<string, unknown>;
 };
 
 const DEFAULT_TEMPORARY_RETENTION_DAYS = 30;
@@ -1014,7 +1013,7 @@ export async function syncProfileIdentity(input: SyncProfileIdentityInput) {
     fallbackCompanyName: preferredOrganization?.account_type === "corporate" ? preferredOrganization.name : null,
   });
 
-  const payload = {
+  const identity: ProfileIdentity = {
     id: input.id,
     email: normalizedEmail,
     display_name: normalizedDisplayName,
@@ -1023,10 +1022,21 @@ export async function syncProfileIdentity(input: SyncProfileIdentityInput) {
     account_type: normalizedAccountType,
     workspace_name: normalizedWorkspaceName,
     profile_kind: normalizedProfileKind,
-    ...(input.touchLastSeenAt ? { last_seen_at: new Date().toISOString() } : {}),
   };
 
-  const { error } = await adminClient.from("profiles").upsert(payload, { onConflict: "id" });
+  await upsertRoleSpecificProfileIdentity(adminClient, identity);
+
+  const { error } = await adminClient.auth.admin.updateUserById(input.id, {
+    user_metadata: {
+      full_name: normalizedDisplayName,
+      username: normalizedUsername,
+      company_name: normalizedCompanyName ?? undefined,
+      account_type: normalizedAccountType,
+      workspace_name: normalizedWorkspaceName ?? undefined,
+      profile_kind: normalizedProfileKind,
+      ...(input.touchLastSeenAt ? { last_seen_at: new Date().toISOString() } : {}),
+    },
+  });
 
   if (error) {
     throw new AppError(500, error.message);
@@ -1265,6 +1275,158 @@ async function findAdminAuthUserByEmail(
   const normalizedEmail = normalizeEmailAddress(email);
   const users = await listAdminAuthUsers(adminClient);
   return users.find((candidate) => normalizeEmailAddress(candidate.email ?? "") === normalizedEmail) ?? null;
+}
+
+type ProfileIdentity = {
+  id: string;
+  email: string;
+  display_name: string;
+  username: string | null;
+  company_name: string | null;
+  account_type: AccountType;
+  workspace_name: string | null;
+  profile_kind: ProfileKind;
+};
+
+function readStringMetadata(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function mapAuthUserToProfileIdentity(authUser: {
+  id: string;
+  email?: string | null;
+  user_metadata?: Record<string, unknown>;
+}): ProfileIdentity | null {
+  const email = authUser.email ? normalizeEmailAddress(authUser.email) : null;
+
+  if (!email) {
+    return null;
+  }
+
+  const metadata = authUser.user_metadata ?? {};
+  const accountType = inferAccountType(readStringMetadata(metadata, "account_type") as AccountType | null);
+  const profileKind = inferProfileKind(email, readStringMetadata(metadata, "profile_kind") as ProfileKind | null);
+  const workspaceName = readStringMetadata(metadata, "workspace_name");
+  const companyName = inferCompanyName({
+    email,
+    preferredCompanyName: readStringMetadata(metadata, "company_name"),
+    workspaceName,
+    accountType,
+    profileKind,
+  });
+
+  return {
+    id: authUser.id,
+    email,
+    display_name: normalizeDisplayName(
+      readStringMetadata(metadata, "full_name") ?? readStringMetadata(metadata, "name"),
+      email,
+    ),
+    username: deriveUsername(email, readStringMetadata(metadata, "username")),
+    company_name: companyName,
+    account_type: accountType,
+    workspace_name: workspaceName,
+    profile_kind: profileKind,
+  };
+}
+
+function mapProfileIdentityToProfileRow(identity: ProfileIdentity): ProfileRow {
+  return {
+    id: identity.id,
+    email: identity.email,
+    display_name: identity.display_name,
+    username: identity.username,
+    avatar_url: null,
+    company_name: identity.company_name,
+    account_type: identity.account_type,
+    workspace_name: identity.workspace_name,
+    job_title: null,
+    locale: null,
+    timezone: null,
+    marketing_opt_in: false,
+    product_updates_opt_in: true,
+    last_seen_at: null,
+    onboarding_completed_at: null,
+    profile_kind: identity.profile_kind,
+  };
+}
+
+export async function getProfileIdentitiesById(
+  adminClient: ReturnType<typeof createServiceRoleClient>,
+  userIds: string[],
+) {
+  const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)));
+
+  if (uniqueUserIds.length === 0) {
+    return new Map<string, ProfileIdentity>();
+  }
+
+  const authUsers = await Promise.all(
+    uniqueUserIds.map(async (userId) => {
+      const { data, error } = await adminClient.auth.admin.getUserById(userId);
+
+      if (error) {
+        throw new AppError(500, error.message);
+      }
+
+      return data.user;
+    }),
+  );
+
+  return new Map(
+    authUsers
+      .map((authUser) => (authUser ? mapAuthUserToProfileIdentity(authUser) : null))
+      .filter((profile): profile is ProfileIdentity => Boolean(profile))
+      .map((profile) => [profile.id, profile]),
+  );
+}
+
+export async function findProfileIdentityByEmail(
+  adminClient: ReturnType<typeof createServiceRoleClient>,
+  email: string,
+) {
+  const authUser = await findAdminAuthUserByEmail(adminClient, email);
+  return authUser ? mapAuthUserToProfileIdentity(authUser) : null;
+}
+
+async function upsertRoleSpecificProfileIdentity(
+  adminClient: ReturnType<typeof createServiceRoleClient>,
+  identity: ProfileIdentity,
+) {
+  const table =
+    identity.profile_kind === "easydraft_staff"
+      ? "easydraft_staff_profiles"
+      : "easydraft_user_profiles";
+  const otherTable =
+    identity.profile_kind === "easydraft_staff"
+      ? "easydraft_user_profiles"
+      : "easydraft_staff_profiles";
+  const { error } = await adminClient.from(table).upsert(
+    {
+      user_id: identity.id,
+      email: identity.email,
+      display_name: identity.display_name,
+      username: identity.username,
+      company_name: identity.company_name,
+      account_type: identity.account_type,
+      workspace_name: identity.workspace_name,
+    },
+    { onConflict: "user_id" },
+  );
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  const { error: deleteError } = await adminClient
+    .from(otherTable)
+    .delete()
+    .eq("user_id", identity.id);
+
+  if (deleteError) {
+    throw new AppError(500, deleteError.message);
+  }
 }
 
 export async function ensureDefaultWorkspaceForUser(user: AuthenticatedUser) {
@@ -1660,6 +1822,57 @@ function mapProfile(row: ProfileRow): ProfileResponse["profile"] {
   };
 }
 
+function mapAuthenticatedUserProfile(
+  user: AuthenticatedUser,
+  overrides: Partial<ProfileResponse["profile"]> = {},
+): ProfileResponse["profile"] {
+  const normalizedEmail = normalizeEmailAddress(user.rawEmail);
+  const metadata = user.profileMetadata ?? {};
+  const accountType = inferAccountType(user.accountType);
+  const profileKind = user.profileKind ?? inferProfileKind(normalizedEmail, readStringMetadata(metadata, "profile_kind"));
+  const workspaceName = user.workspaceName ?? readStringMetadata(metadata, "workspace_name");
+  const companyName = inferCompanyName({
+    email: normalizedEmail,
+    preferredCompanyName: overrides.companyName ?? readStringMetadata(metadata, "company_name"),
+    workspaceName,
+    accountType,
+    profileKind,
+  });
+  const onboardingCompletedAt =
+    overrides.onboardingCompletedAt ??
+    readStringMetadata(metadata, "onboarding_completed_at");
+
+  return {
+    id: user.id,
+    email: normalizedEmail,
+    displayName: normalizeDisplayName(
+      overrides.displayName ??
+        readStringMetadata(metadata, "full_name") ??
+        readStringMetadata(metadata, "name") ??
+        user.name,
+      normalizedEmail,
+    ),
+    username: deriveUsername(normalizedEmail, overrides.username ?? readStringMetadata(metadata, "username")),
+    avatarUrl: null,
+    companyName,
+    accountType,
+    workspaceName,
+    jobTitle: overrides.jobTitle ?? readStringMetadata(metadata, "job_title"),
+    locale: overrides.locale ?? readStringMetadata(metadata, "locale"),
+    timezone: overrides.timezone ?? readStringMetadata(metadata, "timezone"),
+    marketingOptIn:
+      overrides.marketingOptIn ??
+      (typeof metadata.marketing_opt_in === "boolean" ? metadata.marketing_opt_in : false),
+    productUpdatesOptIn:
+      overrides.productUpdatesOptIn ??
+      (typeof metadata.product_updates_opt_in === "boolean" ? metadata.product_updates_opt_in : true),
+    lastSeenAt: null,
+    onboardingCompletedAt,
+    profileKind,
+    ...overrides,
+  };
+}
+
 function assertCertificateSigningEnabledForRequest() {
   if (!isCertificateSigningEnabled()) {
     throw new AppError(404, "Feature not available.");
@@ -1802,6 +2015,8 @@ export async function resolveAuthenticatedUser(authorizationHeader: string | und
     throw new AppError(401, "Unable to verify the signed-in user.");
   }
 
+  const normalizedEmail = normalizeEmailAddress(data.user.email);
+  const profileKind = inferProfileKind(normalizedEmail, data.user.user_metadata.profile_kind);
   const user: AuthenticatedUser = {
     id: data.user.id,
     email: data.user.email,
@@ -1813,11 +2028,12 @@ export async function resolveAuthenticatedUser(authorizationHeader: string | und
     accountType:
       data.user.user_metadata.account_type === "corporate" ? "corporate" : "individual",
     workspaceName: data.user.user_metadata.workspace_name ?? undefined,
+    profileKind,
+    profileMetadata: data.user.user_metadata ?? {},
   };
-  const normalizedEmail = normalizeEmailAddress(user.rawEmail);
-  const profileKind = inferProfileKind(normalizedEmail, data.user.user_metadata.profile_kind);
 
-  await adminClient.from("profiles").upsert(
+  await upsertRoleSpecificProfileIdentity(
+    adminClient,
     {
       id: user.id,
       email: user.email,
@@ -1839,10 +2055,6 @@ export async function resolveAuthenticatedUser(authorizationHeader: string | und
       account_type: inferAccountType(user.accountType),
       workspace_name: user.workspaceName ?? null,
       profile_kind: profileKind,
-      last_seen_at: new Date().toISOString(),
-    },
-    {
-      onConflict: "id",
     },
   );
 
@@ -2158,18 +2370,8 @@ async function requireDocumentBundle(documentId: string) {
   let accessProfiles: ProfileRow[] = [];
 
   if (accessUserIds.length > 0) {
-    const { data: profileRows, error: profileError } = await adminClient
-      .from("profiles")
-      .select(
-        PROFILE_COLUMNS,
-      )
-      .in("id", accessUserIds);
-
-    if (profileError) {
-      throw new AppError(500, profileError.message);
-    }
-
-    accessProfiles = (profileRows ?? []) as ProfileRow[];
+    const profileById = await getProfileIdentitiesById(adminClient, accessUserIds);
+    accessProfiles = Array.from(profileById.values()).map(mapProfileIdentityToProfileRow);
   }
 
   return mapDocumentRecord(
@@ -2726,17 +2928,12 @@ async function restoreEditorSnapshot(
 
 async function getProfileById(userId: string) {
   const adminClient = createServiceRoleClient();
-  const { data, error } = await adminClient
-    .from("profiles")
-    .select("id, email, display_name")
-    .eq("id", userId)
-    .maybeSingle();
+  const profileById = await getProfileIdentitiesById(adminClient, [userId]);
+  const profile = profileById.get(userId);
 
-  if (error) {
-    throw new AppError(500, error.message);
-  }
-
-  return data as { id: string; email: string; display_name: string } | null;
+  return profile
+    ? { id: profile.id, email: profile.email, display_name: profile.display_name }
+    : null;
 }
 
 function getPendingRequiredAssignedFields(document: DocumentRecord) {
@@ -3930,16 +4127,9 @@ export async function listAdminFeedbackRequestsForAuthorizationHeader(
   const profileById = new Map<string, { display_name: string; email: string }>();
 
   if (relatedProfileIds.length > 0) {
-    const { data: profileRows, error: profileError } = await adminClient
-      .from("profiles")
-      .select("id, display_name, email")
-      .in("id", relatedProfileIds);
+    const profileRows = await getProfileIdentitiesById(adminClient, relatedProfileIds);
 
-    if (profileError) {
-      throw new AppError(500, profileError.message);
-    }
-
-    for (const profile of (profileRows ?? []) as Array<{ id: string; display_name: string; email: string }>) {
+    for (const profile of profileRows.values()) {
       profileById.set(profile.id, {
         display_name: profile.display_name,
         email: profile.email,
@@ -4043,21 +4233,9 @@ export async function updateAdminFeedbackRequestForAuthorizationHeader(
 
 export async function getProfileForAuthorizationHeader(authorizationHeader: string | undefined) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const adminClient = createServiceRoleClient();
-  const { data, error } = await adminClient
-    .from("profiles")
-    .select(
-      PROFILE_COLUMNS,
-    )
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (error || !data) {
-    throw new AppError(500, error?.message ?? "Unable to load account profile.");
-  }
 
   return {
-    profile: mapProfile(data as ProfileRow),
+    profile: mapAuthenticatedUserProfile(user),
   };
 }
 
@@ -4066,10 +4244,12 @@ export async function markOnboardingCompleteForAuthorizationHeader(
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const adminClient = createServiceRoleClient();
-  const { error } = await adminClient
-    .from("profiles")
-    .update({ onboarding_completed_at: new Date().toISOString() })
-    .eq("id", user.id);
+  const { error } = await adminClient.auth.admin.updateUserById(user.id, {
+    user_metadata: {
+      ...(user.profileMetadata ?? {}),
+      onboarding_completed_at: new Date().toISOString(),
+    },
+  });
 
   if (error) {
     throw new AppError(500, error.message);
@@ -4085,31 +4265,42 @@ export async function updateProfileForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const parsed = updateProfileInputSchema.parse(input);
   const adminClient = createServiceRoleClient();
-  const payload = {
-    display_name: parsed.displayName,
-    company_name: parsed.companyName?.trim() || null,
-    job_title: parsed.jobTitle?.trim() || null,
-    locale: parsed.locale?.trim() || null,
-    timezone: parsed.timezone?.trim() || null,
-    marketing_opt_in: parsed.marketingOptIn,
-    product_updates_opt_in: parsed.productUpdatesOptIn,
-  };
+  await syncProfileIdentity({
+    id: user.id,
+    email: user.rawEmail,
+    displayName: parsed.displayName,
+    companyName: parsed.companyName?.trim() || null,
+    accountType: user.accountType,
+    workspaceName: user.workspaceName ?? null,
+    profileKind: user.profileKind,
+  });
+  const { error } = await adminClient.auth.admin.updateUserById(user.id, {
+    user_metadata: {
+      ...(user.profileMetadata ?? {}),
+      full_name: parsed.displayName,
+      company_name: parsed.companyName?.trim() || undefined,
+      job_title: parsed.jobTitle?.trim() || undefined,
+      locale: parsed.locale?.trim() || undefined,
+      timezone: parsed.timezone?.trim() || undefined,
+      marketing_opt_in: parsed.marketingOptIn,
+      product_updates_opt_in: parsed.productUpdatesOptIn,
+    },
+  });
 
-  const { data, error } = await adminClient
-    .from("profiles")
-    .update(payload)
-    .eq("id", user.id)
-    .select(
-      PROFILE_COLUMNS,
-    )
-    .single();
-
-  if (error || !data) {
-    throw new AppError(500, error?.message ?? "Unable to update account profile.");
+  if (error) {
+    throw new AppError(500, error.message);
   }
 
   return {
-    profile: mapProfile(data as ProfileRow),
+    profile: mapAuthenticatedUserProfile(user, {
+      displayName: parsed.displayName,
+      companyName: parsed.companyName?.trim() || null,
+      jobTitle: parsed.jobTitle?.trim() || null,
+      locale: parsed.locale?.trim() || null,
+      timezone: parsed.timezone?.trim() || null,
+      marketingOptIn: parsed.marketingOptIn,
+      productUpdatesOptIn: parsed.productUpdatesOptIn,
+    }),
   };
 }
 
@@ -4183,8 +4374,8 @@ export async function getAdminOverviewForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   assertAdminUser(user);
   const adminClient = createServiceRoleClient();
+  const authUsers = await listAdminAuthUsers(adminClient);
   const [
-    profilesCount,
     workspacesCount,
     documentsCount,
     sentDocumentsCount,
@@ -4198,7 +4389,6 @@ export async function getAdminOverviewForAuthorizationHeader(
     billingCustomersCount,
     workspacesResponse,
   ] = await Promise.all([
-    adminClient.from("profiles").select("*", { count: "exact", head: true }),
     adminClient.from("workspaces").select("*", { count: "exact", head: true }),
     adminClient.from("documents").select("*", { count: "exact", head: true }).is("deleted_at", null),
     adminClient
@@ -4253,7 +4443,6 @@ export async function getAdminOverviewForAuthorizationHeader(
   ]);
 
   for (const response of [
-    profilesCount,
     workspacesCount,
     documentsCount,
     sentDocumentsCount,
@@ -4312,7 +4501,7 @@ export async function getAdminOverviewForAuthorizationHeader(
 
   return {
     metrics: {
-      totalUsers: profilesCount.count ?? 0,
+      totalUsers: authUsers.length,
       totalWorkspaces: workspacesCount.count ?? 0,
       totalDocuments: documentsCount.count ?? 0,
       sentDocuments: sentDocumentsCount.count ?? 0,
@@ -4353,11 +4542,8 @@ export async function listAdminUsersForAuthorizationHeader(
     return { users: [] as AdminManagedUserResponse[] };
   }
 
-  const [profilesResponse, membershipsResponse, documentsResponse] = await Promise.all([
-    adminClient
-      .from("profiles")
-      .select(PROFILE_COLUMNS)
-      .in("id", userIds),
+  const [profileById, membershipsResponse, documentsResponse] = await Promise.all([
+    getProfileIdentitiesById(adminClient, userIds),
     adminClient
       .from("workspace_memberships")
       .select("workspace_id, user_id, role")
@@ -4369,7 +4555,7 @@ export async function listAdminUsersForAuthorizationHeader(
       .in("uploaded_by_user_id", userIds),
   ]);
 
-  for (const response of [profilesResponse, membershipsResponse, documentsResponse]) {
+  for (const response of [membershipsResponse, documentsResponse]) {
     if (response.error) {
       throw new AppError(500, response.error.message);
     }
@@ -4390,9 +4576,6 @@ export async function listAdminUsersForAuthorizationHeader(
     throw new AppError(500, workspacesResponse.error.message);
   }
 
-  const profileById = new Map(
-    ((profilesResponse.data ?? []) as ProfileRow[]).map((profile) => [profile.id, profile]),
-  );
   const workspaceById = new Map(
     ((workspacesResponse.data ?? []) as Array<{ id: string; name: string }>).map((workspace) => [
       workspace.id,
@@ -4559,10 +4742,18 @@ export async function deleteAdminUserForAuthorizationHeader(
     throw new AppError(500, authDeleteError.message);
   }
 
-  const { error: profileDeleteError } = await adminClient.from("profiles").delete().eq("id", parsed.userId);
+  const [userProfileDelete, staffProfileDelete] = await Promise.all([
+    adminClient.from("easydraft_user_profiles").delete().eq("user_id", parsed.userId),
+    adminClient.from("easydraft_staff_profiles").delete().eq("user_id", parsed.userId),
+  ]);
 
-  if (profileDeleteError) {
-    throw new AppError(500, profileDeleteError.message);
+  if (userProfileDelete.error || staffProfileDelete.error) {
+    throw new AppError(
+      500,
+      userProfileDelete.error?.message ??
+        staffProfileDelete.error?.message ??
+        "Unable to delete user profile rows.",
+    );
   }
 
   return {
@@ -5061,7 +5252,7 @@ export async function createInternallySignedDocumentForAuthorizationHeader(
   let signedPdfBuffer: Buffer;
 
   try {
-    signedPdfBuffer = await signpdf.sign(exportBuffer, signer, signingTime);
+    signedPdfBuffer = await new SignPdf().sign(exportBuffer, signer, signingTime);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to sign the prepared PDF.";
 

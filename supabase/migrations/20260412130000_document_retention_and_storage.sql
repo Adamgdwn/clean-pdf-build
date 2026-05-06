@@ -3,7 +3,7 @@ alter table public.documents
   add column if not exists retention_days integer not null default 30,
   add column if not exists purge_scheduled_at timestamptz,
   add column if not exists purged_at timestamptz,
-  add column if not exists purged_by_user_id uuid references public.profiles(id) on delete set null,
+  add column if not exists purged_by_user_id uuid references auth.users(id) on delete set null,
   add column if not exists purge_reason text,
   add column if not exists source_storage_bytes bigint not null default 0,
   add column if not exists export_storage_bytes bigint not null default 0;

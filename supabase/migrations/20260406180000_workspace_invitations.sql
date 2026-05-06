@@ -3,7 +3,7 @@ create table if not exists public.workspace_invitations (
   workspace_id        uuid           not null references public.workspaces(id) on delete cascade,
   email               text           not null,
   role                public.workspace_role not null default 'member',
-  invited_by_user_id  uuid           not null references public.profiles(id) on delete cascade,
+  invited_by_user_id  uuid           not null references auth.users(id) on delete cascade,
   token               text           not null unique,
   expires_at          timestamptz    not null,
   accepted_at         timestamptz,
