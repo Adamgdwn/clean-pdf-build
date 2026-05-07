@@ -1,9 +1,43 @@
 export type ProfileKind = "easydraft_user" | "easydraft_staff";
 export type AccountType = "individual" | "corporate";
 
+const PUBLIC_EMAIL_DOMAINS = new Set([
+  "aol.com",
+  "icloud.com",
+  "gmail.com",
+  "googlemail.com",
+  "hotmail.com",
+  "live.com",
+  "mail.com",
+  "me.com",
+  "msn.com",
+  "outlook.com",
+  "pm.me",
+  "proton.me",
+  "protonmail.com",
+  "yahoo.ca",
+  "yahoo.com",
+  "ymail.com",
+]);
+
 function trimToNull(value: string | null | undefined) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+}
+
+export function getEmailDomain(email: string) {
+  const domain = email.trim().toLowerCase().split("@")[1] ?? "";
+  return domain.replace(/\.+$/g, "") || null;
+}
+
+export function getVerifiedCorporateEmailDomain(email: string) {
+  const domain = getEmailDomain(email);
+
+  if (!domain || PUBLIC_EMAIL_DOMAINS.has(domain)) {
+    return null;
+  }
+
+  return domain;
 }
 
 export function deriveUsername(email: string, preferredUsername?: string | null) {

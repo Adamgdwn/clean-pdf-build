@@ -47,6 +47,7 @@ import {
 } from "./notifications.js";
 import {
   deriveUsername,
+  getVerifiedCorporateEmailDomain,
   inferAccountType,
   inferCompanyName,
   inferProfileKind,
@@ -364,6 +365,7 @@ type OrganizationRow = {
   account_type: "individual" | "corporate";
   owner_user_id: string;
   billing_email: string | null;
+  verified_email_domain?: string | null;
   status?: "active" | "payment_required" | "suspended" | "closing" | "closed";
   suspended_at?: string | null;
   closing_requested_at?: string | null;
@@ -1478,7 +1480,7 @@ export async function getOrganizationById(organizationId: string) {
   const adminClient = createServiceRoleClient();
   const { data, error } = await adminClient
     .from("organizations")
-    .select("id, name, slug, account_type, owner_user_id, billing_email, status, suspended_at, closing_requested_at, closed_at")
+    .select("id, name, slug, account_type, owner_user_id, billing_email, verified_email_domain, status, suspended_at, closing_requested_at, closed_at")
     .eq("id", organizationId)
     .maybeSingle();
 
@@ -1505,12 +1507,16 @@ export async function ensureOrganizationForWorkspace(workspace: WorkspaceRow) {
     account_type: (workspace.workspace_type === "team" ? "corporate" : "individual") as "corporate" | "individual",
     owner_user_id: workspace.owner_user_id,
     billing_email: workspace.billing_email,
+    verified_email_domain:
+      workspace.workspace_type === "team" && workspace.billing_email
+        ? getVerifiedCorporateEmailDomain(workspace.billing_email)
+        : null,
   };
 
   const { data: organization, error: organizationError } = await adminClient
     .from("organizations")
     .upsert(organizationPayload, { onConflict: "slug" })
-    .select("id, name, slug, account_type, owner_user_id, billing_email, status, suspended_at, closing_requested_at, closed_at")
+    .select("id, name, slug, account_type, owner_user_id, billing_email, verified_email_domain, status, suspended_at, closing_requested_at, closed_at")
     .single();
 
   if (organizationError || !organization) {
@@ -2173,6 +2179,26 @@ export async function resolveWorkspaceForUser(
     return existingWorkspace;
   }
 
+  const { data: pendingWorkspaceInvite, error: pendingWorkspaceInviteError } = await adminClient
+    .from("workspace_invitations")
+    .select("id")
+    .is("accepted_at", null)
+    .ilike("email", normalizeEmailAddress(user.email))
+    .gt("expires_at", new Date().toISOString())
+    .limit(1)
+    .maybeSingle();
+
+  if (pendingWorkspaceInviteError) {
+    throw new AppError(500, pendingWorkspaceInviteError.message);
+  }
+
+  if (pendingWorkspaceInvite) {
+    throw new AppError(
+      409,
+      "You have a pending workspace invitation. Open the invite link from your email so EasyDraft can attach you to the correct organization.",
+    );
+  }
+
   const plannedAccount = planDefaultAccountWorkspace({
     email: user.email,
     name: user.name,
@@ -2186,6 +2212,59 @@ export async function resolveWorkspaceForUser(
     .filter(Boolean)
     .join("-");
 
+  if (plannedAccount.accountType === "corporate") {
+    const verifiedCorporateEmailDomain = getVerifiedCorporateEmailDomain(user.email);
+
+    if (!verifiedCorporateEmailDomain) {
+      throw new AppError(
+        400,
+        "Use your organization email address to create a corporate account. Public email addresses can join by invitation only.",
+      );
+    }
+
+    const { data: existingCorporateOrganization, error: existingCorporateOrganizationError } =
+      await adminClient
+        .from("organizations")
+        .select("id")
+        .eq("account_type", "corporate")
+        .ilike("name", organizationName)
+        .limit(1)
+        .maybeSingle();
+
+    if (existingCorporateOrganizationError) {
+      throw new AppError(500, existingCorporateOrganizationError.message);
+    }
+
+    if (existingCorporateOrganization) {
+      throw new AppError(
+        409,
+        "An organization with that name already exists in EasyDraft. Ask an existing account admin to invite you instead.",
+      );
+    }
+
+    const { data: existingDomainOrganization, error: existingDomainOrganizationError } =
+      await adminClient
+        .from("organizations")
+        .select("id")
+        .eq("account_type", "corporate")
+        .eq("verified_email_domain", verifiedCorporateEmailDomain)
+        .limit(1)
+        .maybeSingle();
+
+    if (existingDomainOrganizationError) {
+      throw new AppError(500, existingDomainOrganizationError.message);
+    }
+
+    if (existingDomainOrganization) {
+      throw new AppError(
+        409,
+        "That organization email domain is already tied to an EasyDraft organization. Ask an existing account admin to invite you.",
+      );
+    }
+  }
+
+  const verifiedEmailDomain =
+    plannedAccount.accountType === "corporate" ? getVerifiedCorporateEmailDomain(user.email) : null;
   const { data: createdOrganization, error: createOrganizationError } = await adminClient
     .from("organizations")
     .insert({
@@ -2194,11 +2273,32 @@ export async function resolveWorkspaceForUser(
       account_type: plannedAccount.accountType,
       owner_user_id: user.id,
       billing_email: user.email,
+      verified_email_domain: verifiedEmailDomain,
     })
-    .select("id, name, slug, account_type, owner_user_id, billing_email")
+    .select("id, name, slug, account_type, owner_user_id, billing_email, verified_email_domain")
     .single();
 
   if (createOrganizationError || !createdOrganization) {
+    if (
+      plannedAccount.accountType === "corporate" &&
+      createOrganizationError?.message.includes("organizations_corporate_normalized_name_key")
+    ) {
+      throw new AppError(
+        409,
+        "An organization with that name already exists in EasyDraft. Ask an existing account admin to invite you instead.",
+      );
+    }
+
+    if (
+      plannedAccount.accountType === "corporate" &&
+      createOrganizationError?.message.includes("organizations_corporate_verified_email_domain_key")
+    ) {
+      throw new AppError(
+        409,
+        "That organization email domain is already tied to an EasyDraft organization. Ask an existing account admin to invite you.",
+      );
+    }
+
     throw new AppError(
       500,
       createOrganizationError?.message ?? "Unable to create an organization.",

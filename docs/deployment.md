@@ -143,6 +143,7 @@ Reference:
    - `20260417120000_invite_and_signing_verification.sql` — guest email-code verification state plus Stripe object-level webhook dedupe
    - `20260502133000_profile_identity_directory.sql` — username, company, account type, workspace name, and populated role-specific profile directories
    - `20260505203000_organization_admin_lifecycle.sql` — organization status, license assignments, and account-administration event trail
+   - `20260506180000_unique_corporate_organization_names.sql` — corporate signup verification domain storage plus unique corporate organization name/domain enforcement
 3. Confirm the private `documents-unsigned`, `documents-signed`, and `signatures` buckets exist. The legacy `documents` bucket may remain for compatibility.
 4. Enable Email auth.
 5. Set your site URL and allowed redirect URLs to your Vercel domains.
@@ -178,6 +179,14 @@ Recommended production auth values:
 - `document_processing_jobs`
 - `document_signing_tokens` (token-based guest signing for external participants)
 - `billing_plans`, `workspace_subscriptions`, `billing_usage_events` (billing and token quota tracking)
+
+Corporate signup security:
+
+- direct corporate signup requires a non-public organization email domain
+- public inboxes such as Gmail, Outlook, Yahoo, Proton, and iCloud can join corporate accounts only by invitation
+- each corporate organization stores `verified_email_domain`
+- the database enforces one corporate organization per normalized organization name and one corporate organization per verified domain
+- if remote migration history includes migrations not present locally, do not run a blind `supabase db push`; apply reviewed SQL deliberately and reconcile migration history.
 - `stripe_processed_events` (webhook idempotency, now including Stripe object IDs)
 
 It also creates:

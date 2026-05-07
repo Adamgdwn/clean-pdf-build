@@ -35,7 +35,7 @@ type Props = {
   noticeMessage: string | null;
   onNavigatePublicPage: (nextPage: PublicPage) => void;
   onSessionCreated: (session: Session) => void;
-  onRegistered: () => void;
+  onRegistered: (accountType: "individual" | "corporate") => void;
 };
 
 function renderLegalPage(page: PublicPage) {
@@ -316,6 +316,7 @@ export function PublicSite({
               sessionUser={null}
               guestSigningSession={null}
               hasPendingInvite={pendingInviteToken !== null}
+              pendingInviteToken={pendingInviteToken}
               pendingInviteDetails={pendingInviteDetails}
               onSessionCreated={onSessionCreated}
               onRegistered={onRegistered}
@@ -355,6 +356,7 @@ export function PublicSite({
                 sessionUser={null}
                 guestSigningSession={null}
                 hasPendingInvite={pendingInviteToken !== null}
+                pendingInviteToken={pendingInviteToken}
                 pendingInviteDetails={pendingInviteDetails}
                 onSessionCreated={onSessionCreated}
                 onRegistered={onRegistered}

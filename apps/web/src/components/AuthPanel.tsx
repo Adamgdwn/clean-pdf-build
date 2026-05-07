@@ -9,9 +9,10 @@ type Props = {
   sessionUser: SessionUser | null;
   guestSigningSession: GuestSigningSession | null;
   hasPendingInvite: boolean;
+  pendingInviteToken?: string | null;
   pendingInviteDetails?: WorkspaceInviteDetails["invitation"] | null;
   onSessionCreated: (session: Session) => void;
-  onRegistered: () => void;
+  onRegistered: (accountType: "individual" | "corporate") => void;
   variant?: "customer" | "team";
   defaultMode?: "sign_in" | "sign_up";
   allowDirectSignup?: boolean;
@@ -21,6 +22,7 @@ export function AuthPanel({
   sessionUser,
   guestSigningSession,
   hasPendingInvite,
+  pendingInviteToken,
   pendingInviteDetails,
   onSessionCreated,
   onRegistered,
@@ -34,10 +36,8 @@ export function AuthPanel({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
-  const [username, setUsername] = useState("");
   const [accountType, setAccountType] = useState<"individual" | "corporate">("corporate");
   const [workspaceName, setWorkspaceName] = useState("");
-  const [companyName, setCompanyName] = useState("");
   const [jobTitle, setJobTitle] = useState("");
   const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Etc/UTC");
   const [locale, setLocale] = useState(() =>
@@ -71,13 +71,9 @@ export function AuthPanel({
       email,
       password,
       fullName,
-      username,
       accountType,
       workspaceName,
-      companyName,
       jobTitle,
-      timezone,
-      locale,
     });
   }
 
@@ -97,26 +93,9 @@ export function AuthPanel({
     setEmail((currentValue) => currentValue || pendingInviteDetails.email);
     const invitedWorkspaceName = pendingInviteDetails.workspace?.name || "Invited workspace";
     setWorkspaceName((currentValue) => currentValue || invitedWorkspaceName);
-    setCompanyName((currentValue) => currentValue || invitedWorkspaceName);
     setAccountType("corporate");
     setAuthMode("sign_up");
   }, [pendingInviteDetails?.email]);
-
-  useEffect(() => {
-    if (authMode !== "sign_up") {
-      return;
-    }
-
-    if (!username.trim() && email.includes("@")) {
-      setUsername(
-        email
-          .split("@")[0]
-          .toLowerCase()
-          .replace(/[^a-z0-9._-]+/g, "-")
-          .replace(/^[._-]+|[._-]+$/g, ""),
-      );
-    }
-  }, [authMode, email, username]);
 
   function submitPasswordSignInForm(nextEmail: string, nextPassword: string) {
     const form = document.createElement("form");
@@ -166,15 +145,14 @@ export function AuthPanel({
                 email,
                 password,
                 fullName,
-                username,
                 accountType,
                 workspaceName: workspaceName.trim(),
-                companyName: companyName.trim(),
                 jobTitle: jobTitle.trim(),
                 timezone: timezone.trim(),
                 locale: locale.trim(),
                 marketingOptIn,
                 productUpdatesOptIn,
+                workspaceInviteToken: pendingInviteToken ?? null,
               }),
             },
           );
@@ -185,8 +163,12 @@ export function AuthPanel({
           return;
         }
         onSessionCreated(payload.session);
-        onRegistered();
-        setNoticeMessage("Welcome to EasyDraftDocs — you're all set.");
+        onRegistered(accountType);
+        setNoticeMessage(
+          accountType === "corporate"
+            ? "Welcome to EasyDraftDocs. Your organization admin center is ready."
+            : "Welcome to EasyDraftDocs. Your workspace is ready.",
+        );
       }
     } catch (error) {
       setErrorMessage((error as Error).message);
@@ -305,7 +287,9 @@ export function AuthPanel({
               <p className="muted">
                 {hasPendingInvite
                   ? "Create your account with the invited email address so the workspace attaches to the right identity."
-                  : "Start a 30-day free trial with no card up front. Create your workspace, invite your team, and send your first workflow from the same account."}
+                  : accountType === "corporate"
+                    ? "Start a 30-day free trial with no card up front. You will be the account admin for this organization."
+                    : "Start a 30-day free trial with no card up front. Create your workspace and send your first workflow from the same account."}
               </p>
               <label className="form-field">
                 <span>Full name</span>
@@ -314,16 +298,6 @@ export function AuthPanel({
                   autoComplete="name"
                   value={fullName}
                   onChange={(event) => setFullName(event.target.value)}
-                />
-              </label>
-              <label className="form-field">
-                <span>Username</span>
-                <input
-                  required
-                  autoComplete="username"
-                  placeholder="adam.goodwin"
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
                 />
               </label>
               {!hasPendingInvite ? (
@@ -353,16 +327,17 @@ export function AuthPanel({
                           autoComplete="organization"
                           placeholder="e.g. Acme Corp"
                           value={workspaceName}
-                          onChange={(event) => {
-                            setWorkspaceName(event.target.value);
-                            if (!companyName.trim()) {
-                              setCompanyName(event.target.value);
-                            }
-                          }}
+                          onChange={(event) => setWorkspaceName(event.target.value)}
                         />
                       </label>
                       <p className="muted">
-                        Your company account will own billing, seats, and the shared token balance for invited team members.
+                        Your company account will own billing, seats, and the shared token balance. Additional account admins can be invited later for continuity and workload sharing.
+                      </p>
+                      <p className="muted">
+                        If this organization already exists in EasyDraft, ask an existing account admin for an invitation.
+                      </p>
+                      <p className="muted">
+                        Corporate accounts must start from an organization email domain. Public email addresses can join by invite.
                       </p>
                     </>
                   ) : (
@@ -390,16 +365,6 @@ export function AuthPanel({
                 </label>
               )}
               <label className="form-field">
-                <span>{accountType === "corporate" ? "Company legal name" : "Company or account name"}</span>
-                <input
-                  required
-                  autoComplete="organization"
-                  placeholder={accountType === "corporate" ? "Acme Corp" : "Adam Goodwin"}
-                  value={companyName}
-                  onChange={(event) => setCompanyName(event.target.value)}
-                />
-              </label>
-              <label className="form-field">
                 <span>Role or title</span>
                 <input
                   required
@@ -409,26 +374,6 @@ export function AuthPanel({
                   onChange={(event) => setJobTitle(event.target.value)}
                 />
               </label>
-              <div className="form-grid compact-grid">
-                <label className="form-field">
-                  <span>Timezone</span>
-                  <input
-                    required
-                    autoComplete="off"
-                    value={timezone}
-                    onChange={(event) => setTimezone(event.target.value)}
-                  />
-                </label>
-                <label className="form-field">
-                  <span>Locale</span>
-                  <input
-                    required
-                    autoComplete="language"
-                    value={locale}
-                    onChange={(event) => setLocale(event.target.value)}
-                  />
-                </label>
-              </div>
               <label className="checkbox-row">
                 <input
                   checked={productUpdatesOptIn}
@@ -454,7 +399,10 @@ export function AuthPanel({
               required
               type="email"
               autoComplete={authMode === "sign_in" ? "username" : "email"}
-              placeholder={pendingInviteDetails?.email ?? undefined}
+              placeholder={
+                pendingInviteDetails?.email ??
+                (authMode === "sign_up" && accountType === "corporate" ? "you@company.com" : undefined)
+              }
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
@@ -472,6 +420,12 @@ export function AuthPanel({
           <button className="primary-button" disabled={isLoading} type="submit">
             {authMode === "sign_in" ? "Continue" : "Start free trial"}
           </button>
+          {authMode === "sign_up" ? (
+            <p className="muted">
+              30 days free. No card required.
+              {accountType === "corporate" ? " You can name more than one account admin after signup." : ""}
+            </p>
+          ) : null}
 
           {authMode === "sign_in" ? (
             <button

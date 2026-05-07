@@ -299,7 +299,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
                   onChange={(e) => setEditingRoleValue(e.target.value as "account_admin" | "member" | "admin" | "billing_admin")}
                   style={{ flex: 1 }}
                 >
-                  {isCurrentUserAccountAdmin ? <option value="account_admin">Account admin</option> : null}
+                  {isCurrentUserAccountAdmin ? <option value="account_admin">Account admin - full organization control</option> : null}
                   <option value="member">Member</option>
                   <option value="admin">Admin</option>
                   <option value="billing_admin">Billing admin</option>
@@ -395,7 +395,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
             </p>
             {isCurrentUserAccountAdmin ? (
               <p className="muted">
-                As the account admin, you can also grant account admin access to another representative for this organization.
+                You can intentionally name more than one account admin for turnover coverage, vacation coverage, and shared workload. Only account admins can grant account admin access.
               </p>
             ) : null}
             <form className="stack" onSubmit={handleInvite}>
@@ -416,7 +416,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
                     value={inviteRole}
                     onChange={(e) => setInviteRole(e.target.value as "account_admin" | "member" | "admin" | "billing_admin")}
                   >
-                    {isCurrentUserAccountAdmin ? <option value="account_admin">Account admin</option> : null}
+                    {isCurrentUserAccountAdmin ? <option value="account_admin">Account admin - full organization control</option> : null}
                     <option value="member">Member</option>
                     <option value="admin">Admin</option>
                     <option value="billing_admin">Billing admin</option>

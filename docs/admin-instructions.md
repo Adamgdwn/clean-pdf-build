@@ -77,6 +77,7 @@ The account admin experience now also includes:
 8. Confirm at least one non-admin account admin and one signer account exist.
 9. Trigger one password reset for a test account.
 10. Confirm test-user deletion works only where expected.
+11. Confirm direct corporate signup rejects public email domains, while invite-based onboarding still works for the invited address.
 
 ## Recreating test accounts
 
@@ -111,7 +112,7 @@ Current recommended tester onboarding flow:
 2. Supabase Auth sends the invite email.
 3. The tester follows the invite, creates their account if needed, and lands back in EasyDraft.
 4. The tester must sign in with the same email address that received the invite; EasyDraft now blocks wrong-account workspace attachment.
-5. The tester is attached to the invited workspace and should see a clear joined-workspace confirmation.
+5. The tester is attached to the invited workspace and organization before the browser session is returned, and should see a clear joined-workspace confirmation.
 6. The tester fills in profile details inside the app.
 7. Any pending document collaborator or signer access for that same email attaches automatically after sign-in.
 

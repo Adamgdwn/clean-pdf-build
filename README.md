@@ -94,6 +94,7 @@ The latest application pass closed the most important product-surface gaps for s
 - owner-capable users land in `org_admin` by default
 - organization admin and workspace views are visually separated and easy to toggle
 - signup now distinguishes between individual accounts and corporate parent accounts
+- corporate signup now requires an organization email domain, stores the verified domain on the organization, and blocks duplicate corporate organization names/domains unless the user joins by invite
 - corporate accounts own shared member access, billing posture, and token purchasing
 - owner KPIs and “needs attention” items now lead the experience
 - landing page now answers product purpose, audience, and next actions above the fold
@@ -168,7 +169,8 @@ The latest application pass closed the most important product-surface gaps for s
    - Run a full checkout with card `4242 4242 4242 4242`
    - Confirm subscription appears in the app and the $0 invoice email arrives
    - Send one real platform-managed workflow to an external address and confirm the signing link opens
-   - Sign up as a new owner and confirm landing in Organization admin view
+   - Sign up as a new owner with a work-domain email and confirm landing in Organization admin view
+   - Confirm public-email corporate signup is blocked and can only join by invite
    - Accept an invite into an existing org and confirm the correct workspace becomes active
    - Switch between at least two workspaces and confirm billing, team data, and documents remain scoped correctly
 
@@ -223,10 +225,11 @@ The latest application pass closed the most important product-surface gaps for s
 
 ## Local development
 
+The application is hosted on Vercel and uses hosted Supabase, hosted storage, and hosted production integrations. Local Docker, local Postgres, local Redis, MinIO, and the Supabase local container stack are not required for application development.
+
 ```bash
 npm install
-npm run supabase:start
-# copy values from: npx supabase status -o env → .env
+# configure .env with hosted service credentials, or pull them from Vercel
 npm run dev
 ```
 
@@ -262,8 +265,8 @@ See `.env.example`. Required for a working deployment:
 
 | Variable | Purpose |
 |---|---|
-| `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` | Client-side Supabase |
-| `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | Server-side Supabase |
+| `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` | Client-side hosted Supabase |
+| `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | Server-side hosted Supabase |
 | `EASYDRAFT_ADMIN_EMAILS` | Comma-separated admin email addresses |
 | `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | Shared production rate limiting |
 | `SENTRY_DSN` + `VITE_SENTRY_DSN` | Server/client error capture |
@@ -284,6 +287,8 @@ See `.env.example`. Required for a working deployment:
 **External signer verification is email-code-based.** Managed external signers still enter through a one-time link, but they must also verify a one-time email code before completing any signature, initial, or approval action. This is stronger than link-only completion, but it is not certificate-backed signing.
 
 **Corporate accounts are parent accounts.** A user can operate alone with an individual account or belong to a corporate account that owns billing, member administration, and the shared token bucket. Workspaces remain the operational container for documents.
+
+**Corporate signup is domain-gated.** A direct corporate account must start from an organization email domain. Public email addresses can join corporate accounts by invitation only. EasyDraft stores the verified domain on the organization and enforces one corporate organization per normalized name and verified domain.
 
 **Account deletion is irreversible.** It cancels Stripe, removes all storage files, and cascade-deletes the entire DB record tree. Users must type their email address to confirm.
 

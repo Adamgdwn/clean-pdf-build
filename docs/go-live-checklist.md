@@ -165,6 +165,8 @@ Store the future values in your secret manager or Vercel using these names for c
    - external signer must request and enter the emailed verification code before completing a signature, initial, or approval action
    - signing flow prompts for `Reason for signing` and optional `Signing location`
    - wrong-account workspace invite acceptance is blocked with a clear recovery message
+   - direct corporate signup requires a work-domain email and rejects public inboxes unless the user joins by invite
+   - duplicate corporate organization names and verified domains are blocked
    - the product still feels like field placement + routing + completion, not arbitrary document editing
 
 ## Final release gate

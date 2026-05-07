@@ -93,19 +93,21 @@ Goal: Validate account admin onboarding and default landing.
 
 Tester:
 
-- `admin@agoperations.ca`
+- Work-domain account admin email, for example `admin@agoperations.ca`
 
 Steps:
 
-1. Sign up or sign in as the account admin.
-2. Confirm the account admin experience loads first.
-3. Confirm organization, workspace, billing, team, and document areas appear.
-4. Create or confirm a saved signature.
-5. Complete onboarding if prompted.
+1. Sign up directly as a corporate account admin using a work-domain email.
+2. Confirm public-email corporate signup is rejected with the organization-email message.
+3. Confirm the account admin experience loads first.
+4. Confirm organization, workspace, billing, team, and document areas appear.
+5. Create or confirm a saved signature.
+6. Complete onboarding if prompted.
 
 Expected result:
 
 - Account admin lands in the organization/admin experience.
+- Corporate signup requires a verified organization email domain.
 - Workspace navigation is clear.
 - Saved signature can be created without errors.
 

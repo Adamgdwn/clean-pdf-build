@@ -467,9 +467,24 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
     if (existingMembership) {
       const { data: workspace } = await adminClient
         .from("workspaces")
-        .select("id, name, slug")
+        .select("id, name, slug, organization_id")
         .eq("id", invitation.workspace_id)
         .maybeSingle();
+
+      if (workspace?.organization_id) {
+        const { error: orgMembershipError } = await adminClient.from("organization_memberships").upsert(
+          {
+            organization_id: workspace.organization_id,
+            user_id: user.id,
+            role: invitation.role,
+          },
+          { onConflict: "organization_id,user_id" },
+        );
+
+        if (orgMembershipError) {
+          throw new AppError(500, orgMembershipError.message);
+        }
+      }
 
       return {
         joined: true,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   deriveUsername,
+  getVerifiedCorporateEmailDomain,
   inferAccountType,
   inferCompanyName,
   inferProfileKind,
@@ -11,6 +12,11 @@ import {
 describe("profile identity helpers", () => {
   it("derives a stable username from email when none is provided", () => {
     expect(deriveUsername("Adam.Goodwin+pilot@gmail.com")).toBe("adam.goodwin-pilot");
+  });
+
+  it("accepts work email domains and rejects public inboxes for corporate verification", () => {
+    expect(getVerifiedCorporateEmailDomain("admin@acme.example")).toBe("acme.example");
+    expect(getVerifiedCorporateEmailDomain("founder@gmail.com")).toBeNull();
   });
 
   it("prefers an explicit profile kind before falling back to the email domain", () => {

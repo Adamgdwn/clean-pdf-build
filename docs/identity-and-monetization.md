@@ -107,12 +107,22 @@ That means:
 Corporate signup is a first-class path, not a profile fallback:
 
 1. the user chooses an organization account
-2. the signup form requires full name, username, organization/workspace name, company legal name, role/title, locale, timezone, email, and password
-3. Supabase Auth stores login identity and metadata
-4. EasyDraft creates or resolves the role-specific profile row
-5. the account boundary is a `corporate` organization
-6. the creator becomes `account_admin` in both organization and workspace memberships
-7. the user lands in the organization admin dashboard
+2. the signup form requires full name, organization name, role/title, work-domain email, and password
+3. EasyDraft derives username, locale, and timezone metadata instead of asking for it up front
+4. direct corporate signup rejects public email domains; public-email users can join corporate accounts by invitation only
+5. Supabase Auth stores login identity and metadata
+6. EasyDraft creates or resolves the role-specific profile row
+7. the account boundary is a `corporate` organization with a stored `verified_email_domain`
+8. the creator becomes `account_admin` in both organization and workspace memberships
+9. the user lands in the organization admin dashboard
+
+Corporate signup security rules:
+
+- an exact normalized corporate organization name can exist only once
+- a verified corporate email domain can belong to only one corporate organization
+- invite-based signup attaches the user to the existing workspace and organization before the browser session is returned
+- accepted invite recovery re-ensures organization membership so partial attachment cannot masquerade as success
+- additional account admins are intentional: only an existing account admin can grant `account_admin` access
 
 The organization admin dashboard should answer the operational questions immediately:
 

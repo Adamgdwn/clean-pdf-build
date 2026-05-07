@@ -2376,10 +2376,10 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (portalView === "org_admin" && !canAccessOrgAdmin) {
+    if (portalView === "org_admin" && orgAdminAccessResolved && !canAccessOrgAdmin) {
       updatePortalView("workspace");
     }
-  }, [portalView, canAccessOrgAdmin]);
+  }, [portalView, canAccessOrgAdmin, orgAdminAccessResolved]);
 
   useEffect(() => {
     if (!sessionUser || portalQueryPreferenceRef.current || !orgAdminAccessResolved) {
@@ -2452,7 +2452,7 @@ export default function App() {
           });
           refreshSession(nextSession).catch((error) => setErrorMessage((error as Error).message));
         }}
-        onRegistered={() => updatePortalView("workspace")}
+        onRegistered={(accountType) => updatePortalView(accountType === "corporate" ? "org_admin" : "workspace")}
       />
     );
   }
@@ -2818,6 +2818,7 @@ export default function App() {
           sessionUser={sessionUser}
           guestSigningSession={guestSigningSession}
           hasPendingInvite={pendingInviteToken !== null}
+          pendingInviteToken={pendingInviteToken}
           pendingInviteDetails={pendingInviteDetails}
           onSessionCreated={(nextSession) => {
             // Hydrate the browser Supabase client so autoRefreshToken takes over from here.
@@ -2827,7 +2828,7 @@ export default function App() {
             });
             refreshSession(nextSession).catch((error) => setErrorMessage((error as Error).message));
           }}
-          onRegistered={() => updatePortalView("workspace")}
+          onRegistered={(accountType) => updatePortalView(accountType === "corporate" ? "org_admin" : "workspace")}
         />
 
         {sessionUser ? (

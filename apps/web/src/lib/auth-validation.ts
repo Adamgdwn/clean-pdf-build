@@ -10,13 +10,9 @@ export function validateAuthForm(input: {
   email: string;
   password: string;
   fullName: string;
-  username: string;
   accountType: AccountType;
   workspaceName: string;
-  companyName: string;
   jobTitle: string;
-  timezone: string;
-  locale: string;
 }) {
   const missing = [
     requireValue(input.email, "email"),
@@ -24,18 +20,11 @@ export function validateAuthForm(input: {
     ...(input.authMode === "sign_up"
       ? [
           requireValue(input.fullName, "full name"),
-          requireValue(input.username, "username"),
           requireValue(
             input.workspaceName,
             input.accountType === "corporate" ? "organization name" : "workspace name",
           ),
-          requireValue(
-            input.companyName,
-            input.accountType === "corporate" ? "company legal name" : "company or account name",
-          ),
           requireValue(input.jobTitle, "role or title"),
-          requireValue(input.timezone, "timezone"),
-          requireValue(input.locale, "locale"),
         ]
       : []),
   ].filter((value): value is string => Boolean(value));

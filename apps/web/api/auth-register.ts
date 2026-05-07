@@ -4,12 +4,28 @@ import { getCanonicalAppOrigin, readServerEnv } from "../../../packages/workflow
 import { buildWelcomeEmail, deliverNotificationEmail } from "../../../packages/workflow-service/src/notifications.js";
 import {
   deriveUsername,
+  getVerifiedCorporateEmailDomain,
   inferCompanyName,
   inferProfileKind,
 } from "../../../packages/workflow-service/src/profile-identity.js";
-import { createAuthClient } from "../../../packages/workflow-service/src/supabase.js";
+import { createAuthClient, createServiceRoleClient } from "../../../packages/workflow-service/src/supabase.js";
 
 import { enforceRateLimit, sendError } from "./_utils.js";
+
+function normalizeLookupValue(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function escapeLikePattern(value: string) {
+  return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+type RegistrationInviteContext = {
+  id: string;
+  workspaceId: string;
+  organizationId: string | null;
+  role: "account_admin" | "admin" | "member" | "billing_admin";
+};
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== "POST") {
@@ -46,9 +62,14 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const jobTitle = typeof request.body?.jobTitle === "string" ? request.body.jobTitle.trim() : "";
     const locale = typeof request.body?.locale === "string" ? request.body.locale.trim() : "";
     const timezone = typeof request.body?.timezone === "string" ? request.body.timezone.trim() : "";
+    const workspaceInviteToken =
+      typeof request.body?.workspaceInviteToken === "string" ? request.body.workspaceInviteToken.trim() : "";
     const marketingOptIn = request.body?.marketingOptIn === true;
     const productUpdatesOptIn = request.body?.productUpdatesOptIn !== false;
     const normalizedUsername = deriveUsername(email, username);
+    const resolvedLocale = locale || "en-CA";
+    const resolvedTimezone = timezone || "Etc/UTC";
+    const verifiedCorporateEmailDomain = getVerifiedCorporateEmailDomain(email);
     const companyName = inferCompanyName({
       email,
       accountType: accountType || null,
@@ -61,21 +82,111 @@ export default async function handler(request: VercelRequest, response: VercelRe
       !email ||
       !password ||
       !fullName ||
-      !username ||
       !accountType ||
       !workspaceName ||
-      !companyNameInput ||
-      !jobTitle ||
-      !locale ||
-      !timezone
+      !jobTitle
     ) {
       return response.status(400).json({
         message:
-          "Full name, username, account type, workspace name, company or account name, role/title, locale, timezone, email, and password are required.",
+          "Full name, account type, workspace or organization name, role/title, email, and password are required.",
       });
     }
 
     const env = readServerEnv();
+    const adminClient = createServiceRoleClient();
+    let inviteContext: RegistrationInviteContext | null = null;
+
+    if (workspaceInviteToken) {
+      const { data: invitation, error: invitationError } = await adminClient
+        .from("workspace_invitations")
+        .select("id, workspace_id, email, role, expires_at, accepted_at, workspaces(id, organization_id)")
+        .eq("token", workspaceInviteToken)
+        .maybeSingle();
+
+      if (invitationError) {
+        return response.status(400).json({ message: invitationError.message });
+      }
+
+      const workspace = Array.isArray(invitation?.workspaces)
+        ? invitation?.workspaces[0] ?? null
+        : invitation?.workspaces ?? null;
+      const hasValidWorkspaceInvite = Boolean(
+        invitation &&
+          invitation.accepted_at === null &&
+          new Date(invitation.expires_at).getTime() > Date.now() &&
+          normalizeLookupValue(invitation.email) === normalizeLookupValue(email),
+      );
+
+      if (!hasValidWorkspaceInvite) {
+        return response.status(403).json({
+          message:
+            "This invitation is expired, already accepted, or does not match the email address you entered.",
+        });
+      }
+
+      if (!invitation) {
+        return response.status(404).json({ message: "Invitation not found." });
+      }
+
+      if (!workspace) {
+        return response.status(404).json({ message: "The invited workspace no longer exists." });
+      }
+
+      inviteContext = {
+        id: invitation.id,
+        workspaceId: invitation.workspace_id,
+        organizationId: workspace.organization_id ?? null,
+        role: invitation.role,
+      };
+    }
+
+    if (accountType === "corporate" && !inviteContext) {
+      if (!verifiedCorporateEmailDomain) {
+        return response.status(400).json({
+          message:
+            "Use your organization email address to create a corporate account. Public email addresses can join by invitation only.",
+        });
+      }
+
+      const { data: existingOrganization, error: existingOrganizationError } = await adminClient
+        .from("organizations")
+        .select("id")
+        .eq("account_type", "corporate")
+        .ilike("name", escapeLikePattern(workspaceName))
+        .limit(1)
+        .maybeSingle();
+
+      if (existingOrganizationError) {
+        return response.status(400).json({ message: existingOrganizationError.message });
+      }
+
+      if (existingOrganization) {
+        return response.status(409).json({
+          message:
+            "An organization with that name already exists in EasyDraft. Ask an existing account admin to invite you instead.",
+        });
+      }
+
+      const { data: existingDomainOrganization, error: existingDomainOrganizationError } = await adminClient
+        .from("organizations")
+        .select("id")
+        .eq("account_type", "corporate")
+        .eq("verified_email_domain", verifiedCorporateEmailDomain)
+        .limit(1)
+        .maybeSingle();
+
+      if (existingDomainOrganizationError) {
+        return response.status(400).json({ message: existingDomainOrganizationError.message });
+      }
+
+      if (existingDomainOrganization) {
+        return response.status(409).json({
+          message:
+            "That organization email domain is already tied to an EasyDraft organization. Ask an existing account admin to invite you.",
+        });
+      }
+    }
+
     const authClient = createAuthClient();
     const { data, error } = await authClient.auth.signUp({
       email,
@@ -87,11 +198,12 @@ export default async function handler(request: VercelRequest, response: VercelRe
           username: normalizedUsername,
           company_name: companyName ?? companyNameInput,
           account_type: accountType,
+          corporate_email_domain: accountType === "corporate" ? verifiedCorporateEmailDomain : undefined,
           profile_kind: profileKind,
           workspace_name: workspaceName,
           job_title: jobTitle,
-          locale,
-          timezone,
+          locale: resolvedLocale,
+          timezone: resolvedTimezone,
           marketing_opt_in: marketingOptIn,
           product_updates_opt_in: productUpdatesOptIn,
         },
@@ -107,6 +219,46 @@ export default async function handler(request: VercelRequest, response: VercelRe
       }
 
       return response.status(400).json({ message: error.message });
+    }
+
+    if (data.user && inviteContext) {
+      const { error: workspaceMembershipError } = await adminClient.from("workspace_memberships").upsert(
+        {
+          workspace_id: inviteContext.workspaceId,
+          user_id: data.user.id,
+          role: inviteContext.role,
+        },
+        { onConflict: "workspace_id,user_id" },
+      );
+
+      if (workspaceMembershipError) {
+        return response.status(500).json({ message: workspaceMembershipError.message });
+      }
+
+      if (inviteContext.organizationId) {
+        const { error: organizationMembershipError } = await adminClient.from("organization_memberships").upsert(
+          {
+            organization_id: inviteContext.organizationId,
+            user_id: data.user.id,
+            role: inviteContext.role,
+          },
+          { onConflict: "organization_id,user_id" },
+        );
+
+        if (organizationMembershipError) {
+          return response.status(500).json({ message: organizationMembershipError.message });
+        }
+      }
+
+      const { error: invitationAcceptError } = await adminClient
+        .from("workspace_invitations")
+        .update({ accepted_at: new Date().toISOString() })
+        .eq("id", inviteContext.id)
+        .is("accepted_at", null);
+
+      if (invitationAcceptError) {
+        return response.status(500).json({ message: invitationAcceptError.message });
+      }
     }
 
     if (data.user && data.session) {
