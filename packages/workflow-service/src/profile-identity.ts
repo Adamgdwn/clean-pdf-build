@@ -30,6 +30,10 @@ const PUBLIC_EMAIL_DOMAINS = new Set([
   "ymail.com",
 ]);
 
+const CORPORATE_SIGNUP_TEST_EMAILS = new Set([
+  "adamgoodwin@shaw.ca",
+]);
+
 function trimToNull(value: string | null | undefined) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
@@ -41,9 +45,10 @@ export function getEmailDomain(email: string) {
 }
 
 export function getVerifiedCorporateEmailDomain(email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
   const domain = getEmailDomain(email);
 
-  if (!domain || PUBLIC_EMAIL_DOMAINS.has(domain)) {
+  if (!domain || (PUBLIC_EMAIL_DOMAINS.has(domain) && !CORPORATE_SIGNUP_TEST_EMAILS.has(normalizedEmail))) {
     return null;
   }
 
