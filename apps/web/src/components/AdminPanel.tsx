@@ -24,6 +24,10 @@ function formatAccountType(value: AdminManagedUser["accountType"]) {
   return value === "corporate" ? "Corporate" : "Individual";
 }
 
+function formatStatus(value: string) {
+  return value.replaceAll("_", " ");
+}
+
 // ─── Sidebar summary card ────────────────────────────────────────────────────
 
 type SidebarProps = {
@@ -55,6 +59,10 @@ export function AdminSidebarSummary({ adminOverview, adminUsers }: SidebarProps)
           <div className="metric">
             <span>MRR</span>
             <strong>${adminOverview.metrics.estimatedMrrUsd}</strong>
+          </div>
+          <div className="metric">
+            <span>Pending orgs</span>
+            <strong>{adminOverview.metrics.pendingCorporateVerifications}</strong>
           </div>
         </div>
         <p className="muted">
@@ -198,6 +206,25 @@ export function AdminConsole({
     }
   }
 
+  async function handleVerifyCorporateOrganization(organizationId: string) {
+    setIsLoading(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      await apiFetch("/organization-verify", session, {
+        method: "POST",
+        body: JSON.stringify({ organizationId }),
+      });
+      setNoticeMessage("Corporate organization verified and activated.");
+      onRefresh();
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function handleAdminDeleteUser(userId: string) {
     setIsLoading(true);
     setErrorMessage(null);
@@ -288,13 +315,17 @@ export function AdminConsole({
             <span>Failed emails</span>
             <strong>{adminOverview.metrics.failedNotifications}</strong>
           </div>
-          <div className="metric">
-            <span>Workspaces</span>
-            <strong>{adminOverview.metrics.totalWorkspaces}</strong>
+            <div className="metric">
+              <span>Workspaces</span>
+              <strong>{adminOverview.metrics.totalWorkspaces}</strong>
             </div>
             <div className="metric">
               <span>Documents</span>
               <strong>{adminOverview.metrics.totalDocuments}</strong>
+            </div>
+            <div className="metric">
+              <span>Pending orgs</span>
+              <strong>{adminOverview.metrics.pendingCorporateVerifications}</strong>
             </div>
           </div>
 
@@ -359,6 +390,45 @@ export function AdminConsole({
                 Send tester invite
               </button>
             </form>
+          </div>
+
+          <div className="toolbar-card">
+            <div className="section-heading compact">
+              <p className="eyebrow">Corporate verification</p>
+              <span>{adminOverview.metrics.pendingCorporateVerifications} pending</span>
+            </div>
+            <p className="muted action-note">
+              Direct corporate signups stay pending until EasyDraft confirms the requester should administer the organization.
+            </p>
+            <div className="stack">
+              {adminOverview.corporateOrganizations.length === 0 ? (
+                <p className="muted">No corporate organizations exist yet.</p>
+              ) : (
+                adminOverview.corporateOrganizations.slice(0, 8).map((organization) => (
+                  <div key={organization.id} className="row-card">
+                    <div>
+                      <strong>{organization.name}</strong>
+                      <p className="muted">
+                        {formatStatus(organization.status)} · {organization.verified_email_domain ?? "no verified domain"} · {organization.billing_email ?? "no billing email"}
+                      </p>
+                      <p className="muted">Created {formatTimestamp(organization.created_at)}</p>
+                    </div>
+                    {organization.status === "pending_verification" ? (
+                      <button
+                        className="secondary-button"
+                        disabled={isLoading}
+                        onClick={() => handleVerifyCorporateOrganization(organization.id)}
+                        type="button"
+                      >
+                        Verify
+                      </button>
+                    ) : (
+                      <span>{formatStatus(organization.status)}</span>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
 
           <div className="toolbar-card">

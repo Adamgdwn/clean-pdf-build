@@ -114,12 +114,16 @@ Corporate signup is a first-class path, not a profile fallback:
 6. EasyDraft creates or resolves the role-specific profile row
 7. the account boundary is a `corporate` organization with a stored `verified_email_domain`
 8. the creator becomes `account_admin` in both organization and workspace memberships
-9. the user lands in the organization admin dashboard
+9. direct corporate signups start as `pending_verification`; invited users attach to the already verified organization
+10. the user lands in the organization admin dashboard
 
 Corporate signup security rules:
 
 - an exact normalized corporate organization name can exist only once
 - a verified corporate email domain can belong to only one corporate organization
+- direct corporate signup proves inbox access, not organizational authority; new organizations remain pending until EasyDraft verifies the requester should administer that account
+- pending corporate organizations cannot invite team members, change billing, buy token packs, create new documents, send workflows, or duplicate documents
+- platform admins can activate pending corporate organizations from the admin console after verification
 - invite-based signup attaches the user to the existing workspace and organization before the browser session is returned
 - accepted invite recovery re-ensures organization membership so partial attachment cannot masquerade as success
 - additional account admins are intentional: only an existing account admin can grant `account_admin` access

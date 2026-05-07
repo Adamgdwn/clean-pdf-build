@@ -317,6 +317,13 @@ export function AccountAdminPortal({
 
         {refreshError ? <div className="alert">{refreshError}</div> : null}
 
+        {accountStatus === "pending_verification" ? (
+          <div className="alert">
+            This corporate account is pending EasyDraft verification. You can review the admin center now, but billing,
+            team invites, and new workflow sends unlock after the organization is activated.
+          </div>
+        ) : null}
+
         {documents.length === 0 || activeMemberCount <= 1 ? (
           <section className="toolbar-card account-admin-summary-card">
             <div className="section-heading compact">

@@ -142,6 +142,8 @@ Store the future values in your secret manager or Vercel using these names for c
 2. Create at least one non-admin account admin account and two signer accounts for smoke tests.
 3. Verify:
    - account-admin-capable user lands in organization admin by default
+   - direct corporate signups appear as pending corporate verifications in the platform admin console
+   - activating a pending corporate organization unlocks team invites, billing changes, and workflow sends
    - workspace switcher appears when a user belongs to more than one workspace
    - switching workspace updates documents, billing, and team scope together
    - public `/pricing` route loads and explains seats vs tokens clearly

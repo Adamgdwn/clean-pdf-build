@@ -53,6 +53,7 @@ import onboardingCompleteHandler from "../apps/web/api/onboarding-complete.js";
 import organizationAdminOverviewHandler from "../apps/web/api/organization-admin-overview.js";
 import organizationCloseHandler from "../apps/web/api/organization-close.js";
 import organizationPrimaryAdminHandler from "../apps/web/api/organization-primary-admin.js";
+import organizationVerifyHandler from "../apps/web/api/organization-verify.js";
 import processorRunHandler from "../apps/web/api/processor-run.js";
 import profileHandler from "../apps/web/api/profile.js";
 import savedSignaturesHandler from "../apps/web/api/saved-signatures.js";
@@ -133,6 +134,7 @@ const routeHandlers: Record<string, RouteHandler> = {
   "organization-admin-overview": organizationAdminOverviewHandler,
   "organization-close": organizationCloseHandler,
   "organization-primary-admin": organizationPrimaryAdminHandler,
+  "organization-verify": organizationVerifyHandler,
   "processor-run": processorRunHandler,
   profile: profileHandler,
   "saved-signatures": savedSignaturesHandler,

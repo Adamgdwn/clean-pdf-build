@@ -58,7 +58,7 @@ type OrganizationRow = {
   account_type: "individual" | "corporate";
   owner_user_id: string;
   billing_email: string | null;
-  status?: "active" | "payment_required" | "suspended" | "closing" | "closed";
+  status?: "pending_verification" | "active" | "payment_required" | "suspended" | "closing" | "closed";
 };
 
 // ---------------------------------------------------------------------------
@@ -115,7 +115,7 @@ async function getOrganizationForWorkspace(workspace: WorkspaceRow) {
 function assertOrganizationCanManagePeople(organization: OrganizationRow) {
   const status = organization.status ?? "active";
 
-  if (["suspended", "closing", "closed"].includes(status)) {
+  if (["pending_verification", "suspended", "closing", "closed"].includes(status)) {
     throw new AppError(
       409,
       `${organization.name} is ${status.replaceAll("_", " ")}. Resolve the account status before inviting or changing team access.`,

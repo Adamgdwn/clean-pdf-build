@@ -53,7 +53,7 @@ type OrganizationRow = {
   account_type: "individual" | "corporate";
   owner_user_id: string;
   billing_email: string | null;
-  status?: "active" | "payment_required" | "suspended" | "closing" | "closed";
+  status?: "pending_verification" | "active" | "payment_required" | "suspended" | "closing" | "closed";
 };
 
 type WorkspaceBillingCustomerRow = {
@@ -165,7 +165,7 @@ function requireBillingPermission(membership: WorkspaceMembershipRow | null) {
 function assertOrganizationCanStartBillingChange(organization: OrganizationRow) {
   const status = organization.status ?? "active";
 
-  if (["suspended", "closing", "closed"].includes(status)) {
+  if (["pending_verification", "suspended", "closing", "closed"].includes(status)) {
     throw new AppError(
       409,
       `${organization.name} is ${status.replaceAll("_", " ")}. Resolve the account status before changing billing or buying tokens.`,

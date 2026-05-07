@@ -194,6 +194,7 @@ export type AdminOverview = {
     oldestQueuedProcessingAt: string | null;
     billingCustomers: number;
     estimatedMrrUsd: number;
+    pendingCorporateVerifications: number;
   };
   recentSubscriptions: Array<{
     id: string;
@@ -211,6 +212,17 @@ export type AdminOverview = {
     workspace_type: string;
     owner_user_id: string;
     billing_email: string | null;
+    created_at: string;
+  }>;
+  corporateOrganizations: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    account_type: "corporate";
+    owner_user_id: string;
+    billing_email: string | null;
+    verified_email_domain: string | null;
+    status: "pending_verification" | "active" | "payment_required" | "suspended" | "closing" | "closed";
     created_at: string;
   }>;
 };
@@ -298,7 +310,7 @@ export type OrganizationAdminOverview = {
     name: string;
     slug: string;
     accountType: "individual" | "corporate";
-    status: "active" | "payment_required" | "suspended" | "closing" | "closed";
+    status: "pending_verification" | "active" | "payment_required" | "suspended" | "closing" | "closed";
     billingEmail: string | null;
     primaryAccountAdminUserId: string;
     membershipRole: "account_admin" | "admin" | "member" | "billing_admin" | null;

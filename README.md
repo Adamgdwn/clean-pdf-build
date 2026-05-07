@@ -169,7 +169,8 @@ The latest application pass closed the most important product-surface gaps for s
    - Run a full checkout with card `4242 4242 4242 4242`
    - Confirm subscription appears in the app and the $0 invoice email arrives
    - Send one real platform-managed workflow to an external address and confirm the signing link opens
-   - Sign up as a new owner with a work-domain email and confirm landing in Organization admin view
+   - Sign up as a new corporate owner with a work-domain email and confirm landing in Organization admin view with pending verification
+   - Activate the pending corporate organization from the platform admin console
    - Confirm public-email corporate signup is blocked and can only join by invite
    - Accept an invite into an existing org and confirm the correct workspace becomes active
    - Switch between at least two workspaces and confirm billing, team data, and documents remain scoped correctly
@@ -288,7 +289,7 @@ See `.env.example`. Required for a working deployment:
 
 **Corporate accounts are parent accounts.** A user can operate alone with an individual account or belong to a corporate account that owns billing, member administration, and the shared token bucket. Workspaces remain the operational container for documents.
 
-**Corporate signup is domain-gated.** A direct corporate account must start from an organization email domain. Public email addresses can join corporate accounts by invitation only. EasyDraft stores the verified domain on the organization and enforces one corporate organization per normalized name and verified domain.
+**Corporate signup is domain-gated and verification-gated.** A direct corporate account must start from an organization email domain. Public email addresses can join corporate accounts by invitation only. EasyDraft stores the verified domain, enforces one corporate organization per normalized name and verified domain, and keeps direct corporate signups pending until EasyDraft verifies the requester should administer that organization.
 
 **Account deletion is irreversible.** It cancels Stripe, removes all storage files, and cascade-deletes the entire DB record tree. Users must type their email address to confirm.
 

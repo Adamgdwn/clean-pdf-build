@@ -366,7 +366,7 @@ type OrganizationRow = {
   owner_user_id: string;
   billing_email: string | null;
   verified_email_domain?: string | null;
-  status?: "active" | "payment_required" | "suspended" | "closing" | "closed";
+  status?: "pending_verification" | "active" | "payment_required" | "suspended" | "closing" | "closed";
   suspended_at?: string | null;
   closing_requested_at?: string | null;
   closed_at?: string | null;
@@ -888,6 +888,10 @@ const closeOrganizationInputSchema = z.object({
   confirmName: z.string().trim().min(1).max(120),
 });
 
+const verifyCorporateOrganizationInputSchema = z.object({
+  organizationId: z.string().uuid(),
+});
+
 function slugify(value: string) {
   return value
     .toLowerCase()
@@ -899,6 +903,14 @@ function slugify(value: string) {
 
 function normalizeEmailAddress(value: string) {
   return value.trim().toLowerCase();
+}
+
+function formatOrganizationStatus(status: string) {
+  return status.replaceAll("_", " ");
+}
+
+function isOrganizationStatusBlocked(status: string) {
+  return ["pending_verification", "suspended", "closing", "closed"].includes(status);
 }
 
 function normalizeDisplayName(value: string | null | undefined, email: string) {
@@ -1592,10 +1604,10 @@ function assertOrganizationCanStartNewWork(
 ) {
   const status = organization.status ?? "active";
 
-  if (["suspended", "closing", "closed"].includes(status)) {
+  if (isOrganizationStatusBlocked(status)) {
     throw new AppError(
       409,
-      `${organization.name} is ${status.replaceAll("_", " ")}. Resolve the account status before ${actionLabel}.`,
+      `${organization.name} is ${formatOrganizationStatus(status)}. Resolve the account status before ${actionLabel}.`,
     );
   }
 }
@@ -1904,6 +1916,8 @@ export async function getOrganizationAdminOverviewForAuthorizationHeader(
   const suspendedSeats = licenses.filter((license) => license.status === "suspended").length;
   const occupiedSeats = assignedSeats + invitedSeats + suspendedSeats;
   const purchasedSeats = subscription?.seat_count ?? 0;
+  const accountStatus = organization.status ?? "active";
+  const accountIsOperational = !isOrganizationStatusBlocked(accountStatus);
 
   return {
     account: {
@@ -1911,7 +1925,7 @@ export async function getOrganizationAdminOverviewForAuthorizationHeader(
       name: organization.name,
       slug: organization.slug,
       accountType: organization.account_type,
-      status: organization.status ?? "active",
+      status: accountStatus,
       billingEmail: organization.billing_email,
       primaryAccountAdminUserId: organization.owner_user_id,
       membershipRole,
@@ -1926,8 +1940,8 @@ export async function getOrganizationAdminOverviewForAuthorizationHeader(
       workspaceType: workspace.workspace_type,
     },
     authority: {
-      canManagePeople: ["account_admin", "admin"].includes(membershipRole),
-      canManageBilling: ["account_admin", "billing_admin"].includes(membershipRole),
+      canManagePeople: accountIsOperational && ["account_admin", "admin"].includes(membershipRole),
+      canManageBilling: accountIsOperational && ["account_admin", "billing_admin"].includes(membershipRole),
       canChangePrimaryAccountAdmin: membershipRole === "account_admin",
       canCloseAccount: membershipRole === "account_admin",
     },
@@ -2274,8 +2288,9 @@ export async function resolveWorkspaceForUser(
       owner_user_id: user.id,
       billing_email: user.email,
       verified_email_domain: verifiedEmailDomain,
+      status: plannedAccount.accountType === "corporate" ? "pending_verification" : "active",
     })
-    .select("id, name, slug, account_type, owner_user_id, billing_email, verified_email_domain")
+    .select("id, name, slug, account_type, owner_user_id, billing_email, verified_email_domain, status")
     .single();
 
   if (createOrganizationError || !createdOrganization) {
@@ -2340,6 +2355,16 @@ export async function resolveWorkspaceForUser(
 
   if (orgMembershipError) {
     throw new AppError(500, orgMembershipError.message);
+  }
+
+  if (plannedAccount.accountType === "corporate") {
+    await writeOrganizationAccountEvent({
+      organizationId: createdOrganization.id,
+      actorUserId: user.id,
+      eventType: "corporate_account_verification_requested",
+      summary: "Corporate account created pending EasyDraft verification.",
+      metadata: { verified_email_domain: verifiedEmailDomain },
+    });
   }
 
   return createdWorkspace;
@@ -5040,6 +5065,7 @@ export async function getAdminOverviewForAuthorizationHeader(
     subscriptionsResponse,
     billingCustomersCount,
     workspacesResponse,
+    organizationsResponse,
   ] = await Promise.all([
     adminClient.from("workspaces").select("*", { count: "exact", head: true }),
     adminClient.from("documents").select("*", { count: "exact", head: true }).is("deleted_at", null),
@@ -5092,6 +5118,12 @@ export async function getAdminOverviewForAuthorizationHeader(
       .select("id, name, slug, workspace_type, owner_user_id, billing_email, created_at")
       .order("created_at", { ascending: false })
       .limit(8),
+    adminClient
+      .from("organizations")
+      .select("id, name, slug, account_type, owner_user_id, billing_email, verified_email_domain, status, created_at")
+      .eq("account_type", "corporate")
+      .order("created_at", { ascending: false })
+      .limit(20),
   ]);
 
   for (const response of [
@@ -5107,6 +5139,7 @@ export async function getAdminOverviewForAuthorizationHeader(
     subscriptionsResponse,
     billingCustomersCount,
     workspacesResponse,
+    organizationsResponse,
   ]) {
     if (response.error) {
       throw new AppError(500, response.error.message);
@@ -5150,6 +5183,17 @@ export async function getAdminOverviewForAuthorizationHeader(
         sum + (planPriceByKey.get(subscription.billing_plan_key) ?? 0) * subscription.seat_count,
       0,
     );
+  const corporateOrganizations = (organizationsResponse.data ?? []) as Array<{
+    id: string;
+    name: string;
+    slug: string;
+    account_type: "corporate";
+    owner_user_id: string;
+    billing_email: string | null;
+    verified_email_domain: string | null;
+    status: "pending_verification" | "active" | "payment_required" | "suspended" | "closing" | "closed";
+    created_at: string;
+  }>;
 
   return {
     metrics: {
@@ -5167,6 +5211,9 @@ export async function getAdminOverviewForAuthorizationHeader(
         (oldestQueuedJobResponse.data as { created_at: string } | null)?.created_at ?? null,
       billingCustomers: billingCustomersCount.count ?? 0,
       estimatedMrrUsd,
+      pendingCorporateVerifications: corporateOrganizations.filter(
+        (organization) => organization.status === "pending_verification",
+      ).length,
     },
     recentSubscriptions: subscriptions,
     recentWorkspaces: (workspacesResponse.data ?? []) as Array<{
@@ -5178,6 +5225,64 @@ export async function getAdminOverviewForAuthorizationHeader(
       billing_email: string | null;
       created_at: string;
     }>,
+    corporateOrganizations,
+  };
+}
+
+export async function verifyCorporateOrganizationForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  assertAdminUser(user);
+  const parsed = verifyCorporateOrganizationInputSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+  const { data: organization, error: organizationError } = await adminClient
+    .from("organizations")
+    .select("id, name, account_type, status")
+    .eq("id", parsed.organizationId)
+    .maybeSingle();
+
+  if (organizationError) {
+    throw new AppError(500, organizationError.message);
+  }
+
+  if (!organization) {
+    throw new AppError(404, "Organization not found.");
+  }
+
+  if (organization.account_type !== "corporate") {
+    throw new AppError(400, "Only corporate organizations require verification.");
+  }
+
+  if (organization.status !== "pending_verification") {
+    return {
+      organizationId: organization.id,
+      status: organization.status,
+      changed: false,
+    };
+  }
+
+  const { error: updateError } = await adminClient
+    .from("organizations")
+    .update({ status: "active" })
+    .eq("id", organization.id);
+
+  if (updateError) {
+    throw new AppError(500, updateError.message);
+  }
+
+  await writeOrganizationAccountEvent({
+    organizationId: organization.id,
+    actorUserId: user.id,
+    eventType: "corporate_account_verified",
+    summary: "Corporate account was verified and activated by EasyDraft.",
+  });
+
+  return {
+    organizationId: organization.id,
+    status: "active",
+    changed: true,
   };
 }
 
