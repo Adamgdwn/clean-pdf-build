@@ -16,7 +16,9 @@ describe("profile identity helpers", () => {
 
   it("accepts work email domains and rejects public inboxes for corporate verification", () => {
     expect(getVerifiedCorporateEmailDomain("admin@acme.example")).toBe("acme.example");
+    expect(getVerifiedCorporateEmailDomain("admin@agoperations.ca")).toBe("agoperations.ca");
     expect(getVerifiedCorporateEmailDomain("founder@gmail.com")).toBeNull();
+    expect(getVerifiedCorporateEmailDomain("adamgoodwin@shaw.ca")).toBeNull();
   });
 
   it("prefers an explicit profile kind before falling back to the email domain", () => {

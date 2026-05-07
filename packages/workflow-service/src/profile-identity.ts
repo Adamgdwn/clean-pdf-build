@@ -3,6 +3,8 @@ export type AccountType = "individual" | "corporate";
 
 const PUBLIC_EMAIL_DOMAINS = new Set([
   "aol.com",
+  "bell.net",
+  "cogeco.ca",
   "icloud.com",
   "gmail.com",
   "googlemail.com",
@@ -15,6 +17,14 @@ const PUBLIC_EMAIL_DOMAINS = new Set([
   "pm.me",
   "proton.me",
   "protonmail.com",
+  "rogers.com",
+  "sasktel.net",
+  "shaw.ca",
+  "shawmail.ca",
+  "sympatico.ca",
+  "telus.net",
+  "telusplanet.net",
+  "videotron.ca",
   "yahoo.ca",
   "yahoo.com",
   "ymail.com",
