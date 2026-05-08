@@ -81,7 +81,9 @@ All events are processed **idempotently** via the `stripe_processed_events` tabl
 4. Seat changes (upgrades/downgrades) go through the Customer Portal — Stripe fires `customer.subscription.updated` which re-syncs the count.
 5. `seat_count` is displayed in the Billing Panel. The UI shows either monthly billing (`seat_count × $12 CAD`) or annual billing (`seat_count × $120 CAD`) depending on the selected plan.
 
-There is currently **no server-side enforcement** that `seat_count` matches actual workspace member count. That is intentional — the launch model trusts the customer to select the correct number of seats.
+Account membership is resolved from `account_members.account_class`. `corporate_admin` and `corporate_member` users are the paid corporate account population; `personal` users are individual account users. The legacy workspace/organization membership tables are not the billing source of truth for new logic.
+
+There is currently **no server-side enforcement** that `seat_count` matches actual account member count. That is intentional — the launch model trusts the customer to select the correct number of seats.
 
 ---
 
@@ -107,6 +109,7 @@ There is currently **no server-side enforcement** that `seat_count` matches actu
 2. It computes available tokens = `sum(external_token_credit)` − `sum(signing_token usage)` from `billing_usage_events`.
 3. If insufficient, an HTTP 402 error is returned with a clear message.
 4. If sufficient, one `signing_token` usage event is inserted per external signer (already implemented in `service.ts`).
+5. The signing-link identity is stored in `document_participant_tokens.participant_id`, which points at the `external_signer` participant row in `document_participants`.
 
 ### Token Balance Formula
 

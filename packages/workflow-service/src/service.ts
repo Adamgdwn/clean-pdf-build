@@ -6,7 +6,6 @@ import {
   deriveWorkflowState,
   documentModeFromLegacyParticipantType,
   legacyAccessRoleFromAuthority,
-  legacyMembershipRoleFromAccountClass,
   legacyParticipantTypeFromDocumentMode,
   getDocumentCompletionSummary,
   getDocumentSendReadiness,
@@ -120,14 +119,6 @@ type DocumentAccessRow = {
   document_id: string;
   user_id: string;
   role: AccessRole;
-};
-
-type DocumentInviteRow = {
-  id: string;
-  document_id: string;
-  email: string;
-  role: AccessRole;
-  accepted_at: string | null;
 };
 
 type SignerRow = {
@@ -413,9 +404,12 @@ type AccountMemberRow = {
   user_id: string;
   account_class: AccountClass;
   is_primary_admin: boolean;
-  source_membership_role: string | null;
   created_at: string;
 };
+
+function organizationLicenseRoleFromAccountClass(accountClass: AccountClass): OrganizationMembershipRow["role"] {
+  return accountClass === "corporate_member" ? "member" : "account_admin";
+}
 
 type ProcessingJobType = "ocr" | "field_detection";
 type ProcessingJobStatus = "queued" | "running" | "completed" | "failed";
@@ -430,7 +424,7 @@ type SigningTokenRow = {
   id: string;
   participant_id: string;
   document_id: string;
-  signer_id: string;
+  signer_id: string | null;
   signer_email: string;
   token: string;
   expires_at: string;
@@ -977,27 +971,19 @@ export async function syncProfileIdentity(input: SyncProfileIdentityInput) {
   const normalizedProfileKind = inferProfileKind(normalizedEmail, input.profileKind);
   const normalizedUsername = deriveUsername(normalizedEmail, input.username);
 
-  const [organizationMembershipsResult, workspaceMembershipsResult] = await Promise.all([
-    adminClient
-      .from("organization_memberships")
-      .select("role, created_at, organizations(id, name, account_type, owner_user_id)")
-      .eq("user_id", input.id),
-    adminClient
-      .from("workspace_memberships")
-      .select("role, created_at, workspaces(id, name, workspace_type, owner_user_id)")
-      .eq("user_id", input.id),
-  ]);
+  const { data: accountMemberships, error: accountMembershipsError } = await adminClient
+    .from("account_members")
+    .select(
+      "account_class, created_at, organizations(id, name, account_type, owner_user_id), workspaces(id, name, workspace_type, owner_user_id)",
+    )
+    .eq("user_id", input.id);
 
-  if (organizationMembershipsResult.error) {
-    throw new AppError(500, organizationMembershipsResult.error.message);
+  if (accountMembershipsError) {
+    throw new AppError(500, accountMembershipsError.message);
   }
 
-  if (workspaceMembershipsResult.error) {
-    throw new AppError(500, workspaceMembershipsResult.error.message);
-  }
-
-  const preferredOrganization = ((organizationMembershipsResult.data ?? []) as Array<{
-    role: "account_admin" | "admin" | "member" | "billing_admin";
+  const preferredMembership = ((accountMemberships ?? []) as Array<{
+    account_class: AccountClass;
     created_at: string;
     organizations:
       | {
@@ -1013,25 +999,6 @@ export async function syncProfileIdentity(input: SyncProfileIdentityInput) {
           owner_user_id: string;
         }>
       | null;
-  }>)
-    .map((entry) => ({
-      role: entry.role,
-      createdAt: entry.created_at,
-      organization: Array.isArray(entry.organizations) ? entry.organizations[0] ?? null : entry.organizations,
-    }))
-    .filter((entry) => entry.organization)
-    .sort((left, right) => {
-      const roleWeight = (role: string) =>
-        role === "account_admin" ? 0 : role === "admin" ? 1 : role === "billing_admin" ? 2 : 3;
-      return (
-        roleWeight(left.role) - roleWeight(right.role) ||
-        left.createdAt.localeCompare(right.createdAt)
-      );
-    })[0]?.organization ?? null;
-
-  const preferredWorkspace = ((workspaceMembershipsResult.data ?? []) as Array<{
-    role: "account_admin" | "admin" | "member" | "billing_admin";
-    created_at: string;
     workspaces:
       | {
           id: string;
@@ -1048,19 +1015,23 @@ export async function syncProfileIdentity(input: SyncProfileIdentityInput) {
       | null;
   }>)
     .map((entry) => ({
-      role: entry.role,
+      accountClass: entry.account_class,
       createdAt: entry.created_at,
+      organization: Array.isArray(entry.organizations) ? entry.organizations[0] ?? null : entry.organizations,
       workspace: Array.isArray(entry.workspaces) ? entry.workspaces[0] ?? null : entry.workspaces,
     }))
-    .filter((entry) => entry.workspace)
+    .filter((entry) => entry.organization || entry.workspace)
     .sort((left, right) => {
-      const roleWeight = (role: string) =>
-        role === "account_admin" ? 0 : role === "admin" ? 1 : role === "billing_admin" ? 2 : 3;
+      const accountClassWeight = (accountClass: AccountClass) =>
+        accountClass === "corporate_admin" ? 0 : accountClass === "corporate_member" ? 1 : 2;
       return (
-        roleWeight(left.role) - roleWeight(right.role) ||
+        accountClassWeight(left.accountClass) - accountClassWeight(right.accountClass) ||
         left.createdAt.localeCompare(right.createdAt)
       );
-    })[0]?.workspace ?? null;
+    })[0] ?? null;
+
+  const preferredOrganization = preferredMembership?.organization ?? null;
+  const preferredWorkspace = preferredMembership?.workspace ?? null;
 
   const normalizedAccountType = inferAccountType(
     input.accountType,
@@ -1608,21 +1579,6 @@ export async function ensureOrganizationForWorkspace(workspace: WorkspaceRow) {
     throw new AppError(500, workspaceError.message);
   }
 
-  const { error: membershipError } = await adminClient
-    .from("organization_memberships")
-    .upsert(
-      {
-        organization_id: organization.id,
-        user_id: workspace.owner_user_id,
-        role: "account_admin",
-      },
-      { onConflict: "organization_id,user_id" },
-    );
-
-  if (membershipError) {
-    throw new AppError(500, membershipError.message);
-  }
-
   const { error: accountMemberError } = await adminClient.from("account_members").upsert(
     {
       account_id: organization.id,
@@ -1634,7 +1590,6 @@ export async function ensureOrganizationForWorkspace(workspace: WorkspaceRow) {
         membershipRole: "account_admin",
       }),
       is_primary_admin: true,
-      source_membership_role: "account_admin",
     },
     { onConflict: "account_id,user_id" },
   );
@@ -1644,22 +1599,6 @@ export async function ensureOrganizationForWorkspace(workspace: WorkspaceRow) {
   }
 
   return organization as OrganizationRow;
-}
-
-export async function getOrganizationMembershipRole(organizationId: string, userId: string) {
-  const adminClient = createServiceRoleClient();
-  const { data, error } = await adminClient
-    .from("organization_memberships")
-    .select("role")
-    .eq("organization_id", organizationId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (error) {
-    throw new AppError(500, error.message);
-  }
-
-  return (data?.role ?? null) as OrganizationMembershipRow["role"] | null;
 }
 
 export async function getAccountClassForUser(input: {
@@ -1779,7 +1718,7 @@ async function syncOrganizationLicenseAssignments(organization: OrganizationRow,
   const [membershipsResult, invitationsResult] = await Promise.all([
     adminClient
       .from("account_members")
-      .select("account_id, user_id, account_class, source_membership_role, created_at")
+      .select("account_id, user_id, account_class, created_at")
       .eq("account_id", organization.id),
     adminClient
       .from("account_invitations")
@@ -1801,7 +1740,6 @@ async function syncOrganizationLicenseAssignments(organization: OrganizationRow,
     account_id: string;
     user_id: string;
     account_class: AccountClass;
-    source_membership_role: string | null;
     created_at: string;
   }>;
   const invitationRows = (invitationsResult.data ?? []) as Array<{
@@ -1865,7 +1803,7 @@ async function syncOrganizationLicenseAssignments(organization: OrganizationRow,
         organization_id: organization.id,
         workspace_id: workspace.id,
         user_id: member.user_id,
-        role: legacyMembershipRoleFromAccountClass(member.account_class),
+        role: organizationLicenseRoleFromAccountClass(member.account_class),
         status: "assigned",
         assigned_by_user_id: organization.owner_user_id,
         assigned_at: member.created_at,
@@ -1885,7 +1823,7 @@ async function syncOrganizationLicenseAssignments(organization: OrganizationRow,
         organization_id: organization.id,
         workspace_id: invitation.workspace_id ?? workspace.id,
         invited_email: normalizeEmailAddress(invitation.email),
-        role: legacyMembershipRoleFromAccountClass(invitation.account_class),
+        role: organizationLicenseRoleFromAccountClass(invitation.account_class),
         status: "invited",
         assigned_by_user_id: invitation.invited_by_user_id,
         assigned_at: invitation.created_at,
@@ -1937,7 +1875,7 @@ export async function getOrganizationAdminOverviewForAuthorizationHeader(
   ] = await Promise.all([
     adminClient
       .from("account_members")
-      .select("account_id, user_id, account_class, source_membership_role, created_at")
+      .select("account_id, user_id, account_class, created_at")
       .eq("account_id", organization.id)
       .order("created_at", { ascending: true }),
     adminClient
@@ -1996,7 +1934,6 @@ export async function getOrganizationAdminOverviewForAuthorizationHeader(
     account_id: string;
     user_id: string;
     account_class: AccountClass;
-    source_membership_role: string | null;
     created_at: string;
   }>;
   const invitations = (invitationsResult.data ?? []) as Array<{
@@ -2206,7 +2143,6 @@ export async function changePrimaryAccountAdminForAuthorizationHeader(
         user_id: parsed.targetUserId,
         account_class: "corporate_admin",
         is_primary_admin: true,
-        source_membership_role: "account_admin",
       },
       { onConflict: "account_id,user_id" },
     ),
@@ -2215,29 +2151,9 @@ export async function changePrimaryAccountAdminForAuthorizationHeader(
       .update({
         account_class: "corporate_admin",
         is_primary_admin: false,
-        source_membership_role: "account_admin",
         updated_at: new Date().toISOString(),
       })
       .eq("account_id", organization.id)
-      .eq("user_id", user.id),
-    // TEMP_MIGRATION_BRIDGE: workspace routing still depends on legacy memberships.
-    adminClient.from("organization_memberships").upsert(
-      { organization_id: organization.id, user_id: parsed.targetUserId, role: "account_admin" },
-      { onConflict: "organization_id,user_id" },
-    ),
-    adminClient.from("workspace_memberships").upsert(
-      { workspace_id: workspace.id, user_id: parsed.targetUserId, role: "account_admin" },
-      { onConflict: "workspace_id,user_id" },
-    ),
-    adminClient
-      .from("organization_memberships")
-      .update({ role: "admin" })
-      .eq("organization_id", organization.id)
-      .eq("user_id", user.id),
-    adminClient
-      .from("workspace_memberships")
-      .update({ role: "admin" })
-      .eq("workspace_id", workspace.id)
       .eq("user_id", user.id),
   ]);
 
@@ -2334,22 +2250,12 @@ export async function resolveWorkspaceForUser(
 
   if (existingWorkspace) {
     await ensureOrganizationForWorkspace(existingWorkspace as WorkspaceRow);
-    await adminClient.from("workspace_memberships").upsert(
-      {
-        workspace_id: existingWorkspace.id,
-        user_id: user.id,
-        role: "account_admin",
-      },
-      {
-        onConflict: "workspace_id,user_id",
-      },
-    );
 
     return existingWorkspace;
   }
 
   const { data: pendingWorkspaceInvite, error: pendingWorkspaceInviteError } = await adminClient
-    .from("workspace_invitations")
+    .from("account_invitations")
     .select("id")
     .is("accepted_at", null)
     .ilike("email", normalizeEmailAddress(user.email))
@@ -2492,26 +2398,6 @@ export async function resolveWorkspaceForUser(
     throw new AppError(500, createWorkspaceError?.message ?? "Unable to create a workspace.");
   }
 
-  const { error: membershipError } = await adminClient.from("workspace_memberships").insert({
-    workspace_id: createdWorkspace.id,
-    user_id: user.id,
-    role: "account_admin",
-  });
-
-  if (membershipError) {
-    throw new AppError(500, membershipError.message);
-  }
-
-  const { error: orgMembershipError } = await adminClient.from("organization_memberships").insert({
-    organization_id: createdOrganization.id,
-    user_id: user.id,
-    role: "account_admin",
-  });
-
-  if (orgMembershipError) {
-    throw new AppError(500, orgMembershipError.message);
-  }
-
   const { error: accountMemberError } = await adminClient.from("account_members").upsert(
     {
       account_id: createdOrganization.id,
@@ -2523,7 +2409,6 @@ export async function resolveWorkspaceForUser(
         membershipRole: "account_admin",
       }),
       is_primary_admin: true,
-      source_membership_role: "account_admin",
     },
     { onConflict: "account_id,user_id" },
   );
@@ -2985,47 +2870,6 @@ export async function resolveAuthenticatedUser(authorizationHeader: string | und
     },
   );
 
-  const { data: invites } = await adminClient
-    .from("document_invites")
-    .select("id, document_id, email, role, accepted_at")
-    .is("accepted_at", null)
-    .ilike("email", normalizedEmail);
-
-  if (invites && invites.length > 0) {
-    await Promise.all(
-      invites.map(async (invite) => {
-        const typedInvite = invite as DocumentInviteRow;
-
-        await upsertDocumentAccessRole(
-          adminClient,
-          typedInvite.document_id,
-          user.id,
-          typedInvite.role,
-        );
-
-        await adminClient
-          .from("document_invites")
-          .update({ accepted_at: new Date().toISOString() })
-          .eq("id", typedInvite.id);
-
-        if (typedInvite.role === "signer") {
-          await adminClient
-            .from("document_signers")
-            .update({ user_id: user.id })
-            .eq("document_id", typedInvite.document_id)
-            .ilike("email", normalizedEmail)
-            .is("user_id", null);
-          await adminClient
-            .from("document_participants")
-            .update({ user_id: user.id, updated_at: new Date().toISOString() })
-            .eq("document_id", typedInvite.document_id)
-            .ilike("email", normalizedEmail)
-            .is("user_id", null);
-        }
-      }),
-    );
-  }
-
   const { data: signerRows } = await adminClient
     .from("document_signers")
     .select("id, document_id, user_id, name, email, participant_type, required, routing_stage, signing_order")
@@ -3049,6 +2893,12 @@ export async function resolveAuthenticatedUser(authorizationHeader: string | und
       }),
     );
   }
+
+  await adminClient
+    .from("document_participants")
+    .update({ user_id: user.id, updated_at: new Date().toISOString() })
+    .ilike("email", normalizedEmail)
+    .is("user_id", null);
 
   await ensureDefaultWorkspaceForUser(user);
 
@@ -3990,24 +3840,14 @@ async function assertWorkspaceHasSigningTokens(workspaceId: string, count: numbe
 
 async function generateSigningToken(
   documentId: string,
-  signerId: string,
-  signerEmail: string,
+  signer: Pick<Signer, "id" | "participantId" | "email">,
   expiresAt: string,
 ) {
   const adminClient = createServiceRoleClient();
   const token = crypto.randomUUID();
+  const participantId = signer.participantId;
 
-  const { data: participant, error: participantLookupError } = await adminClient
-    .from("document_participants")
-    .select("id")
-    .eq("legacy_signer_id", signerId)
-    .maybeSingle();
-
-  if (participantLookupError) {
-    throw new AppError(500, participantLookupError.message);
-  }
-
-  if (!participant) {
+  if (!participantId) {
     throw new AppError(500, "Signer is missing a target document participant.");
   }
 
@@ -4024,7 +3864,7 @@ async function generateSigningToken(
       verified_at: null,
     })
     .eq("document_id", documentId)
-    .eq("participant_id", participant.id)
+    .eq("participant_id", participantId)
     .is("voided_at", null);
 
   if (voidError) {
@@ -4032,7 +3872,7 @@ async function generateSigningToken(
   }
 
   const { error: participantTokenError } = await adminClient.from("document_participant_tokens").insert({
-    participant_id: participant.id,
+    participant_id: participantId,
     document_id: documentId,
     token,
     expires_at: expiresAt,
@@ -4048,16 +3888,21 @@ async function generateSigningToken(
 
 async function getOrReuseSigningToken(
   documentId: string,
-  signerId: string,
-  signerEmail: string,
+  signer: Pick<Signer, "id" | "participantId" | "email">,
   expiresAt: string,
 ) {
   const adminClient = createServiceRoleClient();
+  const participantId = signer.participantId;
+
+  if (!participantId) {
+    throw new AppError(500, "Signer is missing a target document participant.");
+  }
+
   const { data } = await adminClient
     .from("document_participant_tokens")
-    .select("token, expires_at, voided_at, document_participants!inner(legacy_signer_id)")
+    .select("token, expires_at, voided_at")
     .eq("document_id", documentId)
-    .eq("document_participants.legacy_signer_id", signerId)
+    .eq("participant_id", participantId)
     .is("voided_at", null)
     .order("created_at", { ascending: false })
     .limit(1);
@@ -4068,7 +3913,7 @@ async function getOrReuseSigningToken(
     return existing.token as string;
   }
 
-  return generateSigningToken(documentId, signerId, signerEmail, expiresAt);
+  return generateSigningToken(documentId, signer, expiresAt);
 }
 
 async function requireValidSigningToken(token: string, documentId: string) {
@@ -4076,7 +3921,7 @@ async function requireValidSigningToken(token: string, documentId: string) {
   const { data, error } = await adminClient
     .from("document_participant_tokens")
     .select(
-      "id, participant_id, document_id, token, expires_at, voided_at, verification_code_hash, verification_code_sent_at, verification_code_expires_at, verification_attempt_count, verified_at, last_viewed_at, last_completed_at, void_reason, legacy_signing_token_id, document_participants!inner(legacy_signer_id, email)",
+      "id, participant_id, document_id, token, expires_at, voided_at, verification_code_hash, verification_code_sent_at, verification_code_expires_at, verification_attempt_count, verified_at, last_viewed_at, last_completed_at, void_reason, legacy_signing_token_id, document_participants!inner(id, legacy_signer_id, email)",
     )
     .eq("token", token)
     .maybeSingle();
@@ -4108,13 +3953,13 @@ async function requireValidSigningToken(token: string, documentId: string) {
     ? data.document_participants[0] ?? null
     : data.document_participants;
 
-  if (!participant?.legacy_signer_id || !participant.email) {
+  if (!participant?.id || !participant.email) {
     throw new AppError(403, "The signer associated with this link is no longer on this document.");
   }
 
   return {
     ...data,
-    signer_id: participant.legacy_signer_id,
+    signer_id: participant.legacy_signer_id ?? null,
     signer_email: participant.email,
   } as SigningTokenRow;
 }
@@ -4160,23 +4005,22 @@ function toSigningVerificationState(tokenRow: SigningTokenRow) {
   };
 }
 
+function findSignerForSigningToken(document: DocumentRecord, tokenRow: SigningTokenRow) {
+  return (
+    document.signers.find((signer) => signerAssignmentId(signer) === tokenRow.participant_id) ??
+    document.signers.find((signer) => signer.id === tokenRow.signer_id) ??
+    null
+  );
+}
+
 async function invalidateSigningTokensForSigner(
   documentId: string,
-  signerId: string,
+  signer: Pick<Signer, "id" | "participantId">,
   reason: "completed" | "revoked" | "superseded",
 ) {
   const adminClient = createServiceRoleClient();
   const now = new Date().toISOString();
-  const { data: participants, error: participantLookupError } = await adminClient
-    .from("document_participants")
-    .select("id")
-    .eq("legacy_signer_id", signerId);
-
-  if (participantLookupError) {
-    throw new AppError(500, `Failed to resolve target document participants: ${participantLookupError.message}`);
-  }
-
-  const participantIds = (participants ?? []).map((participant) => participant.id);
+  const participantIds = signer.participantId ? [signer.participantId] : [];
 
   if (participantIds.length > 0) {
     const { error: participantTokenError } = await adminClient
@@ -5030,10 +4874,11 @@ async function assertPermission(
   ) {
     const adminClient = createServiceRoleClient();
     const { data: byUserId, error: byUserIdError } = await adminClient
-      .from("document_signers")
+      .from("document_participants")
       .select("id")
       .eq("document_id", documentId)
       .eq("user_id", user.id)
+      .in("document_mode", ["internal_signer", "external_signer"])
       .limit(1)
       .maybeSingle();
 
@@ -5046,10 +4891,11 @@ async function assertPermission(
     }
 
     const { data: byEmail, error: byEmailError } = await adminClient
-      .from("document_signers")
+      .from("document_participants")
       .select("id")
       .eq("document_id", documentId)
       .ilike("email", normalizeEmailAddress(user.rawEmail))
+      .in("document_mode", ["internal_signer", "external_signer"])
       .limit(1)
       .maybeSingle();
 
@@ -5652,8 +5498,8 @@ export async function listAdminUsersForAuthorizationHeader(
   const [profileById, membershipsResponse, documentsResponse] = await Promise.all([
     getProfileIdentitiesById(adminClient, userIds),
     adminClient
-      .from("workspace_memberships")
-      .select("workspace_id, user_id, role")
+      .from("account_members")
+      .select("workspace_id, user_id, account_class")
       .in("user_id", userIds),
     adminClient
       .from("documents")
@@ -5669,11 +5515,13 @@ export async function listAdminUsersForAuthorizationHeader(
   }
 
   const memberships = (membershipsResponse.data ?? []) as Array<{
-    workspace_id: string;
+    workspace_id: string | null;
     user_id: string;
-    role: "account_admin" | "admin" | "member" | "billing_admin";
+    account_class: AccountClass;
   }>;
-  const workspaceIds = [...new Set(memberships.map((membership) => membership.workspace_id))];
+  const workspaceIds = [
+    ...new Set(memberships.map((membership) => membership.workspace_id).filter((workspaceId): workspaceId is string => Boolean(workspaceId))),
+  ];
   const workspacesResponse =
     workspaceIds.length > 0
       ? await adminClient.from("workspaces").select("id, name").in("id", workspaceIds)
@@ -5718,10 +5566,10 @@ export async function listAdminUsersForAuthorizationHeader(
         : "pending_confirmation";
       const privilegeLabels = [
         ...(adminEmails.has(normalizedEmail) ? ["platform admin"] : []),
-        ...workspaceMemberships.map((membership) => {
-          const workspace = workspaceById.get(membership.workspace_id);
-          return `${membership.role} @ ${workspace?.name ?? membership.workspace_id}`;
-        }),
+	        ...workspaceMemberships.map((membership) => {
+	          const workspace = membership.workspace_id ? workspaceById.get(membership.workspace_id) : null;
+	          return `${membership.account_class} @ ${workspace?.name ?? membership.workspace_id ?? "account"}`;
+	        }),
       ];
 
       return {
@@ -6878,19 +6726,6 @@ export async function addSignerForAuthorizationHeader(
     throw new AppError(500, participantError.message);
   }
 
-  await adminClient.from("document_invites").upsert(
-    {
-      document_id: documentId,
-      email: parsed.email,
-      role: "signer",
-      invited_by_user_id: user.id,
-    },
-    {
-      onConflict: "document_id,email,role",
-      ignoreDuplicates: false,
-    },
-  );
-
   await appendAuditEvent(
     documentId,
     user.id,
@@ -7086,19 +6921,6 @@ export async function reassignDocumentSignerForAuthorizationHeader(
     throw new AppError(500, participantError.message);
   }
 
-  await adminClient.from("document_invites").upsert(
-    {
-      document_id: documentId,
-      email: parsed.email,
-      role: "signer",
-      invited_by_user_id: user.id,
-    },
-    {
-      onConflict: "document_id,email,role",
-      ignoreDuplicates: false,
-    },
-  );
-
   await appendAuditEvent(
     documentId,
     user.id,
@@ -7234,24 +7056,6 @@ export async function inviteCollaboratorForAuthorizationHeader(
     throw new AppError(500, participantError.message);
   }
 
-  // TEMP_MIGRATION_BRIDGE: email invitation acceptance still checks document_invites.
-  const { error } = await adminClient.from("document_invites").upsert(
-    {
-    document_id: documentId,
-    email: parsed.email,
-      role: legacyRole,
-      invited_by_user_id: user.id,
-      accepted_at: null,
-    },
-    {
-      onConflict: "document_id,email,role",
-    },
-  );
-
-  if (error) {
-    throw new AppError(500, error.message);
-  }
-
   await appendVersion(documentId, user.id, "Updated access", `Invited ${parsed.email} as ${parsed.authority}`);
   await appendAuditEvent(
     documentId,
@@ -7353,7 +7157,7 @@ export async function sendDocumentForAuthorizationHeader(
 
         await Promise.all(
           externalEligible.map(async (signer) => {
-            const token = await generateSigningToken(document.id, signer.id, signer.email, tokenExpiry);
+            const token = await generateSigningToken(document.id, signer, tokenExpiry);
             signerTokens.set(signer.id, token);
           }),
         );
@@ -8059,7 +7863,7 @@ export async function duplicateDocumentForAuthorizationHeader(
       : field.assigneeSignerId
         ? participantIdMap.get(field.assigneeSignerId) ?? null
         : null,
-    assignee_signer_id: field.assigneeSignerId ? signerIdMap.get(field.assigneeSignerId) ?? null : null,
+    assignee_signer_id: null,
     source: field.source,
     x: field.x,
     y: field.y,
@@ -8473,7 +8277,7 @@ export async function sendSigningTokenVerificationCode(token: string, documentId
   const tokenRow = await requireValidSigningToken(token, documentId);
   const env = readServerEnv();
   const document = await requireDocumentBundle(documentId);
-  const signer = document.signers.find((candidate) => candidate.id === tokenRow.signer_id);
+  const signer = findSignerForSigningToken(document, tokenRow);
 
   if (!signer) {
     throw new AppError(403, "The signer associated with this link is no longer on this document.");
@@ -8620,7 +8424,7 @@ export async function verifySigningTokenCode(
     throw new AppError(500, verifyError.message);
   }
   const document = await requireDocumentBundle(documentId);
-  const signer = document.signers.find((candidate) => candidate.id === tokenRow.signer_id);
+  const signer = findSignerForSigningToken(document, tokenRow);
 
   await appendAuditEvent(
     documentId,
@@ -8629,7 +8433,7 @@ export async function verifySigningTokenCode(
     "Verified guest signing session by email code",
     {
       verificationOnly: true,
-      signerId: tokenRow.signer_id,
+      signerId: tokenRow.signer_id ?? tokenRow.participant_id,
     },
   );
 
@@ -8643,7 +8447,7 @@ export async function resolveSigningTokenSession(token: string, documentId: stri
   const tokenRow = await requireValidSigningToken(token, documentId);
   const document = await requireDocumentBundle(documentId);
 
-  const signer = document.signers.find((s) => s.id === tokenRow.signer_id);
+  const signer = findSignerForSigningToken(document, tokenRow);
 
   if (!signer) {
     throw new AppError(403, "The signer associated with this link is no longer on this document.");
@@ -8742,7 +8546,7 @@ export async function placeAndCompleteSignatureFieldForAuthorizationHeader(
       label: fieldLabel,
       required: false,
       assignee_participant_id: signerAssignmentId(signer),
-      assignee_signer_id: signer.id,
+      assignee_signer_id: null,
       source: "manual",
       x: parsed.x,
       y: parsed.y,
@@ -8784,7 +8588,7 @@ export async function completeFieldForSigningToken(
   const adminClient = createServiceRoleClient();
   const document = await requireDocumentBundle(documentId);
 
-  const signer = document.signers.find((s) => s.id === tokenRow.signer_id);
+  const signer = findSignerForSigningToken(document, tokenRow);
 
   if (!signer) {
     throw new AppError(403, "The signer associated with this link is no longer on this document.");
@@ -8880,12 +8684,12 @@ export async function completeFieldForSigningToken(
     // For newly eligible signers, look up their tokens if they are external
     const signerTokens = new Map<string, string>();
     const newlyEligibleExternal = updatedDocument.signers.filter(
-      (s) => newlyEligibleSignerIds.includes(s.id) && s.participantType === "external",
+      (s) => newlyEligibleSignerIds.includes(signerAssignmentId(s)) && s.participantType === "external",
     );
 
     for (const nextSigner of newlyEligibleExternal) {
       const expiresAt = updatedDocument.dueAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-      const nextToken = await getOrReuseSigningToken(documentId, nextSigner.id, nextSigner.email, expiresAt);
+      const nextToken = await getOrReuseSigningToken(documentId, nextSigner, expiresAt);
       signerTokens.set(nextSigner.id, nextToken);
     }
 
@@ -8928,7 +8732,7 @@ export async function completeFieldForSigningToken(
   );
 
   if (!signerStillPending) {
-    await invalidateSigningTokensForSigner(documentId, signer.id, "completed");
+    await invalidateSigningTokensForSigner(documentId, signer, "completed");
   }
 
   const verificationState = signerStillPending
@@ -9004,7 +8808,7 @@ export async function remindDocumentSignersForAuthorizationHeader(
 
   for (const signer of externalEligible) {
     const expiresAt = document.dueAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    const token = await getOrReuseSigningToken(document.id, signer.id, signer.email, expiresAt);
+    const token = await getOrReuseSigningToken(document.id, signer, expiresAt);
     signerTokens.set(signer.id, token);
   }
 

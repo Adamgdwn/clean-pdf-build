@@ -137,6 +137,7 @@ The latest application pass closed the most important product-surface gaps for s
 - [docs/manual-testing-protocol.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/manual-testing-protocol.md): repeatable test protocol and results workbook
 - [docs/architecture.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/architecture.md): system and codebase structure
 - [docs/identity-and-monetization.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/identity-and-monetization.md): role and billing model
+- [docs/target-model-rollout.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/target-model-rollout.md): target account/document model, staging checks, and production rollout path
 - [docs/operator-runbook.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/operator-runbook.md): queue, feedback, and release operating loop
 - [docs/pdf-signature-rollout.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/pdf-signature-rollout.md): signature-path status, rollout steps, and smoke tests
 - [docs/pdf-signature-storage.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/pdf-signature-storage.md): bucket layout and storage rules

@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-import { legacyMembershipRoleFromAccountClass, type AccountClass } from "../../../packages/domain/src/index.js";
+import type { AccountClass } from "../../../packages/domain/src/index.js";
 import { getCanonicalAppOrigin, readServerEnv } from "../../../packages/workflow-service/src/env.js";
 import { buildWelcomeEmail, deliverNotificationEmail } from "../../../packages/workflow-service/src/notifications.js";
 import {
@@ -223,35 +223,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     }
 
     if (data.user && inviteContext) {
-      const legacyRole = legacyMembershipRoleFromAccountClass(inviteContext.accountClass);
-      // TEMP_MIGRATION_BRIDGE: workspace routing still depends on workspace_memberships.
-      const { error: workspaceMembershipError } = await adminClient.from("workspace_memberships").upsert(
-        {
-          workspace_id: inviteContext.workspaceId,
-          user_id: data.user.id,
-          role: legacyRole,
-        },
-        { onConflict: "workspace_id,user_id" },
-      );
-
-      if (workspaceMembershipError) {
-        return response.status(500).json({ message: workspaceMembershipError.message });
-      }
-
       if (inviteContext.organizationId) {
-        const { error: organizationMembershipError } = await adminClient.from("organization_memberships").upsert(
-          {
-            organization_id: inviteContext.organizationId,
-            user_id: data.user.id,
-            role: legacyRole,
-          },
-          { onConflict: "organization_id,user_id" },
-        );
-
-        if (organizationMembershipError) {
-          return response.status(500).json({ message: organizationMembershipError.message });
-        }
-
         const { data: accountContext, error: accountContextError } = await adminClient
           .from("workspaces")
           .select("id, workspace_type, organizations(id, account_type, owner_user_id)")
@@ -274,7 +246,6 @@ export default async function handler(request: VercelRequest, response: VercelRe
               user_id: data.user.id,
               account_class: inviteContext.accountClass,
               is_primary_admin: organization.owner_user_id === data.user.id,
-              source_membership_role: legacyRole,
             },
             { onConflict: "account_id,user_id" },
           );

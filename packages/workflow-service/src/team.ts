@@ -1,9 +1,6 @@
 import { z } from "zod";
 
-import {
-  legacyMembershipRoleFromAccountClass,
-  type AccountClass,
-} from "../../domain/src/index.js";
+import type { AccountClass } from "../../domain/src/index.js";
 import { getCanonicalAppOrigin, readServerEnv } from "./env.js";
 import { AppError } from "./errors.js";
 import { deliverNotificationEmail } from "./notifications.js";
@@ -483,39 +480,24 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
         .maybeSingle();
 
       if (workspace?.organization_id) {
-        const legacyRole = legacyMembershipRoleFromAccountClass(invitation.account_class);
-        const { error: orgMembershipError } = await adminClient.from("organization_memberships").upsert(
-          {
-            organization_id: workspace.organization_id,
-            user_id: user.id,
-            role: legacyRole,
-          },
-          { onConflict: "organization_id,user_id" },
-        );
+        const organization = await getOrganizationById(workspace.organization_id);
+        if (organization) {
+          const { error: accountMemberError } = await adminClient.from("account_members").upsert(
+            {
+              account_id: workspace.organization_id,
+              workspace_id: workspace.id,
+              user_id: user.id,
+              account_class: invitation.account_class,
+              is_primary_admin: workspace.owner_user_id === user.id,
+            },
+            { onConflict: "account_id,user_id" },
+          );
 
-          if (orgMembershipError) {
-            throw new AppError(500, orgMembershipError.message);
-          }
-
-          const organization = await getOrganizationById(workspace.organization_id);
-          if (organization) {
-            const { error: accountMemberError } = await adminClient.from("account_members").upsert(
-              {
-                account_id: workspace.organization_id,
-                workspace_id: workspace.id,
-                user_id: user.id,
-                account_class: invitation.account_class,
-                is_primary_admin: workspace.owner_user_id === user.id,
-                source_membership_role: legacyRole,
-              },
-              { onConflict: "account_id,user_id" },
-            );
-
-            if (accountMemberError) {
-              throw new AppError(500, accountMemberError.message);
-            }
+          if (accountMemberError) {
+            throw new AppError(500, accountMemberError.message);
           }
         }
+      }
 
       return {
         joined: true,
@@ -540,8 +522,6 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
     .eq("user_id", user.id)
     .maybeSingle();
 
-  const legacyRole = legacyMembershipRoleFromAccountClass(invitation.account_class);
-
   if (!existingMembership) {
     const { error: accountMemberError } = await adminClient.from("account_members").upsert(
       {
@@ -550,21 +530,11 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
         user_id: user.id,
         account_class: invitation.account_class,
         is_primary_admin: false,
-        source_membership_role: legacyRole,
       },
       { onConflict: "account_id,user_id" },
     );
 
     if (accountMemberError) throw new AppError(500, accountMemberError.message);
-
-    // TEMP_MIGRATION_BRIDGE: workspace routing still depends on workspace_memberships.
-    const { error: membershipError } = await adminClient.from("workspace_memberships").insert({
-      workspace_id: invitation.workspace_id,
-      user_id: user.id,
-      role: legacyRole,
-    });
-
-    if (membershipError) throw new AppError(500, membershipError.message);
   }
 
   // Mark as accepted
@@ -581,19 +551,6 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
     .maybeSingle();
 
   if (workspace?.organization_id) {
-    const { error: orgMembershipError } = await adminClient.from("organization_memberships").upsert(
-      {
-        organization_id: workspace.organization_id,
-        user_id: user.id,
-        role: legacyRole,
-      },
-      { onConflict: "organization_id,user_id" },
-    );
-
-    if (orgMembershipError) {
-      throw new AppError(500, orgMembershipError.message);
-    }
-
     const organization = await getOrganizationById(workspace.organization_id);
     if (organization) {
       const { error: accountMemberError } = await adminClient.from("account_members").upsert(
@@ -603,7 +560,6 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
           user_id: user.id,
           account_class: invitation.account_class,
           is_primary_admin: workspace.owner_user_id === user.id,
-          source_membership_role: legacyRole,
         },
         { onConflict: "account_id,user_id" },
       );
@@ -835,40 +791,16 @@ export async function changeWorkspaceMemberRoleForAuthorizationHeader(
   if (fetchError) throw new AppError(500, fetchError.message);
   if (!membership) throw new AppError(404, "That user is not a member of this workspace.");
 
-  const nextLegacyRole = legacyMembershipRoleFromAccountClass(parsed.accountClass);
-
   const { error: accountMemberError } = await adminClient
     .from("account_members")
     .update({
       account_class: parsed.accountClass,
-      source_membership_role: nextLegacyRole,
       updated_at: new Date().toISOString(),
     })
     .eq("account_id", workspace.organization_id)
     .eq("user_id", parsed.userId);
 
   if (accountMemberError) throw new AppError(500, accountMemberError.message);
-
-  // TEMP_MIGRATION_BRIDGE: workspace routing still depends on workspace_memberships.
-  const { error } = await adminClient
-    .from("workspace_memberships")
-    .update({ role: nextLegacyRole })
-    .eq("workspace_id", workspace.id)
-    .eq("user_id", parsed.userId);
-
-  if (error) throw new AppError(500, error.message);
-
-  if (workspace.organization_id) {
-    const { error: organizationError } = await adminClient
-      .from("organization_memberships")
-      .update({ role: nextLegacyRole })
-      .eq("organization_id", workspace.organization_id)
-      .eq("user_id", parsed.userId);
-
-    if (organizationError) {
-      throw new AppError(500, organizationError.message);
-    }
-  }
 
   return {
     updated: true,
@@ -921,57 +853,6 @@ export async function removeWorkspaceMemberForAuthorizationHeader(
     .eq("user_id", parsed.userId);
 
   if (accountMemberError) throw new AppError(500, accountMemberError.message);
-
-  // TEMP_MIGRATION_BRIDGE: workspace routing still depends on workspace_memberships.
-  const { error } = await adminClient
-    .from("workspace_memberships")
-    .delete()
-    .eq("workspace_id", workspace.id)
-    .eq("user_id", parsed.userId);
-
-  if (error) throw new AppError(500, error.message);
-
-  if (workspace.organization_id) {
-    const { count, error: remainingMembershipsError } = await adminClient
-      .from("workspace_memberships")
-      .select("workspace_id", { head: true, count: "exact" })
-      .eq("user_id", parsed.userId)
-      .in(
-        "workspace_id",
-        (
-          await adminClient
-            .from("workspaces")
-            .select("id")
-            .eq("organization_id", workspace.organization_id)
-        ).data?.map((entry) => entry.id) ?? [],
-      );
-
-    if (remainingMembershipsError) {
-      throw new AppError(500, remainingMembershipsError.message);
-    }
-
-    if ((count ?? 0) === 0) {
-      const { error: organizationError } = await adminClient
-        .from("organization_memberships")
-        .delete()
-        .eq("organization_id", workspace.organization_id)
-        .eq("user_id", parsed.userId);
-
-      if (organizationError) {
-        throw new AppError(500, organizationError.message);
-      }
-
-      const { error: bridgedAccountMemberError } = await adminClient
-        .from("account_members")
-        .delete()
-        .eq("account_id", workspace.organization_id)
-        .eq("user_id", parsed.userId);
-
-      if (bridgedAccountMemberError) {
-        throw new AppError(500, bridgedAccountMemberError.message);
-      }
-    }
-  }
 
   return { removed: true, userId: parsed.userId };
 }

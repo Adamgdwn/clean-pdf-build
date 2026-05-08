@@ -91,11 +91,6 @@ export function legacyAccessRoleFromAuthority(authority: AuthorityLevel): Legacy
   return authority;
 }
 
-export function legacyMembershipRoleFromAccountClass(accountClass: AccountClass): LegacyMembershipRole {
-  // TEMP_MIGRATION_BRIDGE
-  return accountClass === "corporate_member" ? "member" : "account_admin";
-}
-
 export function canAccountClassPerform(accountClass: AccountClass | null | undefined, action: AccountAction) {
   if (!accountClass) {
     return false;

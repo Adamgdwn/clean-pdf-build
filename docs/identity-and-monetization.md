@@ -1,6 +1,6 @@
 # Identity And Monetization
 
-> Planning note: the live private-beta product currently uses the simpler `seats + shared external tokens` story shown in the app, guide, and README. The quota-based ideas below remain internal exploration, not current public pricing.
+> Planning note: the live private-beta product currently uses the simpler `seats + shared external tokens` story shown in the app, guide, and README. The quota-based ideas below remain internal exploration, not current public pricing. The canonical implementation model is the target account/document model described in [target-model-rollout.md](/home/adamgoodwin/code/Applications/Clean_pdf_build/docs/target-model-rollout.md).
 
 ## Product recommendation
 
@@ -8,8 +8,8 @@ For this product, charge for internal team usage and workflow volume, not for ex
 
 That means:
 
-- account admins, editors, and billing admins count as paid seats
-- signers and viewers from outside the workspace do not
+- `corporate_admin` and `corporate_member` account members count as paid corporate seats
+- external signers and viewers from outside the account do not
 - usage charges should track completed documents, OCR pages, and storage
 
 This matches the customer value better than charging by raw recipient count and keeps the product feeling fair for multi-signer flows.
@@ -33,11 +33,12 @@ Recommended user data split:
 - `public.easydraft_user_profiles`: customer/product-user profile rows for individual users and team members
 - `public.easydraft_staff_profiles`: internal EasyDraft staff profile rows
 - `public.organizations`: parent account for individual or corporate customers
-- `public.organization_memberships`: which organization the user belongs to and their account role
-- `public.workspace_memberships`: which workspace the user belongs to and their workspace role
+- `public.account_members`: canonical account membership and account class
+- `public.account_invitations`: canonical pending and accepted account invitations
 - `public.organization_license_assignments`: which purchased or trial seats are assigned, invited, suspended, or revoked
 - `public.organization_account_events`: account-administration audit events such as primary account admin change and closure requests
-- `public.document_access`: document-level access for document_admin, editor, signer, viewer
+- `public.document_participants`: canonical document mode and authority
+- `public.document_participant_tokens`: canonical external signer token and verification state
 
 Avoid storing more PII than necessary in v1.
 
@@ -76,17 +77,24 @@ The repo now includes the base account/workspace tables in [20260330234500_ident
 
 ### 4. Recommended account model
 
-Use two account types:
+Use three account classes:
 
-- `individual`: one user operating alone, with their own billing and private workspace
-- `corporate`: a parent account that owns billing, members, and shared external signer tokens
+- `personal`: one user operating alone, with their own billing and private workspace
+- `corporate_admin`: a corporate account administrator with account, member, billing, and lifecycle authority
+- `corporate_member`: a corporate account member without account-owner authority
 
-Keep account administration as membership authority, not as a third profile type:
+Use document modes for workflow participation:
 
-- `account_admin`: controls account/workspace setup, member access, billing posture, primary account admin change, and account closure
-- `admin`: manages team access and can assign already-purchased licenses
-- `billing_admin`: manages subscription, purchased seats, payment methods, and token purchases
-- `member`: uses assigned product access without account-administration authority
+- `initiator`: document originator or setup/admin participant
+- `internal_signer`: authenticated EasyDraft signer
+- `external_signer`: token-based guest signer
+
+Use authority levels for document permission:
+
+- `viewer`
+- `signer`
+- `document_admin`
+- `org_admin_override`
 
 Recommended hierarchy:
 
@@ -113,7 +121,7 @@ Corporate signup is a first-class path, not a profile fallback:
 5. Supabase Auth stores login identity and metadata
 6. EasyDraft creates or resolves the role-specific profile row
 7. the account boundary is a `corporate` organization with a stored `verified_email_domain`
-8. the creator becomes `account_admin` in both organization and workspace memberships
+8. the creator becomes `corporate_admin` in `account_members`
 9. direct corporate signups start as `pending_verification`; invited users attach to the already verified organization
 10. the user lands in the organization admin dashboard
 
@@ -126,7 +134,7 @@ Corporate signup security rules:
 - platform admins can activate pending corporate organizations from the admin console after verification
 - invite-based signup attaches the user to the existing workspace and organization before the browser session is returned
 - accepted invite recovery re-ensures organization membership so partial attachment cannot masquerade as success
-- additional account admins are intentional: only an existing account admin can grant `account_admin` access
+- additional corporate admins are intentional: only an existing corporate admin can grant `corporate_admin` access
 
 The organization admin dashboard should answer the operational questions immediately:
 
@@ -141,9 +149,8 @@ The organization admin dashboard should answer the operational questions immedia
 
 Billing spend is intentionally narrower than people administration:
 
-- `account_admin` and `billing_admin` can buy seats, open the billing portal, and purchase token packs
-- `account_admin` and `admin` can manage people and assign available access
-- only `account_admin` can change primary account admin or request account closure
+- `corporate_admin` can buy seats, open the billing portal, purchase token packs, manage people, change the primary corporate admin, and request account closure
+- `corporate_member` can use assigned product access without account lifecycle authority
 
 ## Monetization model
 
