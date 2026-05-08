@@ -35,7 +35,7 @@ end $$;
 
 create table if not exists public.signature_identities (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.profiles(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
   label text not null,
   title_text text,
   signer_name text not null,
@@ -134,8 +134,13 @@ begin
           saved.user_id,
           saved.label,
           saved.title_text,
-          coalesce(nullif(saved.typed_text, ''), profile.display_name, split_part(profile.email, '@', 1), saved.label) as signer_name,
-          lower(trim(profile.email)) as signer_email,
+          coalesce(
+            nullif(saved.typed_text, ''),
+            nullif(user_profile.display_name, ''),
+            split_part(auth_user.email, '@', 1),
+            saved.label
+          ) as signer_name,
+          lower(trim(auth_user.email)) as signer_email,
           'electronic'::public.signature_assurance_level as assurance_level,
           saved.signature_type::text::public.signature_appearance_type as signature_type,
           saved.typed_text,
@@ -150,7 +155,8 @@ begin
             order by saved.is_default desc, saved.created_at desc, saved.id
           ) as row_number
         from public.saved_signatures saved
-        join public.profiles profile on profile.id = saved.user_id
+        join auth.users auth_user on auth_user.id = saved.user_id
+        left join public.easydraft_user_profiles user_profile on user_profile.user_id = saved.user_id
       )
       insert into public.signature_identities (
         id,
@@ -202,15 +208,27 @@ begin
           profile.user_id,
           profile.label,
           profile.title_text,
-          coalesce(nullif(profile.signer_name, ''), account.display_name, split_part(account.email, '@', 1), profile.label) as signer_name,
-          lower(trim(coalesce(profile.signer_email, account.email))) as signer_email,
+          coalesce(
+            nullif(profile.signer_name, ''),
+            nullif(user_profile.display_name, ''),
+            nullif(staff_profile.display_name, ''),
+            split_part(auth_user.email, '@', 1),
+            profile.label
+          ) as signer_name,
+          lower(trim(coalesce(profile.signer_email, auth_user.email))) as signer_email,
           profile.organization_name,
           case
             when profile.assurance_level = 'qualified' then 'qualified_provider'::public.signature_assurance_level
             else 'digital_pki'::public.signature_assurance_level
           end as assurance_level,
           'typed'::public.signature_appearance_type as signature_type,
-          coalesce(nullif(profile.signer_name, ''), account.display_name, split_part(account.email, '@', 1), profile.label) as typed_text,
+          coalesce(
+            nullif(profile.signer_name, ''),
+            nullif(user_profile.display_name, ''),
+            nullif(staff_profile.display_name, ''),
+            split_part(auth_user.email, '@', 1),
+            profile.label
+          ) as typed_text,
           case
             when profile.provider = 'qualified_remote' then 'qualified_remote'::public.signature_identity_provider
             when profile.provider = 'organization_hsm' then 'organization_hsm'::public.signature_identity_provider
@@ -228,12 +246,14 @@ begin
           profile.updated_at,
           row_number() over (
             partition by profile.user_id,
-              lower(trim(coalesce(profile.signer_email, account.email))),
+              lower(trim(coalesce(profile.signer_email, auth_user.email))),
               case when profile.assurance_level = 'qualified' then 'qualified_provider' else 'digital_pki' end
             order by profile.status = 'verified' desc, profile.created_at desc, profile.id
           ) as row_number
         from public.digital_signature_profiles profile
-        join public.profiles account on account.id = profile.user_id
+        join auth.users auth_user on auth_user.id = profile.user_id
+        left join public.easydraft_user_profiles user_profile on user_profile.user_id = profile.user_id
+        left join public.easydraft_staff_profiles staff_profile on staff_profile.user_id = profile.user_id
       )
       insert into public.signature_identities (
         id,
