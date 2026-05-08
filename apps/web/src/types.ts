@@ -161,6 +161,9 @@ export type SignatureIdentity = {
   isDefault: boolean;
   createdAt: string;
   updatedAt: string;
+  consentVersion: string;
+  consentAcceptedAt: string;
+  evidenceRetentionPolicy: string;
 };
 
 export type SignatureEvent = {

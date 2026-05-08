@@ -250,6 +250,8 @@ Recommended callback base: `https://easydraftdocs.app`
 
 Until that integration is wired, `internal_use_only` is the built-in low-cost signing path for authenticated internal users. It relies on EasyDraft accounts, electronic signature identities, and the audit trail rather than third-party certificate-backed signing.
 
+Signature identities are durable records. Users can retire an identity from active use only by confirming the signer email and typing `DELETE`. The row and storage reference stay available for completed-document evidence instead of being physically removed during normal signature deletion.
+
 ## Notifications and processor service
 
 Managed signature emails are attempted inline when notifications are queued and a supported email provider is configured. In production runtime, platform-managed sends now fail closed if email delivery is not configured. Resend is the recommended provider. The separate processor is still useful for retries and for OCR / field-detection workloads.

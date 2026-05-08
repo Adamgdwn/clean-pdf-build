@@ -570,6 +570,7 @@
 
     <h3>Signature identities</h3>
     <p>Internal participants can pre-create reusable signature identities in the <strong>Signature Library</strong> section of the sidebar. Each identity is tied to one signer email and one assurance level. You can create the same email at different assurance levels, but not duplicate the same email and assurance level.</p>
+    <p>Deleting a signature identity requires entering the signer email and typing <strong>DELETE</strong>. The identity disappears from future signing, while completed-document evidence remains retained.</p>
 
     <h3>Completing fields</h3>
     <p>When viewing a document with assigned fields, each field appears as a highlighted box. Click a field to fill it in. For signature and initial fields, you can choose an active electronic signature identity or create a new one inline. Once all required fields are complete, the <strong>Submit</strong> button becomes active.</p>
@@ -682,6 +683,7 @@
     <h2 class="section-title">Signature identities</h2>
 
     <p>EasyDraftDocs stores signature identities as electronic, verified-electronic, digital-PKI, or qualified-provider records. Active electronic identities can be applied to document fields today. Verified-electronic and provider-backed identities stay separate until the matching verification or provider-backed PDF finalization path is complete.</p>
+    <p>The signature library uses a three-step flow: confirm the signer identity, choose the assurance level, then choose the visual appearance. EasyDraft keeps a consent timestamp and retention policy with each identity.</p>
 
     <div class="callout note">
       <strong>Current trust model</strong>
@@ -697,6 +699,14 @@
         <tr>
           <td><strong>Electronic signature identities</strong></td>
           <td>Reusable typed or uploaded identities for assigned workflow fields.</td>
+        </tr>
+        <tr>
+          <td><strong>Verified deletion</strong></td>
+          <td>Users must confirm the signer email and type DELETE before an identity is retired from active use.</td>
+        </tr>
+        <tr>
+          <td><strong>Durable evidence</strong></td>
+          <td>Deleted identities are retained as evidence records so previously completed documents do not lose attribution.</td>
         </tr>
         <tr>
           <td><strong>Audit history</strong></td>
@@ -727,7 +737,7 @@
     <p>Update your display name, company, job title, timezone, locale, and email preferences from the <strong>Account</strong> section in the sidebar. Click <strong>Save account</strong> to apply changes.</p>
 
     <h3>Signature Library</h3>
-    <p>The <strong>Signature Library</strong> lets you create and store reusable signature identities. Each identity has a label, signer email, signer name, assurance level, provider, optional title line, and either typed text rendered in a signature font or an uploaded image. You can set one as your default so it is pre-selected whenever you sign.</p>
+    <p>The <strong>Signature Library</strong> lets you create and store reusable signature identities. Each identity has a label, signer email, signer name, assurance level, provider, optional title line, and either typed text rendered in a signature font or an uploaded image. Deletion is verified and removes the identity from future use without erasing completed-document evidence.</p>
 
     <h3>What data we store</h3>
     <ul>

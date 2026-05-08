@@ -231,6 +231,22 @@ function getParticipantTypeLabel(participantType: WorkflowDocument["signers"][nu
   return participantType === "internal" ? "Internal" : "External";
 }
 
+function getSignatureAssuranceSummary(assuranceLevel: SignatureIdentity["assuranceLevel"]) {
+  if (assuranceLevel === "electronic") {
+    return "Ready now for normal electronic signing with audit trail and export hash evidence.";
+  }
+
+  if (assuranceLevel === "verified_electronic") {
+    return "Stored separately until email verification for this reusable identity is completed.";
+  }
+
+  if (assuranceLevel === "digital_pki") {
+    return "Reserved for certificate-backed PDF signing after PKI provider setup.";
+  }
+
+  return "Reserved for qualified-provider signing after provider verification.";
+}
+
 function getOperationalStatusLabel(status: WorkflowDocument["operationalStatus"]) {
   if (status === "changes_requested") {
     return "Changes requested";
@@ -535,6 +551,9 @@ export default function App() {
   const [signatureIdentityType, setSignatureIdentityType] = useState<"typed" | "uploaded">("typed");
   const [signatureIdentityTypedText, setSignatureIdentityTypedText] = useState("");
   const [selectedSignatureIdentityId, setSelectedSignatureIdentityId] = useState("");
+  const [deleteSignatureConfirmEmail, setDeleteSignatureConfirmEmail] = useState("");
+  const [deleteSignatureConfirmText, setDeleteSignatureConfirmText] = useState("");
+  const [deletingSignatureId, setDeletingSignatureId] = useState<string | null>(null);
   const [internalSignatureFieldId, setInternalSignatureFieldId] = useState("");
   const [internalSignatureSignerName, setInternalSignatureSignerName] = useState("");
   const [internalSignatureSignerEmail, setInternalSignatureSignerEmail] = useState("");
@@ -829,7 +848,11 @@ export default function App() {
   async function refreshSignatureIdentities(activeSession: Session) {
     const payload = await apiFetch<{ signatures: SignatureIdentity[] }>("/signature-identities", activeSession);
     setSignatureIdentities(payload.signatures);
-    setSelectedSignatureIdentityId((currentValue) => currentValue || payload.signatures[0]?.id || "");
+    setSelectedSignatureIdentityId((currentValue) =>
+      payload.signatures.some((signature) => signature.id === currentValue)
+        ? currentValue
+        : payload.signatures[0]?.id || "",
+    );
   }
 
   async function refreshAdminOverview(activeSession: Session) {
@@ -1771,6 +1794,46 @@ export default function App() {
     }
   }
 
+  async function handleDeleteSignatureIdentity(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!session || !selectedSignatureIdentity) {
+      return;
+    }
+
+    setDeletingSignatureId(selectedSignatureIdentity.id);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      await apiFetch<{ deleted: boolean; retainedForEvidence: boolean }>("/signature-identities", session, {
+        method: "DELETE",
+        body: JSON.stringify({
+          signatureId: selectedSignatureIdentity.id,
+          confirmSignerEmail: deleteSignatureConfirmEmail.trim(),
+          confirmText: deleteSignatureConfirmText.trim(),
+        }),
+      });
+
+      setSignatureIdentities((current) =>
+        current.filter((signature) => signature.id !== selectedSignatureIdentity.id),
+      );
+      setSelectedSignatureIdentityId((currentValue) =>
+        currentValue === selectedSignatureIdentity.id
+          ? signatureIdentities.find((signature) => signature.id !== selectedSignatureIdentity.id)?.id ?? ""
+          : currentValue,
+      );
+      setDeleteSignatureConfirmEmail("");
+      setDeleteSignatureConfirmText("");
+      await refreshSignatureIdentities(session);
+      setNoticeMessage("Signature identity deleted from active use. Evidence records are retained for completed documents.");
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    } finally {
+      setDeletingSignatureId(null);
+    }
+  }
+
   function scrollSidebarTo(id: string) {
     const section = document.getElementById(id);
     if (!sidebarRef.current || !section) return;
@@ -1794,6 +1857,16 @@ export default function App() {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!accountProfile) {
+      return;
+    }
+
+    setSignatureIdentitySignerEmail((currentValue) => currentValue || accountProfile.email);
+    setSignatureIdentitySignerName((currentValue) => currentValue || accountProfile.displayName || accountProfile.email);
+    setSignatureIdentityOrganizationName((currentValue) => currentValue || accountProfile.companyName || "");
+  }, [accountProfile]);
 
   useEffect(() => {
     function handlePopState() {
@@ -3034,19 +3107,38 @@ export default function App() {
         ) : null}
 
         {sessionUser ? (
-          <section className="card" id="section-signatures">
-            <div className="section-heading compact">
-              <p className="eyebrow">Signature Library</p>
-              <span>{signatureIdentities.length}</span>
-            </div>
-            <div className="stack">
-              <p className="muted">
-                Create one signature identity per email and assurance level. Electronic identities can
-                be applied to fields today; verified and provider-backed identities stay separate until
-                their verification path is complete.
-              </p>
-              {signatureIdentities.length === 0 ? null : (
-                signatureIdentities.map((signature) => (
+	          <section className="card" id="section-signatures">
+	            <div className="section-heading compact">
+	              <p className="eyebrow">Signature Library</p>
+	              <span>{signatureIdentities.length}</span>
+	            </div>
+	            <div className="stack">
+	              <p className="muted">
+	                Create a durable signature identity once, then reuse it when signing. Each signer email
+	                can have one identity at each assurance level.
+	              </p>
+	              <div className="form-grid compact-grid">
+	                <div className="row-card">
+	                  <div>
+	                    <strong>1. Identity</strong>
+	                    <p className="muted">Use the legal signer name and email that should appear in evidence.</p>
+	                  </div>
+	                </div>
+	                <div className="row-card">
+	                  <div>
+	                    <strong>2. Assurance</strong>
+	                    <p className="muted">{getSignatureAssuranceSummary(signatureIdentityAssuranceLevel)}</p>
+	                  </div>
+	                </div>
+	                <div className="row-card">
+	                  <div>
+	                    <strong>3. Appearance</strong>
+	                    <p className="muted">Choose typed text or an uploaded image. The evidence record is retained after deletion.</p>
+	                  </div>
+	                </div>
+	              </div>
+	              {signatureIdentities.length === 0 ? null : (
+	                signatureIdentities.map((signature) => (
                   <button
                     key={signature.id}
                     className={`document-button ${selectedSignatureIdentityId === signature.id ? "active" : ""}`}
@@ -3062,38 +3154,82 @@ export default function App() {
                 ))
               )}
 
-              {selectedSignatureIdentity ? (
-                <div className="row-card">
-                  <div>
-                    <strong>{selectedSignatureIdentity.label}</strong>
-                    <p className="muted">
-                      {selectedSignatureIdentity.signatureType === "typed"
-                        ? selectedSignatureIdentity.typedText
-                        : "Uploaded signature image"}
-                    </p>
-                    <p className="muted">
-                      {selectedSignatureIdentity.signerName} · {selectedSignatureIdentity.signerEmail}
-                    </p>
-                    <p className="muted">
-                      {formatState(selectedSignatureIdentity.assuranceLevel)} · {formatState(selectedSignatureIdentity.status)}
-                    </p>
-                    {selectedSignatureIdentity.titleText ? (
-                      <p className="muted">{selectedSignatureIdentity.titleText}</p>
-                    ) : null}
-                  </div>
-                  {selectedSignatureIdentity.previewUrl ? (
-                    <img
-                      alt={`${selectedSignatureIdentity.label} preview`}
-                      src={selectedSignatureIdentity.previewUrl}
-                      style={{
-                        maxHeight: "48px",
-                        maxWidth: "120px",
-                        objectFit: "contain",
-                      }}
-                    />
-                  ) : null}
-                </div>
-              ) : null}
+	              {selectedSignatureIdentity ? (
+	                <div className="stack">
+	                  <div className="row-card">
+	                    <div>
+	                      <strong>{selectedSignatureIdentity.label}</strong>
+	                      <p className="muted">
+	                        {selectedSignatureIdentity.signatureType === "typed"
+	                          ? selectedSignatureIdentity.typedText
+	                          : "Uploaded signature image"}
+	                      </p>
+	                      <p className="muted">
+	                        {selectedSignatureIdentity.signerName} · {selectedSignatureIdentity.signerEmail}
+	                      </p>
+	                      <p className="muted">
+	                        {formatState(selectedSignatureIdentity.assuranceLevel)} · {formatState(selectedSignatureIdentity.status)}
+	                      </p>
+	                      <p className="muted">
+	                        Created {formatTimestamp(selectedSignatureIdentity.createdAt)} · Evidence retained after deletion
+	                      </p>
+	                      {selectedSignatureIdentity.titleText ? (
+	                        <p className="muted">{selectedSignatureIdentity.titleText}</p>
+	                      ) : null}
+	                    </div>
+	                    {selectedSignatureIdentity.previewUrl ? (
+	                      <img
+	                        alt={`${selectedSignatureIdentity.label} preview`}
+	                        src={selectedSignatureIdentity.previewUrl}
+	                        style={{
+	                          maxHeight: "48px",
+	                          maxWidth: "120px",
+	                          objectFit: "contain",
+	                        }}
+	                      />
+	                    ) : null}
+	                  </div>
+	                  <form className="stack form-block" onSubmit={handleDeleteSignatureIdentity}>
+	                    <div>
+	                      <strong>Delete signature identity</strong>
+	                      <p className="muted">
+	                        Deletion removes this identity from future signing. Historical document evidence is retained.
+	                      </p>
+	                    </div>
+	                    <label className="form-field">
+	                      <span>Confirm signer email</span>
+	                      <input
+	                        placeholder={selectedSignatureIdentity.signerEmail}
+	                        type="email"
+	                        value={deleteSignatureConfirmEmail}
+	                        onChange={(event) => setDeleteSignatureConfirmEmail(event.target.value)}
+	                      />
+	                    </label>
+	                    <label className="form-field">
+	                      <span>Type DELETE</span>
+	                      <input
+	                        placeholder="DELETE"
+	                        value={deleteSignatureConfirmText}
+	                        onChange={(event) => setDeleteSignatureConfirmText(event.target.value)}
+	                      />
+	                    </label>
+	                    <button
+	                      className="ghost-button"
+	                      disabled={
+	                        deletingSignatureId === selectedSignatureIdentity.id ||
+	                        deleteSignatureConfirmEmail.trim().toLowerCase() !== selectedSignatureIdentity.signerEmail ||
+	                        deleteSignatureConfirmText.trim() !== "DELETE"
+	                      }
+	                      style={{ color: "var(--color-danger, #c0392b)" }}
+	                      type="submit"
+	                    >
+	                      {deletingSignatureId === selectedSignatureIdentity.id
+	                        ? "Deleting signature..."
+	                        : "Delete signature"}
+	                    </button>
+	                  </form>
+	                </div>
+	              ) : null}
 
               <form className="stack form-block" onSubmit={handleCreateSignatureIdentity}>
                 <label className="form-field">
@@ -3214,17 +3350,24 @@ export default function App() {
                     />
                   </label>
                 )}
-                <label className="form-field">
-                  <span>Signing reason</span>
-                  <input
-                    placeholder="approve"
-                    value={signatureIdentitySigningReason}
-                    onChange={(event) => setSignatureIdentitySigningReason(event.target.value)}
-                  />
-                </label>
-                <button className="ghost-button" disabled={isLoading} type="submit">
-                  Save signature identity
-                </button>
+	                <label className="form-field">
+	                  <span>Signing reason</span>
+	                  <input
+	                    placeholder="approve"
+	                    value={signatureIdentitySigningReason}
+	                    onChange={(event) => setSignatureIdentitySigningReason(event.target.value)}
+	                  />
+	                </label>
+	                <label className="checkbox-row">
+	                  <input required type="checkbox" />
+	                  <span>
+	                    I understand this signature identity is stored for reuse, deletion requires verification, and
+	                    completed-document evidence remains retained.
+	                  </span>
+	                </label>
+	                <button className="ghost-button" disabled={isLoading} type="submit">
+	                  Save signature identity
+	                </button>
               </form>
             </div>
           </section>

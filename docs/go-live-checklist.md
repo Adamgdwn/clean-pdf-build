@@ -148,6 +148,8 @@ Store the future values in your secret manager or Vercel using these names for c
    - switching workspace updates documents, billing, and team scope together
    - public `/pricing` route loads and explains seats vs tokens clearly
    - signature library can save at least one typed electronic identity
+   - signature library delete requires signer email plus `DELETE`
+   - deleted signature identity disappears from active signing but completed document attribution remains readable
    - verified-electronic and provider-backed signature identities can be requested without browser fetch errors
    - upload
    - internal-use-only signing

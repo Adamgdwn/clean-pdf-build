@@ -196,6 +196,9 @@ export const signatureIdentitySchema = z.object({
   isDefault: z.boolean().default(false),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  consentVersion: z.string().default("signature_identity_v1"),
+  consentAcceptedAt: z.string().datetime(),
+  evidenceRetentionPolicy: z.string().default("retain_identity_record_after_delete"),
 });
 
 export const documentSchema = z.object({

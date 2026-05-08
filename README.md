@@ -71,6 +71,7 @@ Refine. Share. Sign.
 - Admin console for user management, resets, and deletion
 - Feedback intake with bug reports, feature requests, and admin-side triage workflow
 - Change-impact classification for post-sign document edits with `non_material`, `review_required`, and `resign_required`
+- Durable signature identities with verified deletion and retained evidence records
 - Redis-backed production rate limiting plus admin-visible queue metrics and Sentry hooks
 - Self-service account deletion
 - User guide at `/guide.html`
@@ -289,6 +290,8 @@ See `.env.example`. Required for a working deployment:
 **Tokens are consumed per external workflow send.** Internal participants on platform-managed workflows don't consume tokens. 1 token = 1 workflow sent to at least one external participant. For corporate accounts, token balance is shared across the organization and tracked as all-time credits minus all-time usage.
 
 **External signer verification is email-code-based.** Managed external signers still enter through a one-time link, but they must also verify a one-time email code before completing any signature, initial, or approval action. This is stronger than link-only completion, but it is not certificate-backed signing.
+
+**Signature identities are retired, not physically erased.** A user can delete a signature identity only after confirming the signer email and typing `DELETE`. Deleted identities are removed from active signing lists, but the identity row and storage reference are retained so completed-document evidence remains durable.
 
 **Corporate accounts are parent accounts.** A user can operate alone with an individual account or belong to a corporate account that owns billing, member administration, and the shared token bucket. Workspaces remain the operational container for documents.
 

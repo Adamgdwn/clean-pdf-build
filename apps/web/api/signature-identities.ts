@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import {
   createSignatureIdentityForAuthorizationHeader,
+  deleteSignatureIdentityForAuthorizationHeader,
   listSignatureIdentitiesForAuthorizationHeader,
 } from "../../../packages/workflow-service/src/index.js";
 
@@ -20,6 +21,17 @@ export default async function handler(request: VercelRequest, response: VercelRe
         .status(200)
         .json(
           await createSignatureIdentityForAuthorizationHeader(
+            readAuthorizationHeader(request),
+            request.body,
+          ),
+        );
+    }
+
+    if (request.method === "DELETE") {
+      return response
+        .status(200)
+        .json(
+          await deleteSignatureIdentityForAuthorizationHeader(
             readAuthorizationHeader(request),
             request.body,
           ),

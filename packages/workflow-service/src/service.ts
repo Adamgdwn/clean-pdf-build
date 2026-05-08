@@ -324,6 +324,10 @@ type SignatureIdentityRow = {
   is_default: boolean;
   created_at: string;
   updated_at: string;
+  consent_version: string;
+  consent_accepted_at: string;
+  evidence_retention_policy: string;
+  deleted_at: string | null;
 };
 
 type ProfileRow = {
@@ -531,7 +535,7 @@ const SIGNING_VERIFICATION_MAX_ATTEMPTS = 5;
 const fieldRowSelect =
   "id, document_id, page, kind, label, required, assignee_participant_id, assignee_signer_id, source, x, y, width, height, value, applied_signature_identity_id, completed_at, completed_by_signer_id";
 const signatureIdentityRowSelect =
-  "id, user_id, label, title_text, signer_name, signer_email, organization_name, assurance_level, signature_type, typed_text, storage_path, provider, status, certificate_fingerprint, provider_reference, signing_reason, is_default, created_at, updated_at";
+  "id, user_id, label, title_text, signer_name, signer_email, organization_name, assurance_level, signature_type, typed_text, storage_path, provider, status, certificate_fingerprint, provider_reference, signing_reason, is_default, created_at, updated_at, consent_version, consent_accepted_at, evidence_retention_policy, deleted_at";
 
 type DocumentStorageObjectRow = {
   bucket_id: string;
@@ -847,6 +851,12 @@ const createSignatureIdentityInputSchema = z
       });
     }
   });
+
+const deleteSignatureIdentityInputSchema = z.object({
+  signatureId: z.string().uuid(),
+  confirmSignerEmail: z.string().trim().email().transform((value) => normalizeEmailAddress(value)),
+  confirmText: z.string().trim(),
+});
 
 const completeFieldInputSchema = z.object({
   signatureIdentityId: z.string().uuid().nullable().default(null),
@@ -2625,6 +2635,9 @@ async function mapSignatureIdentity(row: SignatureIdentityRow): Promise<Signatur
     isDefault: row.is_default,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    consentVersion: row.consent_version,
+    consentAcceptedAt: row.consent_accepted_at,
+    evidenceRetentionPolicy: row.evidence_retention_policy,
   };
 }
 
@@ -5781,6 +5794,7 @@ export async function listSignatureIdentitiesForAuthorizationHeader(
     .from("signature_identities")
     .select(signatureIdentityRowSelect)
     .eq("user_id", user.id)
+    .is("deleted_at", null)
     .order("is_default", { ascending: false })
     .order("assurance_level", { ascending: true })
     .order("created_at", { ascending: false });
@@ -5828,6 +5842,9 @@ export async function createSignatureIdentityForAuthorizationHeader(
       status: getSignatureIdentityStatusForAssurance(parsed.assuranceLevel),
       signing_reason: parsed.signingReason?.trim() || null,
       is_default: parsed.isDefault,
+      consent_version: "signature_identity_v1",
+      consent_accepted_at: new Date().toISOString(),
+      evidence_retention_policy: "retain_identity_record_after_delete",
     })
     .select(signatureIdentityRowSelect)
     .single();
@@ -5841,6 +5858,64 @@ export async function createSignatureIdentityForAuthorizationHeader(
 
   return {
     signature: await mapSignatureIdentity(data as SignatureIdentityRow),
+  };
+}
+
+export async function deleteSignatureIdentityForAuthorizationHeader(
+  authorizationHeader: string | undefined,
+  input: unknown,
+) {
+  const user = await resolveAuthenticatedUser(authorizationHeader);
+  const parsed = deleteSignatureIdentityInputSchema.parse(input);
+  const adminClient = createServiceRoleClient();
+  const { data, error } = await adminClient
+    .from("signature_identities")
+    .select(signatureIdentityRowSelect)
+    .eq("id", parsed.signatureId)
+    .eq("user_id", user.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  if (!data) {
+    throw new AppError(404, "Signature identity not found.");
+  }
+
+  const identity = data as SignatureIdentityRow;
+
+  if (parsed.confirmSignerEmail !== identity.signer_email) {
+    throw new AppError(400, "Enter the signer email exactly to delete this signature identity.");
+  }
+
+  if (parsed.confirmText !== "DELETE") {
+    throw new AppError(400, "Type DELETE to confirm this signature identity should be removed from active use.");
+  }
+
+  const deletedAt = new Date().toISOString();
+  const { error: updateError } = await adminClient
+    .from("signature_identities")
+    .update({
+      deleted_at: deletedAt,
+      delete_verified_at: deletedAt,
+      delete_confirmed_email: parsed.confirmSignerEmail,
+      delete_confirmed_label: identity.label,
+      is_default: false,
+    })
+    .eq("id", identity.id)
+    .eq("user_id", user.id)
+    .is("deleted_at", null);
+
+  if (updateError) {
+    throw new AppError(500, updateError.message);
+  }
+
+  return {
+    deleted: true,
+    signatureId: identity.id,
+    retainedForEvidence: true,
   };
 }
 
@@ -7350,6 +7425,7 @@ export async function completeFieldForAuthorizationHeader(
       .select(signatureIdentityRowSelect)
       .eq("id", parsedInput.signatureIdentityId)
       .eq("user_id", user.id)
+      .is("deleted_at", null)
       .maybeSingle();
 
     if (signatureError) {
@@ -8435,6 +8511,7 @@ export async function placeAndCompleteSignatureFieldForAuthorizationHeader(
       .select(signatureIdentityRowSelect)
       .eq("id", parsed.signatureIdentityId)
       .eq("user_id", user.id)
+      .is("deleted_at", null)
       .maybeSingle();
 
     if (signatureError) throw new AppError(500, signatureError.message);
