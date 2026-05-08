@@ -151,7 +151,7 @@ begin
           saved.created_at,
           saved.updated_at,
           row_number() over (
-            partition by saved.user_id, lower(trim(profile.email)), 'electronic'
+            partition by saved.user_id, lower(trim(auth_user.email)), 'electronic'
             order by saved.is_default desc, saved.created_at desc, saved.id
           ) as row_number
         from public.saved_signatures saved
