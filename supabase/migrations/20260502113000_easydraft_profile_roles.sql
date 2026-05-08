@@ -1,5 +1,51 @@
-drop trigger if exists sync_easydraft_profile_from_auth_user on auth.users;
-
+drop trigger if exists sync_role_specific_profile_tables on public.profiles;
+drop trigger if exists sync_profile_from_auth_user on auth.users;
+drop function if exists public.sync_role_specific_profile_tables();
+drop function if exists public.sync_profile_from_auth_user();
+drop function if exists public.resolve_profile_kind(text, jsonb, jsonb);
+create table if not exists public.easydraft_user_profiles (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+create table if not exists public.easydraft_staff_profiles (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+insert into public.easydraft_user_profiles (user_id)
+select user_id from public.traveller_profiles
+on conflict (user_id) do nothing;
+insert into public.easydraft_user_profiles (user_id)
+select user_id from public.timeshare_owner_profiles
+on conflict (user_id) do nothing;
+insert into public.easydraft_staff_profiles (user_id)
+select user_id from public.ag_operations_staff_profiles
+on conflict (user_id) do nothing;
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'profile_kind_next') then
+    create type public.profile_kind_next as enum ('easydraft_user', 'easydraft_staff');
+  end if;
+end $$;
+alter table public.profiles
+  alter column profile_kind drop default;
+alter table public.profiles
+  alter column profile_kind type public.profile_kind_next
+  using (
+    case
+      when profile_kind::text = 'ag_operations_staff' then 'easydraft_staff'
+      else 'easydraft_user'
+    end
+  )::public.profile_kind_next;
+drop type public.profile_kind;
+alter type public.profile_kind_next rename to profile_kind;
+alter table public.profiles
+  alter column profile_kind set default 'easydraft_user',
+  alter column profile_kind set not null;
+drop table if exists public.traveller_profiles cascade;
+drop table if exists public.timeshare_owner_profiles cascade;
+drop table if exists public.ag_operations_staff_profiles cascade;
 create or replace function public.resolve_profile_kind(
   target_email text,
   user_meta jsonb default '{}'::jsonb,
@@ -20,11 +66,11 @@ begin
     )
   );
 
-  if requested_kind = 'easydraft_staff' then
+  if requested_kind in ('easydraft_staff', 'ag_operations_staff') then
     return 'easydraft_staff'::public.profile_kind;
   end if;
 
-  if requested_kind = 'easydraft_user' then
+  if requested_kind in ('easydraft_user', 'traveller', 'timeshare_owner') then
     return 'easydraft_user'::public.profile_kind;
   end if;
 
@@ -37,8 +83,35 @@ begin
   return 'easydraft_user'::public.profile_kind;
 end;
 $$;
+create or replace function public.sync_role_specific_profile_tables()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.profile_kind = 'easydraft_staff' then
+    insert into public.easydraft_staff_profiles (user_id)
+    values (new.id)
+    on conflict (user_id) do nothing;
 
-create or replace function public.sync_easydraft_profile_from_auth_user()
+    delete from public.easydraft_user_profiles where user_id = new.id;
+  else
+    insert into public.easydraft_user_profiles (user_id)
+    values (new.id)
+    on conflict (user_id) do nothing;
+
+    delete from public.easydraft_staff_profiles where user_id = new.id;
+  end if;
+
+  return new;
+end;
+$$;
+create trigger sync_role_specific_profile_tables
+after insert or update of profile_kind on public.profiles
+for each row
+execute function public.sync_role_specific_profile_tables();
+create or replace function public.sync_profile_from_auth_user()
 returns trigger
 language plpgsql
 security definer
@@ -60,35 +133,52 @@ begin
     coalesce(new.raw_app_meta_data, '{}'::jsonb)
   );
 
-  if inferred_profile_kind = 'easydraft_staff' then
-    insert into public.easydraft_staff_profiles (user_id, email, display_name)
-    values (new.id, coalesce(new.email, ''), inferred_display_name)
-    on conflict (user_id) do update
-    set
-      email = excluded.email,
-      display_name = excluded.display_name;
-
-    delete from public.easydraft_user_profiles where user_id = new.id;
-  else
-    insert into public.easydraft_user_profiles (user_id, email, display_name)
-    values (new.id, coalesce(new.email, ''), inferred_display_name)
-    on conflict (user_id) do update
-    set
-      email = excluded.email,
-      display_name = excluded.display_name;
-
-    delete from public.easydraft_staff_profiles where user_id = new.id;
-  end if;
+  insert into public.profiles (id, email, display_name, profile_kind)
+  values (new.id, coalesce(new.email, ''), inferred_display_name, inferred_profile_kind)
+  on conflict (id) do update
+  set
+    email = excluded.email,
+    profile_kind = excluded.profile_kind,
+    display_name = case
+      when nullif(trim(public.profiles.display_name), '') is null then excluded.display_name
+      when public.profiles.display_name = split_part(public.profiles.email, '@', 1) then excluded.display_name
+      else public.profiles.display_name
+    end;
 
   return new;
 end;
 $$;
-
-create trigger sync_easydraft_profile_from_auth_user
-after insert or update of email, raw_user_meta_data, raw_app_meta_data on auth.users
+create trigger sync_profile_from_auth_user
+after insert or update of email, raw_user_meta_data on auth.users
 for each row
-execute function public.sync_easydraft_profile_from_auth_user();
-
+execute function public.sync_profile_from_auth_user();
+update public.profiles
+set profile_kind = case
+  when lower(split_part(email, '@', 2)) = 'agoperations.ca' then 'easydraft_staff'::public.profile_kind
+  else 'easydraft_user'::public.profile_kind
+end;
+insert into public.easydraft_user_profiles (user_id)
+select id
+from public.profiles
+where profile_kind = 'easydraft_user'
+on conflict (user_id) do nothing;
+insert into public.easydraft_staff_profiles (user_id)
+select id
+from public.profiles
+where profile_kind = 'easydraft_staff'
+on conflict (user_id) do nothing;
+delete from public.easydraft_user_profiles
+where user_id in (
+  select id
+  from public.profiles
+  where profile_kind <> 'easydraft_user'
+);
+delete from public.easydraft_staff_profiles
+where user_id in (
+  select id
+  from public.profiles
+  where profile_kind <> 'easydraft_staff'
+);
 update auth.users
 set raw_user_meta_data = jsonb_set(
   coalesce(raw_user_meta_data, '{}'::jsonb),
@@ -96,55 +186,47 @@ set raw_user_meta_data = jsonb_set(
   to_jsonb(public.resolve_profile_kind(email, coalesce(raw_user_meta_data, '{}'::jsonb), coalesce(raw_app_meta_data, '{}'::jsonb))::text),
   true
 );
-
-insert into public.easydraft_user_profiles (user_id, email, display_name)
-select
-  auth_user.id,
-  coalesce(auth_user.email, ''),
-  coalesce(
-    nullif(trim(coalesce(auth_user.raw_user_meta_data ->> 'full_name', auth_user.raw_user_meta_data ->> 'name')), ''),
-    nullif(split_part(coalesce(auth_user.email, ''), '@', 1), ''),
-    'User'
-  )
-from auth.users auth_user
-where public.resolve_profile_kind(
-  auth_user.email,
-  coalesce(auth_user.raw_user_meta_data, '{}'::jsonb),
-  coalesce(auth_user.raw_app_meta_data, '{}'::jsonb)
-) = 'easydraft_user'
-on conflict (user_id) do update
-set
-  email = excluded.email,
-  display_name = excluded.display_name;
-
-insert into public.easydraft_staff_profiles (user_id, email, display_name)
-select
-  auth_user.id,
-  coalesce(auth_user.email, ''),
-  coalesce(
-    nullif(trim(coalesce(auth_user.raw_user_meta_data ->> 'full_name', auth_user.raw_user_meta_data ->> 'name')), ''),
-    nullif(split_part(coalesce(auth_user.email, ''), '@', 1), ''),
-    'User'
-  )
-from auth.users auth_user
-where public.resolve_profile_kind(
-  auth_user.email,
-  coalesce(auth_user.raw_user_meta_data, '{}'::jsonb),
-  coalesce(auth_user.raw_app_meta_data, '{}'::jsonb)
-) = 'easydraft_staff'
-on conflict (user_id) do update
-set
-  email = excluded.email,
-  display_name = excluded.display_name;
-
 drop trigger if exists set_easydraft_user_profiles_updated_at on public.easydraft_user_profiles;
 create trigger set_easydraft_user_profiles_updated_at
 before update on public.easydraft_user_profiles
 for each row
 execute function public.set_updated_at();
-
 drop trigger if exists set_easydraft_staff_profiles_updated_at on public.easydraft_staff_profiles;
 create trigger set_easydraft_staff_profiles_updated_at
 before update on public.easydraft_staff_profiles
 for each row
 execute function public.set_updated_at();
+alter table public.easydraft_user_profiles enable row level security;
+alter table public.easydraft_staff_profiles enable row level security;
+create policy "users can read their EasyDraft user profile"
+on public.easydraft_user_profiles
+for select
+to authenticated
+using (user_id = auth.uid());
+create policy "users can insert their EasyDraft user profile"
+on public.easydraft_user_profiles
+for insert
+to authenticated
+with check (user_id = auth.uid());
+create policy "users can update their EasyDraft user profile"
+on public.easydraft_user_profiles
+for update
+to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+create policy "users can read their EasyDraft staff profile"
+on public.easydraft_staff_profiles
+for select
+to authenticated
+using (user_id = auth.uid());
+create policy "users can insert their EasyDraft staff profile"
+on public.easydraft_staff_profiles
+for insert
+to authenticated
+with check (user_id = auth.uid());
+create policy "users can update their EasyDraft staff profile"
+on public.easydraft_staff_profiles
+for update
+to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());

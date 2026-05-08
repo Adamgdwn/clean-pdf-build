@@ -3,11 +3,10 @@ alter table public.documents
   add column if not exists retention_days integer not null default 30,
   add column if not exists purge_scheduled_at timestamptz,
   add column if not exists purged_at timestamptz,
-  add column if not exists purged_by_user_id uuid references auth.users(id) on delete set null,
+  add column if not exists purged_by_user_id uuid references public.profiles(id) on delete set null,
   add column if not exists purge_reason text,
   add column if not exists source_storage_bytes bigint not null default 0,
   add column if not exists export_storage_bytes bigint not null default 0;
-
 do $$
 begin
   if not exists (
@@ -50,10 +49,8 @@ begin
       check (export_storage_bytes >= 0);
   end if;
 end $$;
-
 create index if not exists documents_purge_scheduled_at_idx
 on public.documents (purge_scheduled_at);
-
 update public.documents
 set source_storage_bytes = coalesce(
   (
@@ -65,7 +62,6 @@ set source_storage_bytes = coalesce(
   ),
   0
 );
-
 update public.documents
 set export_storage_bytes = coalesce(
   (
@@ -77,7 +73,6 @@ set export_storage_bytes = coalesce(
   ),
   0
 );
-
 update public.documents
 set purge_scheduled_at = completed_at + interval '7 days'
 where retention_mode = 'temporary'

@@ -5,29 +5,35 @@ begin
   end if;
 
   if not exists (select 1 from pg_type where typname = 'workspace_role') then
-    create type public.workspace_role as enum ('account_admin', 'admin', 'member', 'billing_admin');
+    create type public.workspace_role as enum ('owner', 'admin', 'member', 'billing_admin');
   end if;
 end $$;
-
+alter table public.profiles
+  add column if not exists avatar_url text,
+  add column if not exists company_name text,
+  add column if not exists job_title text,
+  add column if not exists locale text,
+  add column if not exists timezone text,
+  add column if not exists marketing_opt_in boolean not null default false,
+  add column if not exists product_updates_opt_in boolean not null default true,
+  add column if not exists last_seen_at timestamptz;
 create table if not exists public.workspaces (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   slug text not null unique,
   workspace_type public.workspace_type not null default 'personal',
-  owner_user_id uuid not null references auth.users(id) on delete cascade,
+  owner_user_id uuid not null references public.profiles(id) on delete cascade,
   billing_email text,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
-
 create table if not exists public.workspace_memberships (
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
   role public.workspace_role not null,
   created_at timestamptz not null default timezone('utc', now()),
   primary key (workspace_id, user_id)
 );
-
 create table if not exists public.billing_plans (
   key text primary key,
   name text not null,
@@ -42,7 +48,6 @@ create table if not exists public.billing_plans (
   active boolean not null default true,
   created_at timestamptz not null default timezone('utc', now())
 );
-
 insert into public.billing_plans (
   key,
   name,
@@ -71,7 +76,6 @@ set
   overage_ocr_page_usd_cents = excluded.overage_ocr_page_usd_cents,
   overage_storage_gb_usd_cents = excluded.overage_storage_gb_usd_cents,
   active = true;
-
 create table if not exists public.workspace_billing_customers (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null unique references public.workspaces(id) on delete cascade,
@@ -83,7 +87,6 @@ create table if not exists public.workspace_billing_customers (
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
-
 create table if not exists public.workspace_subscriptions (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
@@ -99,7 +102,6 @@ create table if not exists public.workspace_subscriptions (
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
-
 create table if not exists public.billing_usage_events (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
@@ -107,13 +109,11 @@ create table if not exists public.billing_usage_events (
   quantity numeric(12,2) not null default 1,
   occurred_at timestamptz not null default timezone('utc', now()),
   source_document_id uuid references public.documents(id) on delete set null,
-  source_user_id uuid references auth.users(id) on delete set null,
+  source_user_id uuid references public.profiles(id) on delete set null,
   metadata jsonb not null default '{}'::jsonb
 );
-
 alter table public.documents
   add column if not exists workspace_id uuid references public.workspaces(id) on delete set null;
-
 create or replace function public.is_workspace_member(target_workspace_id uuid)
 returns boolean
 language sql
@@ -128,62 +128,52 @@ as $$
       and membership.user_id = auth.uid()
   );
 $$;
-
 drop trigger if exists set_workspaces_updated_at on public.workspaces;
 create trigger set_workspaces_updated_at
 before update on public.workspaces
 for each row
 execute function public.set_updated_at();
-
 drop trigger if exists set_workspace_billing_customers_updated_at on public.workspace_billing_customers;
 create trigger set_workspace_billing_customers_updated_at
 before update on public.workspace_billing_customers
 for each row
 execute function public.set_updated_at();
-
 drop trigger if exists set_workspace_subscriptions_updated_at on public.workspace_subscriptions;
 create trigger set_workspace_subscriptions_updated_at
 before update on public.workspace_subscriptions
 for each row
 execute function public.set_updated_at();
-
 alter table public.workspaces enable row level security;
 alter table public.workspace_memberships enable row level security;
 alter table public.billing_plans enable row level security;
 alter table public.workspace_billing_customers enable row level security;
 alter table public.workspace_subscriptions enable row level security;
 alter table public.billing_usage_events enable row level security;
-
 create policy "members can read workspaces"
 on public.workspaces
 for select
 to authenticated
 using (public.is_workspace_member(id));
-
 create policy "members can read workspace memberships"
 on public.workspace_memberships
 for select
 to authenticated
 using (public.is_workspace_member(workspace_id));
-
 create policy "authenticated users can read billing plans"
 on public.billing_plans
 for select
 to authenticated
 using (active = true);
-
 create policy "workspace members can read billing customers"
 on public.workspace_billing_customers
 for select
 to authenticated
 using (public.is_workspace_member(workspace_id));
-
 create policy "workspace members can read subscriptions"
 on public.workspace_subscriptions
 for select
 to authenticated
 using (public.is_workspace_member(workspace_id));
-
 create policy "workspace members can read usage events"
 on public.billing_usage_events
 for select

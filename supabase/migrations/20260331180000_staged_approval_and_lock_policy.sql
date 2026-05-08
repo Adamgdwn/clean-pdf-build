@@ -6,9 +6,9 @@ begin
 
   if not exists (select 1 from pg_type where typname = 'lock_policy') then
     create type public.lock_policy as enum (
-      'document_admin_only',
-      'document_admin_and_editors',
-      'document_admin_editors_and_active_signer'
+      'owner_only',
+      'owner_and_editors',
+      'owner_editors_and_active_signer'
     );
   end if;
 end $$;
@@ -21,7 +21,7 @@ exception
 end $$;
 
 alter table public.documents
-  add column if not exists lock_policy public.lock_policy not null default 'document_admin_only';
+  add column if not exists lock_policy public.lock_policy not null default 'owner_only';
 
 alter table public.document_signers
   add column if not exists participant_type public.participant_type not null default 'external',
@@ -41,4 +41,4 @@ alter table public.document_signers
 
 alter table public.document_signers
   add constraint document_signers_routing_stage_check
-  check (routing_stage > 0);
+  check (routing_stage > 0);;

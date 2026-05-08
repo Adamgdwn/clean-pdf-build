@@ -13,7 +13,6 @@ alter table public.easydraft_user_profiles
   add column if not exists product_updates_opt_in boolean not null default true,
   add column if not exists last_seen_at timestamptz,
   add column if not exists onboarding_completed_at timestamptz;
-
 alter table public.easydraft_staff_profiles
   add column if not exists email text,
   add column if not exists display_name text,
@@ -29,7 +28,6 @@ alter table public.easydraft_staff_profiles
   add column if not exists product_updates_opt_in boolean not null default true,
   add column if not exists last_seen_at timestamptz,
   add column if not exists onboarding_completed_at timestamptz;
-
 do $$
 declare
   legacy_identity_table regclass := to_regclass(format('%I.%I', 'public', 'pro' || 'files'));
@@ -122,7 +120,6 @@ begin
     execute format('drop table if exists %s cascade', legacy_identity_table);
   end if;
 end $$;
-
 do $$
 declare
   target_table regclass;
@@ -147,15 +144,12 @@ begin
     end loop;
   end loop;
 end $$;
-
 alter table public.easydraft_user_profiles
   add constraint easydraft_user_profiles_user_id_auth_users_fkey
   foreign key (user_id) references auth.users(id) on delete cascade;
-
 alter table public.easydraft_staff_profiles
   add constraint easydraft_staff_profiles_user_id_auth_users_fkey
   foreign key (user_id) references auth.users(id) on delete cascade;
-
 create or replace function public.sync_easydraft_profile_from_auth_user()
 returns trigger
 language plpgsql
@@ -319,14 +313,12 @@ begin
   return new;
 end;
 $$;
-
 drop trigger if exists sync_profile_from_auth_user on auth.users;
 drop trigger if exists sync_easydraft_profile_from_auth_user on auth.users;
 create trigger sync_easydraft_profile_from_auth_user
 after insert or update of email, raw_user_meta_data, raw_app_meta_data on auth.users
 for each row
 execute function public.sync_easydraft_profile_from_auth_user();
-
 insert into public.easydraft_user_profiles (
   user_id,
   email,
@@ -372,7 +364,6 @@ set
   company_name = excluded.company_name,
   account_type = excluded.account_type,
   workspace_name = excluded.workspace_name;
-
 insert into public.easydraft_staff_profiles (
   user_id,
   email,

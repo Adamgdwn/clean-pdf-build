@@ -88,7 +88,7 @@ legacy_account_members as (
   from public.organization_memberships
 ),
 target_account_members as (
-  select account_id, user_id
+  select account_id, user_id, account_class
   from public.account_members
 ),
 legacy_document_participants as (

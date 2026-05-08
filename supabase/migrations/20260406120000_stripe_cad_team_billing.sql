@@ -7,14 +7,12 @@ create table if not exists public.stripe_processed_events (
   workspace_id    uuid references public.workspaces(id) on delete set null,
   processed_at    timestamptz not null default timezone('utc', now())
 );
-
 -- Switch to single-product CAD billing model.
 -- Deactivate all existing tiers so they no longer appear in plan selection.
 -- We do NOT delete them — existing workspace_subscriptions rows reference these keys.
 update public.billing_plans
 set active = false
 where key in ('starter', 'team', 'business');
-
 -- New plan: EasyDraftDocs - Team
 -- Priced at $12 CAD per seat per month.
 -- NOTE: monthly_price_usd column is reused to store CAD cents-to-dollars value (integer = whole CAD dollars).

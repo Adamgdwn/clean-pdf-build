@@ -12,12 +12,10 @@ begin
     end;
   end if;
 end $$;
-
 alter table public.documents
   add column if not exists latest_change_impact public.document_change_impact,
   add column if not exists latest_change_impact_summary text,
   add column if not exists latest_change_impact_at timestamptz;
-
 alter table public.document_versions
   add column if not exists change_impact public.document_change_impact,
   add column if not exists change_impact_summary text;

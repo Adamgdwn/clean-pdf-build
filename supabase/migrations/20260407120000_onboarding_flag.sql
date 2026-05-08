@@ -1,4 +1,1 @@
--- Add server-side onboarding tracking so the onboarding prompt follows the user across devices.
--- Onboarding state now lives on the EasyDraft role-specific profile directories.
--- Those directories are created in the later role-profile migration, which
--- includes the onboarding column directly.
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS onboarding_completed_at timestamptz;;

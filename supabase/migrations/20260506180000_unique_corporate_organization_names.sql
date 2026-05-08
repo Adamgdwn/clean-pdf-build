@@ -1,6 +1,5 @@
 alter table public.organizations
   add column if not exists verified_email_domain text;
-
 update public.organizations
 set verified_email_domain = lower(split_part(billing_email, '@', 2))
 where account_type = 'corporate'
@@ -25,13 +24,11 @@ where account_type = 'corporate'
     'yahoo.com',
     'ymail.com'
   );
-
 create unique index if not exists organizations_corporate_normalized_name_key
 on public.organizations (
   lower(regexp_replace(btrim(name), '\s+', ' ', 'g'))
 )
 where account_type = 'corporate';
-
 create unique index if not exists organizations_corporate_verified_email_domain_key
 on public.organizations (verified_email_domain)
 where account_type = 'corporate'
