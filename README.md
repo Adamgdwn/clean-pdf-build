@@ -121,7 +121,9 @@ The latest application pass closed the most important product-surface gaps for s
 - Rate limiting, observability, and queue/admin visibility were hardened for private beta operations.
 - Workflow change-impact handling and the operator loop were documented more clearly across the repo.
 - External signer verification moved from bearer-link-only completion to email-code-gated completion.
+- External signer PDF preview now requires email-code verification before the raw document URL is issued.
 - Invite acceptance now protects against wrong-account workspace attachment.
+- Account invitation acceptance and signer/participant creation now use database transactions so target-model rows cannot be half-written.
 - Stripe trial creation now explicitly creates an invoice flow when the free trial ends without a saved payment method, and webhook dedupe is tighter.
 - The product direction was re-audited against the latest brief to re-center EasyDraft on its core: upload, place fields, assign, verify, complete, preserve evidence.
 

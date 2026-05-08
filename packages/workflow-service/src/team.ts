@@ -464,7 +464,6 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
   }
 
   if (invitation.accepted_at) {
-    // Already accepted — just make sure they're in the workspace and return success
     const { data: existingMembership } = await adminClient
       .from("account_members")
       .select("account_class")
@@ -478,26 +477,6 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
         .select("id, name, slug, workspace_type, organization_id, owner_user_id")
         .eq("id", invitation.workspace_id)
         .maybeSingle();
-
-      if (workspace?.organization_id) {
-        const organization = await getOrganizationById(workspace.organization_id);
-        if (organization) {
-          const { error: accountMemberError } = await adminClient.from("account_members").upsert(
-            {
-              account_id: workspace.organization_id,
-              workspace_id: workspace.id,
-              user_id: user.id,
-              account_class: invitation.account_class,
-              is_primary_admin: workspace.owner_user_id === user.id,
-            },
-            { onConflict: "account_id,user_id" },
-          );
-
-          if (accountMemberError) {
-            throw new AppError(500, accountMemberError.message);
-          }
-        }
-      }
 
       return {
         joined: true,
@@ -514,34 +493,14 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
     throw new AppError(410, "This invitation has expired. Ask your team admin to send a new one.");
   }
 
-  // Check if already a member of this workspace (e.g. joined another way)
-  const { data: existingMembership } = await adminClient
-    .from("account_members")
-    .select("account_class")
-    .eq("account_id", invitation.account_id)
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const { error: acceptError } = await adminClient.rpc("accept_account_invitation", {
+    p_invitation_id: invitation.id,
+    p_user_id: user.id,
+  });
 
-  if (!existingMembership) {
-    const { error: accountMemberError } = await adminClient.from("account_members").upsert(
-      {
-        account_id: invitation.account_id,
-        workspace_id: invitation.workspace_id,
-        user_id: user.id,
-        account_class: invitation.account_class,
-        is_primary_admin: false,
-      },
-      { onConflict: "account_id,user_id" },
-    );
-
-    if (accountMemberError) throw new AppError(500, accountMemberError.message);
+  if (acceptError) {
+    throw new AppError(500, acceptError.message);
   }
-
-  // Mark as accepted
-  await adminClient
-    .from("account_invitations")
-    .update({ accepted_at: new Date().toISOString() })
-    .eq("id", invitation.id);
 
   // Fetch the workspace for the success message
   const { data: workspace } = await adminClient
@@ -549,26 +508,6 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
     .select("id, name, slug, workspace_type, organization_id, owner_user_id")
     .eq("id", invitation.workspace_id)
     .maybeSingle();
-
-  if (workspace?.organization_id) {
-    const organization = await getOrganizationById(workspace.organization_id);
-    if (organization) {
-      const { error: accountMemberError } = await adminClient.from("account_members").upsert(
-        {
-          account_id: workspace.organization_id,
-          workspace_id: workspace.id,
-          user_id: user.id,
-          account_class: invitation.account_class,
-          is_primary_admin: workspace.owner_user_id === user.id,
-        },
-        { onConflict: "account_id,user_id" },
-      );
-
-      if (accountMemberError) {
-        throw new AppError(500, accountMemberError.message);
-      }
-    }
-  }
 
   await syncProfileIdentity({
     id: user.id,
@@ -783,13 +722,17 @@ export async function changeWorkspaceMemberRoleForAuthorizationHeader(
   // Check the target is actually a member and get their current account class.
   const { data: membership, error: fetchError } = await adminClient
     .from("account_members")
-    .select("account_class")
+    .select("account_class, is_primary_admin")
     .eq("account_id", workspace.organization_id)
     .eq("user_id", parsed.userId)
     .maybeSingle();
 
   if (fetchError) throw new AppError(500, fetchError.message);
   if (!membership) throw new AppError(404, "That user is not a member of this workspace.");
+
+  if (parsed.accountClass !== "corporate_admin" && (membership.is_primary_admin || parsed.userId === workspace.owner_user_id)) {
+    throw new AppError(409, "Transfer primary admin ownership before changing this member's account class.");
+  }
 
   const { error: accountMemberError } = await adminClient
     .from("account_members")

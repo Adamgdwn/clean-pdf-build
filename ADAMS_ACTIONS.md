@@ -10,10 +10,8 @@ This is the owner checklist for a credible controlled launch, not the full produ
 ## Ship blockers
 
 ### Database and deploy state
-- [ ] Apply the latest hosted Supabase migration:
-  - `20260417120000_invite_and_signing_verification.sql`
-- [ ] Apply the PDF signature migration:
-  - `20260422100000_pdf_signature_paths.sql`
+- [ ] Confirm the latest target-model runtime hardening migration is applied remotely:
+  - `20260508143000_target_model_runtime_hardening.sql`
 - [ ] Confirm production is running the current `main` build after this push.
 
 ### PDF signature rollout

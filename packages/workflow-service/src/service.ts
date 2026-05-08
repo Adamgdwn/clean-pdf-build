@@ -229,6 +229,9 @@ type DocumentParticipantRow = {
   document_mode: DocumentMode;
   authority: AuthorityLevel;
   legacy_signer_id: string | null;
+  signing_required: boolean | null;
+  routing_stage: number | null;
+  signing_order: number | null;
 };
 
 type DocumentVersionRow = {
@@ -1624,12 +1627,7 @@ export async function getAccountClassForUser(input: {
     return data.account_class as AccountClass;
   }
 
-  // TEMP_MIGRATION_BRIDGE
-  return accountClassFromLegacyModel({
-    accountType: input.organization?.account_type,
-    workspaceType: input.workspace?.workspace_type,
-    membershipRole: input.membershipRole,
-  });
+  throw new AppError(403, "Account membership is required before account permissions can be resolved.");
 }
 
 async function requireOrganizationAdminContext(
@@ -2502,15 +2500,31 @@ async function applySignerToParticipantAssignmentBridge(input: {
   backfill?: boolean;
 }) {
   // TEMP_MIGRATION_BRIDGE_SIGNER_TO_PARTICIPANT
+  const participantBySigner = new Map(
+    input.participantRows
+      .filter((participant) => participant.legacy_signer_id)
+      .map((participant) => [participant.legacy_signer_id as string, participant]),
+  );
   const participantBySignerId = new Map(
     input.participantRows
       .filter((participant) => participant.legacy_signer_id)
       .map((participant) => [participant.legacy_signer_id as string, participant.id]),
   );
-  const signerRows = input.signerRows.map((signer) => ({
-    ...signer,
-    participant_id: signer.participant_id ?? participantBySignerId.get(signer.id) ?? null,
-  }));
+  const signerRows = input.signerRows.map((signer) => {
+    const participant = participantBySigner.get(signer.id);
+
+    return {
+      ...signer,
+      participant_id: signer.participant_id ?? participant?.id ?? null,
+      user_id: participant?.user_id ?? signer.user_id,
+      name: participant?.display_name ?? signer.name,
+      email: participant?.email ?? signer.email,
+      participant_type: participant ? legacyParticipantTypeFromDocumentMode(participant.document_mode) : signer.participant_type,
+      required: participant?.signing_required ?? signer.required,
+      routing_stage: participant?.routing_stage ?? signer.routing_stage,
+      signing_order: participant?.signing_order ?? signer.signing_order,
+    };
+  });
   const bridgeUpdates: Array<{ fieldId: string; participantId: string }> = [];
   const fieldRows = input.fieldRows.map((field) => {
     const participantId =
@@ -3112,7 +3126,9 @@ async function requireDocumentBundle(documentId: string) {
       .eq("document_id", documentId),
     adminClient
       .from("document_participants")
-      .select("id, document_id, user_id, email, display_name, document_mode, authority, legacy_signer_id")
+      .select(
+        "id, document_id, user_id, email, display_name, document_mode, authority, legacy_signer_id, signing_required, routing_stage, signing_order",
+      )
       .eq("document_id", documentId),
     adminClient
       .from("document_fields")
@@ -3604,7 +3620,9 @@ async function listFieldRowsForDocument(documentId: string) {
       .eq("document_id", documentId),
     adminClient
       .from("document_participants")
-      .select("id, document_id, user_id, email, display_name, document_mode, authority, legacy_signer_id")
+      .select(
+        "id, document_id, user_id, email, display_name, document_mode, authority, legacy_signer_id, signing_required, routing_stage, signing_order",
+      )
       .eq("document_id", documentId),
   ]);
 
@@ -6672,7 +6690,6 @@ export async function addSignerForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   await assertPermission(documentId, user, "manage_signers");
   const parsed = addSignerInputSchema.parse(input);
-  const participantType = legacyParticipantTypeFromDocumentMode(parsed.documentMode);
   const adminClient = createServiceRoleClient();
   const document = await requireDocumentBundle(documentId);
   const { data: existingSigner, error: existingSignerError } = await adminClient
@@ -6694,36 +6711,21 @@ export async function addSignerForAuthorizationHeader(
     );
   }
 
-  const { data: createdSigner, error } = await adminClient
-    .from("document_signers")
-    .insert({
-      document_id: documentId,
-      name: parsed.name,
-      email: parsed.email,
-      participant_type: participantType,
-      required: parsed.required,
-      routing_stage: parsed.routingStage,
-      signing_order: parsed.signingOrder,
-    })
-    .select("id")
-    .single();
+  const { data: createdSignerRows, error } = await adminClient.rpc(
+    "create_document_signer_participant",
+    {
+      p_document_id: documentId,
+      p_name: parsed.name,
+      p_email: parsed.email,
+      p_document_mode: parsed.documentMode,
+      p_required: parsed.required,
+      p_routing_stage: parsed.routingStage,
+      p_signing_order: parsed.signingOrder ?? null,
+    },
+  );
 
-  if (error || !createdSigner) {
+  if (error || !createdSignerRows?.[0]?.signer_id) {
     throw new AppError(500, error?.message ?? "Unable to create signer.");
-  }
-
-  const { error: participantError } = await adminClient.from("document_participants").insert({
-    document_id: documentId,
-    email: parsed.email,
-    display_name: parsed.name,
-    document_mode: parsed.documentMode,
-    authority: "signer",
-    legacy_signer_id: createdSigner.id,
-    source_access_role: "signer",
-  });
-
-  if (participantError) {
-    throw new AppError(500, participantError.message);
   }
 
   await appendAuditEvent(
@@ -6890,35 +6892,18 @@ export async function reassignDocumentSignerForAuthorizationHeader(
     );
   }
 
-  const { error } = await adminClient
-    .from("document_signers")
-    .update({
-      name: parsed.name,
-      email: parsed.email,
-      user_id: null,
-      participant_type: parsed.documentMode ? legacyParticipantTypeFromDocumentMode(parsed.documentMode) : signer.participantType,
-    })
-    .eq("id", parsed.signerId);
+  const { data: reassignedRows, error } = await adminClient.rpc(
+    "reassign_document_signer_participant",
+    {
+      p_signer_id: parsed.signerId,
+      p_name: parsed.name,
+      p_email: parsed.email,
+      p_document_mode: parsed.documentMode ?? documentModeFromLegacyParticipantType(signer.participantType),
+    },
+  );
 
-  if (error) {
-    throw new AppError(500, error.message);
-  }
-
-  const { error: participantError } = await adminClient
-    .from("document_participants")
-    .update({
-      user_id: null,
-      email: parsed.email,
-      display_name: parsed.name,
-      document_mode: parsed.documentMode ?? documentModeFromLegacyParticipantType(signer.participantType),
-      authority: "signer",
-      source_access_role: "signer",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("legacy_signer_id", parsed.signerId);
-
-  if (participantError) {
-    throw new AppError(500, participantError.message);
+  if (error || !reassignedRows?.[0]?.participant_id) {
+    throw new AppError(500, error?.message ?? "Unable to reassign signer.");
   }
 
   await appendAuditEvent(
@@ -7796,58 +7781,31 @@ export async function duplicateDocumentForAuthorizationHeader(
     throw new AppError(500, participantError.message);
   }
 
-  const signerIdMap = new Map<string, string>();
   const participantIdMap = new Map<string, string>();
   if (sourceDocument.signers.length > 0) {
-    const signerPayload = sourceDocument.signers.map((signer) => {
-      const newSignerId = crypto.randomUUID();
-      signerIdMap.set(signer.id, newSignerId);
-      return {
-        id: newSignerId,
-        document_id: newDocumentId,
-        user_id: null,
-        name: signer.name,
-        email: signer.email,
-        participant_type: signer.participantType,
-        required: signer.required,
-        routing_stage: signer.routingStage,
-        signing_order: signer.signingOrder,
-      };
-    });
-    const { error: signerError } = await adminClient.from("document_signers").insert(signerPayload);
+    for (const signer of sourceDocument.signers) {
+      const { data: createdRows, error: createSignerError } = await adminClient.rpc(
+        "create_document_signer_participant",
+        {
+          p_document_id: newDocumentId,
+          p_name: signer.name,
+          p_email: signer.email,
+          p_document_mode: documentModeFromLegacyParticipantType(signer.participantType),
+          p_required: signer.required,
+          p_routing_stage: signer.routingStage,
+          p_signing_order: signer.signingOrder ?? null,
+        },
+      );
 
-    if (signerError) {
-      throw new AppError(500, signerError.message);
-    }
-
-    const { data: signerParticipantData, error: signerParticipantError } = await adminClient.from("document_participants").insert(
-      sourceDocument.signers.map((signer) => ({
-        document_id: newDocumentId,
-        user_id: null,
-        email: signer.email,
-        display_name: signer.name,
-        document_mode: documentModeFromLegacyParticipantType(signer.participantType),
-        authority: "signer",
-        legacy_signer_id: signerIdMap.get(signer.id),
-        source_access_role: "signer",
-      })),
-    ).select("id, legacy_signer_id");
-
-    if (signerParticipantError) {
-      throw new AppError(500, signerParticipantError.message);
-    }
-
-    const sourceSignerByNewSignerId = new Map(
-      sourceDocument.signers.map((signer) => [signerIdMap.get(signer.id), signer]),
-    );
-    for (const participant of signerParticipantData ?? []) {
-      const sourceSigner = sourceSignerByNewSignerId.get(participant.legacy_signer_id);
-      if (sourceSigner?.participantId) {
-        participantIdMap.set(sourceSigner.participantId, participant.id);
+      const created = createdRows?.[0];
+      if (createSignerError || !created?.signer_id || !created.participant_id) {
+        throw new AppError(500, createSignerError?.message ?? "Unable to duplicate signer.");
       }
-      if (sourceSigner?.id) {
-        participantIdMap.set(sourceSigner.id, participant.id);
+
+      if (signer.participantId) {
+        participantIdMap.set(signer.participantId, created.participant_id);
       }
+      participantIdMap.set(signer.id, created.participant_id);
     }
   }
 
@@ -8467,8 +8425,13 @@ export async function resolveSigningTokenSession(token: string, documentId: stri
     waitingOn,
   };
 
-  // Generate a short-lived signed URL for the raw PDF so the guest can view it
-  const { signedUrl: previewUrl } = await createSourceDocumentSignedUrl(document.storagePath, 60 * 60);
+  const verification = toSigningVerificationState(tokenRow);
+  let previewUrl: string | null = null;
+
+  if (verification.verified) {
+    const signedUrl = await createSourceDocumentSignedUrl(document.storagePath, 60 * 60);
+    previewUrl = signedUrl.signedUrl;
+  }
 
   return {
     signerToken: token,
@@ -8478,7 +8441,7 @@ export async function resolveSigningTokenSession(token: string, documentId: stri
     documentId,
     document: signerResponse,
     previewUrl,
-    verification: toSigningVerificationState(tokenRow),
+    verification,
   };
 }
 

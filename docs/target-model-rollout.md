@@ -33,7 +33,7 @@ This note is the staging and production path for the target account/document mod
 
 - `account_members`: primary account membership source.
 - `account_invitations`: primary team/account invitation source.
-- `document_participants`: primary document identity, document mode, and authority source.
+- `document_participants`: primary document identity, document mode, authority, signer requirement, and routing source.
 - `document_participant_tokens`: primary signing-link and email-verification token source.
 - `document_fields.assignee_participant_id`: primary field assignment foreign key.
 
@@ -49,6 +49,19 @@ Apply `supabase/migrations/20260508120000_target_model_hardening.sql` after the 
 - enforces same-document field assignment with a composite foreign key
 - refreshes `target_model_reconciliation_summary` so validation checks the real legacy sources
 - adds indexes needed by the dedupe and reconciliation joins
+
+Apply `supabase/migrations/20260508143000_target_model_runtime_hardening.sql` after `20260508120000`. It:
+
+- adds `document_participants.signing_required`, `document_participants.routing_stage`, and `document_participants.signing_order`
+- backfills those fields from `document_signers`
+- makes `document_participants` the primary runtime source for signer routing values
+- adds `create_document_signer_participant(...)` so signer and participant rows are created atomically while legacy `document_signers` still exists
+- adds `reassign_document_signer_participant(...)` so signer reassignment updates the legacy signer row and target participant row in one database transaction
+- adds `accept_account_invitation(...)` so account membership creation and invitation acceptance commit together
+
+The runtime now fails closed when `account_members` is missing for account permission resolution. Do not rely on `organization_memberships`, `workspace_memberships`, `workspace_type`, or `account_type` to infer account authority in new code.
+
+External signing links can resolve a token session before email-code verification, but the raw PDF preview URL is only issued after the token has a verified email code.
 
 ## Staging Verification Queries
 
@@ -110,9 +123,21 @@ where participant.id is null
 
 Expected: zero rows.
 
+```sql
+select participant.id, participant.document_id, participant.email
+from public.document_participants participant
+where participant.authority = 'signer'
+  and (
+    participant.signing_required is null
+    or participant.routing_stage is null
+  );
+```
+
+Expected: zero rows for signer participants that came from active signer slots.
+
 ## Staging Preflight
 
-- Confirm the hardening migration is next in the migration list and has not been edited after review.
+- Confirm both hardening migrations are next in the migration list and have not been edited after review.
 - Take a staging database backup before applying it.
 - Apply migrations to staging before deploying the app build that expects the hardened constraints.
 - Run the verification queries above and record the results.
@@ -125,8 +150,11 @@ Expected: zero rows.
 - Invite a corporate member, accept with the invited email, and confirm only `account_members` and `account_invitations` are the primary writes.
 - Create a document with an internal signer and an external signer.
 - Assign fields to both signers and confirm `document_fields.assignee_participant_id` is populated.
+- Add, reassign, and duplicate signer-backed document participants and confirm `document_participants` receives `signing_required`, `routing_stage`, and `signing_order`.
 - Send the workflow and confirm `document_participant_tokens` stores the active signing link.
+- Open the external signing link before email-code verification and confirm no PDF preview URL is returned.
 - Complete internal and external signing, including email-code verification for the external signer.
+- Attempt to downgrade the primary corporate admin and confirm the app requires ownership transfer first.
 - Re-run the reconciliation view after completion.
 
 ## Production Preflight
@@ -143,7 +171,7 @@ Database rollback should be forward-only. If the hardening migration exposes bad
 
 ## Final Cleanup Prerequisites
 
-- `document_signers` routing fields have a target-model home, or the workflow engine no longer needs `required`, `routing_stage`, and `signing_order`.
+- `document_participants.signing_required`, `document_participants.routing_stage`, and `document_participants.signing_order` are populated for every active signer participant.
 - `document_fields.assignee_participant_id` is populated for all active assigned fields.
 - `document_participant_tokens` has no core lookup dependency on `legacy_signer_id`.
 - `target_model_reconciliation_summary` shows no mismatches.

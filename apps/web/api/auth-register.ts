@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-import type { AccountClass } from "../../../packages/domain/src/index.js";
 import { getCanonicalAppOrigin, readServerEnv } from "../../../packages/workflow-service/src/env.js";
 import { buildWelcomeEmail, deliverNotificationEmail } from "../../../packages/workflow-service/src/notifications.js";
 import {
@@ -24,8 +23,6 @@ function escapeLikePattern(value: string) {
 type RegistrationInviteContext = {
   id: string;
   workspaceId: string;
-  organizationId: string | null;
-  accountClass: AccountClass;
 };
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
@@ -136,8 +133,6 @@ export default async function handler(request: VercelRequest, response: VercelRe
       inviteContext = {
         id: invitation.id,
         workspaceId: invitation.workspace_id,
-        organizationId: workspace.organization_id ?? null,
-        accountClass: invitation.account_class,
       };
     }
 
@@ -223,44 +218,10 @@ export default async function handler(request: VercelRequest, response: VercelRe
     }
 
     if (data.user && inviteContext) {
-      if (inviteContext.organizationId) {
-        const { data: accountContext, error: accountContextError } = await adminClient
-          .from("workspaces")
-          .select("id, workspace_type, organizations(id, account_type, owner_user_id)")
-          .eq("id", inviteContext.workspaceId)
-          .maybeSingle();
-
-        if (accountContextError) {
-          return response.status(500).json({ message: accountContextError.message });
-        }
-
-        const organization = Array.isArray(accountContext?.organizations)
-          ? accountContext?.organizations[0] ?? null
-          : accountContext?.organizations ?? null;
-
-        if (organization) {
-          const { error: accountMemberError } = await adminClient.from("account_members").upsert(
-            {
-              account_id: organization.id,
-              workspace_id: inviteContext.workspaceId,
-              user_id: data.user.id,
-              account_class: inviteContext.accountClass,
-              is_primary_admin: organization.owner_user_id === data.user.id,
-            },
-            { onConflict: "account_id,user_id" },
-          );
-
-          if (accountMemberError) {
-            return response.status(500).json({ message: accountMemberError.message });
-          }
-        }
-      }
-
-      const { error: invitationAcceptError } = await adminClient
-        .from("account_invitations")
-        .update({ accepted_at: new Date().toISOString() })
-        .eq("id", inviteContext.id)
-        .is("accepted_at", null);
+      const { error: invitationAcceptError } = await adminClient.rpc("accept_account_invitation", {
+        p_invitation_id: inviteContext.id,
+        p_user_id: data.user.id,
+      });
 
       if (invitationAcceptError) {
         return response.status(500).json({ message: invitationAcceptError.message });
