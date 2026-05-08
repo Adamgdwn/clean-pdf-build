@@ -38,6 +38,23 @@ import type {
 
 type PortalView = "workspace" | "org_admin";
 
+function signerAssignmentId(signer: { id: string; participantId?: string | null }) {
+  return signer.participantId ?? signer.id;
+}
+
+function fieldAssignmentId(field: { assigneeParticipantId?: string | null; assigneeSignerId?: string | null }) {
+  return field.assigneeParticipantId ?? field.assigneeSignerId ?? null;
+}
+
+function isFieldAssignedToSigner(
+  field: { assigneeParticipantId?: string | null; assigneeSignerId?: string | null },
+  signer: { id: string; participantId?: string | null },
+) {
+  return field.assigneeParticipantId
+    ? field.assigneeParticipantId === signerAssignmentId(signer)
+    : field.assigneeSignerId === signer.id;
+}
+
 const shouldRestoreSessionFromRedirect =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get("signedIn") === "1";
@@ -51,14 +68,15 @@ function formatState(state: string) {
   return state.replaceAll("_", " ");
 }
 
-function formatWorkspaceRoleLabel(role: string | null) {
-  if (!role) {
+function formatAccountClassLabel(accountClass: string | null) {
+  if (!accountClass) {
     return null;
   }
 
-  if (role === "account_admin") return "Account admin";
-  if (role === "billing_admin") return "Billing admin";
-  return formatState(role);
+  if (accountClass === "corporate_admin") return "Corporate admin";
+  if (accountClass === "corporate_member") return "Corporate member";
+  if (accountClass === "personal") return "Personal";
+  return formatState(accountClass);
 }
 
 const AUDIT_EVENT_LABELS: Record<string, string> = {
@@ -94,14 +112,20 @@ function formatAuditEventType(type: string) {
 }
 
 function getSignerFieldStatus(
-  signer: { id: string },
-  fields: Array<{ assigneeSignerId: string | null; required: boolean; kind: string; completedAt: string | null }>,
+  signer: { id: string; participantId?: string | null },
+  fields: Array<{
+    assigneeParticipantId?: string | null;
+    assigneeSignerId: string | null;
+    required: boolean;
+    kind: string;
+    completedAt: string | null;
+  }>,
   sentAt: string | null,
   eligibleSignerIds: string[],
 ): { label: string; completedAt: string | null; active: boolean } {
   const actionKinds = new Set(["signature", "initial", "approval"]);
   const assigned = fields.filter(
-    (f) => f.assigneeSignerId === signer.id && f.required && actionKinds.has(f.kind),
+    (f) => isFieldAssignedToSigner(f, signer) && f.required && actionKinds.has(f.kind),
   );
   if (assigned.length === 0) return { label: "No required fields", completedAt: null, active: false };
   const completed = assigned.filter((f) => f.completedAt);
@@ -112,8 +136,14 @@ function getSignerFieldStatus(
     return { label: "Signed", completedAt: latest.completedAt, active: false };
   }
   if (!sentAt) return { label: "Not sent", completedAt: null, active: false };
-  if (completed.length > 0) return { label: "In progress", completedAt: null, active: eligibleSignerIds.includes(signer.id) };
-  if (eligibleSignerIds.includes(signer.id)) return { label: "Awaiting action", completedAt: null, active: true };
+  if (completed.length > 0) {
+    return {
+      label: "In progress",
+      completedAt: null,
+      active: eligibleSignerIds.includes(signerAssignmentId(signer)),
+    };
+  }
+  if (eligibleSignerIds.includes(signerAssignmentId(signer))) return { label: "Awaiting action", completedAt: null, active: true };
   return { label: "Waiting", completedAt: null, active: false };
 }
 
@@ -221,24 +251,20 @@ function canCurrentUserLockDocument(document: WorkflowDocument | null) {
     return false;
   }
 
-  if (document.currentUserRole === "document_admin") {
+  if (document.currentUserAuthority === "document_admin" || document.currentUserAuthority === "org_admin_override") {
     return true;
   }
 
-  if (
-    document.currentUserRole === "editor" &&
-    (document.lockPolicy === "document_admin_and_editors" ||
-      document.lockPolicy === "document_admin_editors_and_active_signer")
-  ) {
-    return true;
-  }
+  const currentSigner = document.currentUserSignerId
+    ? document.signers.find((signer) => signer.id === document.currentUserSignerId) ?? null
+    : null;
 
   if (
     document.lockPolicy === "document_admin_editors_and_active_signer" &&
-    document.currentUserSignerId &&
+    currentSigner &&
     document.fields.some(
       (field) =>
-        field.assigneeSignerId === document.currentUserSignerId &&
+        isFieldAssignedToSigner(field, currentSigner) &&
         field.required &&
         isActionFieldKind(field.kind) &&
         !field.completedAt,
@@ -381,7 +407,7 @@ function OnboardingPrompt({
         emails.map((email) =>
           apiFetch("/workspace-invite", session, {
             method: "POST",
-            body: JSON.stringify({ email, role: "member" }),
+            body: JSON.stringify({ email, accountClass: "corporate_member" }),
           }),
         ),
       );
@@ -485,8 +511,8 @@ export default function App() {
   const [dueAt, setDueAt] = useState("");
   const [signerName, setSignerName] = useState("");
   const [signerEmail, setSignerEmail] = useState("");
-  const [signerParticipantType, setSignerParticipantType] = useState<"internal" | "external">(
-    "external",
+  const [signerDocumentMode, setSignerDocumentMode] = useState<"internal_signer" | "external_signer">(
+    "external_signer",
   );
   const [signerRequired, setSignerRequired] = useState(true);
   const [signerStage, setSignerStage] = useState("1");
@@ -496,9 +522,9 @@ export default function App() {
     useState<"signature" | "initial" | "approval" | "date" | "text">("signature");
   const [fieldRequired, setFieldRequired] = useState(true);
   const [fieldPage, setFieldPage] = useState("1");
-  const [fieldAssigneeSignerId, setFieldAssigneeSignerId] = useState<string>("");
+  const [fieldAssigneeParticipantId, setFieldAssigneeParticipantId] = useState<string>("");
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"editor" | "viewer">("viewer");
+  const [inviteAuthority, setInviteAuthority] = useState<"document_admin" | "viewer">("viewer");
   const [savedSignatureLabel, setSavedSignatureLabel] = useState("");
   const [savedSignatureTitle, setSavedSignatureTitle] = useState("");
   const [savedSignatureType, setSavedSignatureType] = useState<"typed" | "uploaded">("typed");
@@ -575,8 +601,11 @@ export default function App() {
     savedSignatures[0] ??
     null;
   const canEdit =
-    selectedDocument?.currentUserRole === "document_admin" || selectedDocument?.currentUserRole === "editor";
-  const canManageAccess = selectedDocument?.currentUserRole === "document_admin";
+    selectedDocument?.currentUserAuthority === "document_admin" ||
+    selectedDocument?.currentUserAuthority === "org_admin_override";
+  const canManageAccess =
+    selectedDocument?.currentUserAuthority === "document_admin" ||
+    selectedDocument?.currentUserAuthority === "org_admin_override";
   const canManageWorkflow = canEdit;
   const sendReadiness = selectedDocument ? getDocumentSendReadiness(selectedDocument) : null;
   const requiredActionFields =
@@ -589,16 +618,20 @@ export default function App() {
     null;
   const signerLabelById = new Map(
     (selectedDocument?.signers ?? []).map((signer) => [
-      signer.id,
+      signerAssignmentId(signer),
       signer.email ? `${signer.name} (${signer.email})` : signer.name,
     ]),
   );
-  const assignedRequiredActionFields = requiredActionFields.filter((field) => field.assigneeSignerId);
+  const currentUserSigner = selectedDocument?.currentUserSignerId
+    ? selectedDocument.signers.find((signer) => signer.id === selectedDocument.currentUserSignerId) ?? null
+    : null;
+  const currentUserAssignmentId = currentUserSigner ? signerAssignmentId(currentUserSigner) : null;
+  const assignedRequiredActionFields = requiredActionFields.filter((field) => fieldAssignmentId(field));
   const currentUserAssignedOpenFields =
-    selectedDocument?.currentUserSignerId
+    currentUserAssignmentId
       ? selectedDocument.fields.filter(
           (field) =>
-            !field.completedAt && field.assigneeSignerId === selectedDocument.currentUserSignerId,
+            !field.completedAt && fieldAssignmentId(field) === currentUserAssignmentId,
         )
       : [];
   const hasBeenSent = Boolean(selectedDocument?.sentAt);
@@ -1209,7 +1242,7 @@ export default function App() {
     const signerRows = doc.signers
       .map((s) => {
         const completedFields = doc.fields.filter(
-          (f) => f.assigneeSignerId === s.id && f.completedAt,
+          (f) => isFieldAssignedToSigner(f, s) && f.completedAt,
         );
         const lastCompleted = completedFields.reduce<string | null>(
           (latest, f) => (!latest || (f.completedAt ?? "") > latest ? (f.completedAt ?? null) : latest),
@@ -1664,8 +1697,8 @@ export default function App() {
           documentId: selectedDocument.id,
           name: nextSignerName,
           email: nextSignerEmail,
-          participantType:
-            selectedDocument.deliveryMode === "internal_use_only" ? "internal" : "external",
+          documentMode:
+            selectedDocument.deliveryMode === "internal_use_only" ? "internal_signer" : "external_signer",
           required: true,
           routingStage:
             routeMode === "sequential"
@@ -1956,7 +1989,7 @@ export default function App() {
       documentId: selectedDocument.id,
       name: signerName,
       email: signerEmail,
-      participantType: signerParticipantType,
+      documentMode: signerDocumentMode,
       required: signerRequired,
       routingStage: Number(signerStage),
       signingOrder: signerOrder.trim() ? Number(signerOrder) : null,
@@ -1964,7 +1997,7 @@ export default function App() {
 
     setSignerName("");
     setSignerEmail("");
-    setSignerParticipantType(selectedDocument.deliveryMode === "internal_use_only" ? "internal" : "external");
+    setSignerDocumentMode(selectedDocument.deliveryMode === "internal_use_only" ? "internal_signer" : "external_signer");
     setSignerRequired(true);
     setSignerStage("1");
     setSignerOrder(String((selectedDocument.signers.length || 0) + 1));
@@ -1983,7 +2016,7 @@ export default function App() {
       kind: fieldKind,
       label: fieldLabel,
       required: fieldRequired,
-      assigneeSignerId: fieldAssigneeSignerId || null,
+      assigneeParticipantId: fieldAssigneeParticipantId || null,
       source: "manual",
       x: Number(fieldX),
       y: Number(fieldY),
@@ -2005,11 +2038,11 @@ export default function App() {
     await runDocumentAction("/document-access", {
       documentId: selectedDocument.id,
       email: inviteEmail,
-      role: inviteRole,
+      authority: inviteAuthority,
     });
 
     setInviteEmail("");
-    setInviteRole("viewer");
+    setInviteAuthority("viewer");
   }
 
   useEffect(() => {
@@ -2181,7 +2214,7 @@ export default function App() {
             joined: boolean;
             alreadyMember: boolean;
             workspace: { id: string; name: string; slug: string } | null;
-            role: string | null;
+            accountClass: string | null;
           }>("/workspace-invite-accept", activeSession, {
             method: "POST",
             body: JSON.stringify({ token: pendingInviteToken }),
@@ -2238,7 +2271,7 @@ export default function App() {
   }, [session, sessionUser, sessionUser?.isAdmin, pendingInviteToken]);
 
   useEffect(() => {
-    setSignerParticipantType(deliveryMode === "internal_use_only" ? "internal" : "external");
+    setSignerDocumentMode(deliveryMode === "internal_use_only" ? "internal_signer" : "external_signer");
   }, [deliveryMode]);
 
   // Show onboarding prompt for users who haven't completed it (server-side flag)
@@ -2255,7 +2288,9 @@ export default function App() {
       return;
     }
 
-    setFieldAssigneeSignerId((currentValue) => currentValue || selectedDocument.signers[0]?.id || "");
+    setFieldAssigneeParticipantId(
+      (currentValue) => currentValue || (selectedDocument.signers[0] ? signerAssignmentId(selectedDocument.signers[0]) : ""),
+    );
     setReassignSignerId((currentValue) => currentValue || selectedDocument.signers[0]?.id || "");
     loadPreview(selectedDocument.id, session).catch((error) => setErrorMessage((error as Error).message));
     apiFetch<{ events: SignatureEvent[] }>(
@@ -2325,11 +2360,6 @@ export default function App() {
     };
   }, [localPreviewUrl]);
 
-  const workspaceMembershipRole =
-    billingOverview?.workspace.membershipRole ??
-    workspaceTeam?.members.find((member) => member.isCurrentUser)?.role ??
-    availableWorkspaces.find((workspace) => workspace.id === activeWorkspaceId)?.role ??
-    null;
   const activeWorkspace =
     availableWorkspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
   const activeAccountType =
@@ -2338,6 +2368,15 @@ export default function App() {
     billingOverview?.organization.accountType ??
     workspaceTeam?.organization.accountType ??
     accountProfile?.accountType ??
+    null;
+  const activeAccountClass =
+    activeWorkspace?.organization?.accountClass ??
+    activeWorkspace?.accountClass ??
+    organizationAdminOverview?.account.accountClass ??
+    billingOverview?.organization.accountClass ??
+    billingOverview?.workspace.accountClass ??
+    workspaceTeam?.organization.accountClass ??
+    accountProfile?.accountClass ??
     null;
   const isCorporateAccount = activeAccountType === "corporate";
   const currentWorkspaceName =
@@ -2349,7 +2388,7 @@ export default function App() {
     billingOverview?.workspace.name ??
     accountProfile?.companyName ??
     "Workspace";
-  const currentWorkspaceRoleLabel = formatWorkspaceRoleLabel(workspaceMembershipRole);
+  const currentWorkspaceRoleLabel = formatAccountClassLabel(activeAccountClass);
   const isWorkspaceHydrating = Boolean(
     sessionUser &&
       session &&
@@ -2363,7 +2402,7 @@ export default function App() {
   const canAccessOrgAdmin = Boolean(
     sessionUser &&
       (sessionUser.isAdmin ||
-        (isCorporateAccount && ["account_admin", "admin", "billing_admin"].includes(workspaceMembershipRole ?? ""))),
+        (isCorporateAccount && activeAccountClass === "corporate_admin")),
   );
 
   function updatePortalView(nextView: PortalView) {
@@ -2464,16 +2503,20 @@ export default function App() {
       accountProfile?.companyName ??
       "Workspace";
     const documentOwner =
-      selectedDocument.accessParticipants.find((entry) => entry.role === "document_admin")?.displayName ??
+      selectedDocument.accessParticipants.find((entry) => entry.authority === "document_admin")?.displayName ??
       "The sender";
+    const guestSigner = selectedDocument.currentUserSignerId
+      ? selectedDocument.signers.find((signer) => signer.id === selectedDocument.currentUserSignerId) ?? null
+      : null;
+    const guestAssignmentId = guestSigner ? signerAssignmentId(guestSigner) : selectedDocument.currentUserSignerId;
     const guestAssignedFields = selectedDocument.fields.filter(
       (field) =>
-        field.assigneeSignerId === selectedDocument.currentUserSignerId &&
+        fieldAssignmentId(field) === guestAssignmentId &&
         !field.completedAt,
     );
     const guestCompletedFields = selectedDocument.fields.filter(
       (field) =>
-        field.assigneeSignerId === selectedDocument.currentUserSignerId &&
+        fieldAssignmentId(field) === guestAssignmentId &&
         Boolean(field.completedAt),
     );
     const guestHasFinished = guestAssignedFields.length === 0 && guestCompletedFields.length > 0;
@@ -2785,7 +2828,7 @@ export default function App() {
                 {availableWorkspaces.map((workspace) => (
                   <option key={workspace.id} value={workspace.id}>
                     {workspace.organization?.name ?? workspace.name}
-                    {workspace.role ? ` (${formatWorkspaceRoleLabel(workspace.role)})` : ""}
+                    {workspace.accountClass ? ` (${formatAccountClassLabel(workspace.accountClass)})` : ""}
                   </option>
                 ))}
               </select>
@@ -3270,7 +3313,12 @@ export default function App() {
         ) : null}
 
         {/* Onboarding prompt — shown once to new users */}
-        {portalView === "workspace" && sessionUser && session && showOnboarding && workspaceTeam && workspaceMembershipRole === "account_admin" ? (
+        {portalView === "workspace" &&
+        sessionUser &&
+        session &&
+        showOnboarding &&
+        workspaceTeam &&
+        (activeAccountClass === "personal" || activeAccountClass === "corporate_admin") ? (
           <OnboardingPrompt
             session={session}
             workspaceTeam={workspaceTeam}
@@ -4397,7 +4445,7 @@ export default function App() {
                           selectedDocument.workflowState !== "completed" &&
                           selectedDocument.operationalStatus !== "canceled" &&
                           selectedDocument.operationalStatus !== "rejected" &&
-                          selectedDocument.eligibleSignerIds.includes(signer.id);
+                          selectedDocument.eligibleSignerIds.includes(signerAssignmentId(signer));
                         return (
                           <div key={signer.id} className="row-card">
                             <div>
@@ -4442,7 +4490,7 @@ export default function App() {
                                   onClick={() =>
                                     runDocumentAction("/document-remind", {
                                       documentId: selectedDocument.id,
-                                      signerIds: [signer.id],
+                                      signerIds: [signerAssignmentId(signer)],
                                     })
                                   }
                                   type="button"
@@ -4479,13 +4527,13 @@ export default function App() {
                           <label className="form-field">
                             <span>Participant type</span>
                             <select
-                              value={signerParticipantType}
+                              value={signerDocumentMode}
                               onChange={(event) =>
-                                setSignerParticipantType(event.target.value as "internal" | "external")
+                                setSignerDocumentMode(event.target.value as "internal_signer" | "external_signer")
                               }
                             >
-                              <option value="internal">Internal</option>
-                              <option value="external">External</option>
+                              <option value="internal_signer">Internal</option>
+                              <option value="external_signer">External</option>
                             </select>
                           </label>
                           <label className="form-field">
@@ -4604,8 +4652,8 @@ export default function App() {
                             </strong>
                             <p className="muted">
                               Page {field.page} · {field.source} ·{" "}
-                              {field.assigneeSignerId
-                                ? signerLabelById.get(field.assigneeSignerId) ?? "assigned participant"
+                              {fieldAssignmentId(field)
+                                ? signerLabelById.get(fieldAssignmentId(field) ?? "") ?? "assigned participant"
                                 : "unassigned"}
                             </p>
                             {field.appliedSavedSignatureId ? (
@@ -4631,7 +4679,7 @@ export default function App() {
                             ) : null}
                             {!field.completedAt &&
                             currentUserIsActiveWorkflowSigner &&
-                            selectedDocument.currentUserSignerId === field.assigneeSignerId ? (
+                            currentUserAssignmentId === fieldAssignmentId(field) ? (
                               <button
                                 className="ghost-button"
                                 disabled={
@@ -4722,12 +4770,12 @@ export default function App() {
                         <label className="form-field">
                           <span>Assign to participant</span>
                           <select
-                            value={fieldAssigneeSignerId}
-                            onChange={(event) => setFieldAssigneeSignerId(event.target.value)}
+                            value={fieldAssigneeParticipantId}
+                            onChange={(event) => setFieldAssigneeParticipantId(event.target.value)}
                           >
                             <option value="">Unassigned</option>
                             {selectedDocument.signers.map((signer) => (
-                              <option key={signer.id} value={signer.id}>
+                              <option key={signer.id} value={signerAssignmentId(signer)}>
                                 {signer.name}
                               </option>
                             ))}
@@ -5008,14 +5056,14 @@ export default function App() {
                     </div>
                     <div className="stack">
                       {selectedDocument.accessParticipants.map((entry) => (
-                        <div key={`${entry.userId}-${entry.role}`} className="row-card">
+                        <div key={`${entry.userId}-${entry.authority}`} className="row-card">
                           <div>
                             <strong>
                               {entry.userId === sessionUser?.id ? "You" : entry.displayName}
                             </strong>
                             <p className="muted">{entry.email ?? entry.userId}</p>
                           </div>
-                          <span>{entry.role}</span>
+                          <span>{formatState(entry.authority)}</span>
                         </div>
                       ))}
                     </div>
@@ -5038,13 +5086,13 @@ export default function App() {
                         <label className="form-field">
                           <span>Role</span>
                           <select
-                            value={inviteRole}
+                            value={inviteAuthority}
                             onChange={(event) =>
-                              setInviteRole(event.target.value as "editor" | "viewer")
+                              setInviteAuthority(event.target.value as "document_admin" | "viewer")
                             }
                           >
                             <option value="viewer">Viewer</option>
-                            <option value="editor">Editor</option>
+                            <option value="document_admin">Document admin</option>
                           </select>
                         </label>
                         <button className="ghost-button" disabled={isLoading} type="submit">

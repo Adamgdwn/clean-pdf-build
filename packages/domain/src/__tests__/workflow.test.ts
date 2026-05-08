@@ -63,6 +63,7 @@ const baseDocument: DocumentRecord = {
   signers: [
     {
       id: "signer_1",
+      participantId: null,
       userId: "user_signer_1",
       name: "Signer One",
       email: "one@example.com",
@@ -73,6 +74,7 @@ const baseDocument: DocumentRecord = {
     },
     {
       id: "signer_2",
+      participantId: null,
       userId: "user_signer_2",
       name: "Signer Two",
       email: "two@example.com",
@@ -89,6 +91,7 @@ const baseDocument: DocumentRecord = {
       kind: "signature",
       label: "Primary signature",
       required: true,
+      assigneeParticipantId: null,
       assigneeSignerId: "signer_1",
       source: "manual",
       x: 120,
@@ -106,6 +109,7 @@ const baseDocument: DocumentRecord = {
       kind: "signature",
       label: "Counter-signature",
       required: true,
+      assigneeParticipantId: null,
       assigneeSignerId: "signer_2",
       source: "manual",
       x: 120,

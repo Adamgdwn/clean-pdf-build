@@ -3,6 +3,14 @@ import type { DocumentRecord, Field, WorkflowState } from "./schema.js";
 const signingFieldKinds = new Set(["signature", "initial"]);
 const actionableFieldKinds = new Set(["signature", "initial", "approval"]);
 
+function fieldAssigneeId(field: Field) {
+  return field.assigneeParticipantId ?? field.assigneeSignerId;
+}
+
+function signerAssignmentId(signer: DocumentRecord["signers"][number]) {
+  return signer.participantId ?? signer.id;
+}
+
 export function isSigningField(field: Field) {
   return signingFieldKinds.has(field.kind);
 }
@@ -17,7 +25,7 @@ export function isApprovalField(field: Field) {
 
 export function getRequiredAssignedActionFields(document: DocumentRecord) {
   return document.fields.filter(
-    (field) => field.required && isActionField(field) && field.assigneeSignerId,
+    (field) => field.required && isActionField(field) && fieldAssigneeId(field),
   );
 }
 
@@ -118,9 +126,9 @@ export function getDocumentCompletionSummary(document: DocumentRecord) {
 
 export function getDocumentSendReadiness(document: DocumentRecord) {
   const requiredActionFields = document.fields.filter((field) => field.required && isActionField(field));
-  const signerIds = new Set(document.signers.map((signer) => signer.id));
+  const signerIds = new Set(document.signers.map(signerAssignmentId));
   const signerOrderById = new Map(
-    document.signers.map((signer) => [signer.id, signer.signingOrder]),
+    document.signers.map((signer) => [signerAssignmentId(signer), signer.signingOrder]),
   );
   const blockers: string[] = [];
 
@@ -140,7 +148,7 @@ export function getDocumentSendReadiness(document: DocumentRecord) {
     blockers.push("Add at least one required signature, initial, or approval field before sending.");
   }
 
-  if (requiredActionFields.some((field) => !field.assigneeSignerId)) {
+  if (requiredActionFields.some((field) => !fieldAssigneeId(field))) {
     blockers.push(
       "Assign every required signature, initial, or approval field to a participant before sending.",
     );
@@ -148,7 +156,10 @@ export function getDocumentSendReadiness(document: DocumentRecord) {
 
   if (
     requiredActionFields.some(
-      (field) => field.assigneeSignerId && !signerIds.has(field.assigneeSignerId),
+      (field) => {
+        const assigneeId = fieldAssigneeId(field);
+        return assigneeId && !signerIds.has(assigneeId);
+      },
     )
   ) {
     blockers.push("Reassign any required action fields that point to a missing participant.");
@@ -157,10 +168,10 @@ export function getDocumentSendReadiness(document: DocumentRecord) {
   if (
     document.routingStrategy === "sequential" &&
     requiredActionFields.some(
-      (field) =>
-        field.assigneeSignerId &&
-        signerIds.has(field.assigneeSignerId) &&
-        !signerOrderById.get(field.assigneeSignerId),
+      (field) => {
+        const assigneeId = fieldAssigneeId(field);
+        return assigneeId && signerIds.has(assigneeId) && !signerOrderById.get(assigneeId);
+      },
     )
   ) {
     blockers.push(

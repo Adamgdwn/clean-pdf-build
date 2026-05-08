@@ -15,6 +15,7 @@ import type {
   WorkflowDocument,
   WorkspaceTeam,
 } from "../types";
+import type { AccountClass } from "../types";
 
 function formatTimestamp(timestamp: string | null) {
   if (!timestamp) return "Not set";
@@ -47,7 +48,9 @@ function formatStorageAmount(bytes: number) {
 }
 
 function formatStatusLabel(status: string) {
-  if (status === "account_admin") return "Account admin";
+  if (status === "corporate_admin") return "Corporate admin";
+  if (status === "corporate_member") return "Corporate member";
+  if (status === "personal") return "Personal";
   return status.replaceAll("_", " ");
 }
 
@@ -152,9 +155,10 @@ export function AccountAdminPortal({
   const tokenBalance = organizationAdminOverview?.tokens.available ?? billingOverview?.externalTokens.available ?? 0;
   const activeMemberCount = workspaceTeam?.members.length ?? 0;
   const pendingInvitationCount = workspaceTeam?.pendingInvitations.length ?? 0;
-  const currentMembershipRole =
-    billingOverview?.workspace.membershipRole ??
-    workspaceTeam?.members.find((member) => member.isCurrentUser)?.role ??
+  const currentAccountClass: AccountClass | null =
+    organizationAdminOverview?.account.accountClass ??
+    billingOverview?.workspace.accountClass ??
+    workspaceTeam?.members.find((member) => member.isCurrentUser)?.accountClass ??
     null;
 
   const draftDocuments = documents.filter((document) => document.workflowState === "draft").length;
@@ -208,9 +212,8 @@ export function AccountAdminPortal({
     .sort((left, right) => (right.sentAt ?? right.uploadedAt).localeCompare(left.sentAt ?? left.uploadedAt))
     .slice(0, 6);
 
-  const accountAdminCount = workspaceTeam?.members.filter((member) => member.role === "account_admin").length ?? 0;
-  const adminCount = workspaceTeam?.members.filter((member) => member.role === "admin").length ?? 0;
-  const billingAdminCount = workspaceTeam?.members.filter((member) => member.role === "billing_admin").length ?? 0;
+  const corporateAdminCount = workspaceTeam?.members.filter((member) => member.accountClass === "corporate_admin").length ?? 0;
+  const corporateMemberCount = workspaceTeam?.members.filter((member) => member.accountClass === "corporate_member").length ?? 0;
   const accountStatus = organizationAdminOverview?.account.status ?? "active";
   const billingAuthority = organizationAdminOverview?.authority.canManageBilling ?? false;
   const peopleAuthority = organizationAdminOverview?.authority.canManagePeople ?? false;
@@ -488,13 +491,13 @@ export function AccountAdminPortal({
                     {activeMemberCount} active member{activeMemberCount === 1 ? "" : "s"} and {pendingInvitationCount} pending invite{pendingInvitationCount === 1 ? "" : "s"}.
                   </p>
                 </div>
-                <span>{currentMembershipRole ? formatStatusLabel(currentMembershipRole) : "Admin view"}</span>
+                <span>{currentAccountClass ? formatStatusLabel(currentAccountClass) : "Admin view"}</span>
               </div>
               <div className="row-card">
                 <div>
                   <strong>Role coverage</strong>
                   <p className="muted">
-                    {accountAdminCount} account admin{accountAdminCount === 1 ? "" : "s"}, {adminCount} admin{adminCount === 1 ? "" : "s"}, {billingAdminCount} billing admin{billingAdminCount === 1 ? "" : "s"}.
+                    {corporateAdminCount} corporate admin{corporateAdminCount === 1 ? "" : "s"}, {corporateMemberCount} corporate member{corporateMemberCount === 1 ? "" : "s"}.
                   </p>
                 </div>
                 <span>{sessionUser.name}</span>
@@ -625,7 +628,7 @@ export function AccountAdminPortal({
                   <div>
                     <strong>{member.displayName}</strong>
                     <p className="muted">
-                      {member.email ?? "No email"} · {formatStatusLabel(member.role)}
+                      {member.email ?? "No email"} · {formatStatusLabel(member.accountClass)}
                       {member.isPrimaryAccountAdmin ? " · primary account admin" : ""}
                     </p>
                   </div>
@@ -637,7 +640,7 @@ export function AccountAdminPortal({
                   <div>
                     <strong>{invitation.email}</strong>
                     <p className="muted">
-                      Pending invite · {formatStatusLabel(invitation.role)} · expires {formatShortDate(invitation.expiresAt)}
+                      Pending invite · {formatStatusLabel(invitation.accountClass)} · expires {formatShortDate(invitation.expiresAt)}
                     </p>
                   </div>
                   <span>{formatStatusLabel(invitation.licenseStatus)}</span>

@@ -6,6 +6,9 @@
       "Bash(grep -rn \"readAuthorizationHeader\" /home/adamgoodwin/code/Applications/Clean_pdf_build/apps/web/api/*.ts)",
       "Bash(grep -n \"participant_type\\\\|routing_stage\\\\|routing_strategy\" /home/adamgoodwin/code/Applications/Clean_pdf_build/supabase/migrations/*.sql)",
       "Bash(grep -n \"to anon\\\\|to public\\\\|to unauthenticated\" /home/adamgoodwin/code/Applications/Clean_pdf_build/supabase/migrations/*.sql)"
+    ],
+    "additionalDirectories": [
+      "/home/adamgoodwin/.claude/projects/-home-adamgoodwin-code-Applications-Clean-pdf-build"
     ]
   }
 }

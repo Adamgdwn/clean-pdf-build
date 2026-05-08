@@ -1,14 +1,18 @@
 import { z } from "zod";
 
+import {
+  legacyMembershipRoleFromAccountClass,
+  type AccountClass,
+} from "../../domain/src/index.js";
 import { getCanonicalAppOrigin, readServerEnv } from "./env.js";
 import { AppError } from "./errors.js";
 import { deliverNotificationEmail } from "./notifications.js";
 import {
   ensureDefaultWorkspaceForUser,
   ensureOrganizationForWorkspace,
+  getAccountClassForUser,
   findProfileIdentityByEmail,
   getOrganizationById,
-  getOrganizationMembershipRole,
   getProfileIdentitiesById,
   listAccessibleWorkspacesForUser,
   resolveAuthenticatedUser,
@@ -31,9 +35,10 @@ type WorkspaceMemberRow = {
 
 type WorkspaceInvitationRow = {
   id: string;
-  workspace_id: string;
+  account_id?: string;
+  workspace_id: string | null;
   email: string;
-  role: string;
+  account_class: AccountClass;
   invited_by_user_id: string;
   token: string;
   expires_at: string;
@@ -83,28 +88,23 @@ function mapInvitationStatus(invitation: Pick<WorkspaceInvitationRow, "accepted_
 
 async function requireWorkspaceWithRole(
   user: AuthenticatedUser,
-  allowedRoles: string[],
+  allowedAccountClasses: AccountClass[],
   preferredWorkspaceId?: string | null,
-): Promise<{ workspace: WorkspaceRow; memberRole: string }> {
+): Promise<{ workspace: WorkspaceRow; accountClass: AccountClass }> {
   const workspace = (await resolveWorkspaceForUser(user, preferredWorkspaceId)) as WorkspaceRow;
-  const adminClient = createServiceRoleClient();
+  const organization = await getOrganizationForWorkspace(workspace);
+  const accountClass = await getAccountClassForUser({
+    accountId: organization.id,
+    userId: user.id,
+    organization,
+    workspace,
+  });
 
-  const { data: membership, error } = await adminClient
-    .from("workspace_memberships")
-    .select("role")
-    .eq("workspace_id", workspace.id)
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (error) throw new AppError(500, error.message);
-
-  const role = membership?.role ?? null;
-
-  if (!role || !allowedRoles.includes(role)) {
+  if (!allowedAccountClasses.includes(accountClass)) {
     throw new AppError(403, "You do not have permission to manage this workspace.");
   }
 
-  return { workspace, memberRole: role };
+  return { workspace, accountClass };
 }
 
 async function getOrganizationForWorkspace(workspace: WorkspaceRow) {
@@ -129,7 +129,7 @@ function assertOrganizationCanManagePeople(organization: OrganizationRow) {
 
 const createInvitationSchema = z.object({
   email: z.string().trim().email(),
-  role: z.enum(["account_admin", "member", "admin", "billing_admin"]).default("member"),
+  accountClass: z.enum(["corporate_admin", "corporate_member"]).default("corporate_member"),
 });
 
 const updateWorkspaceNameSchema = z.object({
@@ -143,7 +143,7 @@ const sendWorkspacePasswordResetSchema = z.object({
 
 const changeMemberRoleSchema = z.object({
   userId: z.string().uuid(),
-  role: z.enum(["account_admin", "member", "admin", "billing_admin"]),
+  accountClass: z.enum(["corporate_admin", "corporate_member"]),
 });
 
 const removeMemberSchema = z.object({
@@ -161,20 +161,25 @@ export async function getWorkspaceTeamForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const workspace = (await resolveWorkspaceForUser(user, preferredWorkspaceId)) as WorkspaceRow;
   const organization = await getOrganizationForWorkspace(workspace);
-  const organizationMembershipRole = await getOrganizationMembershipRole(organization.id, user.id);
+  const accountClass = await getAccountClassForUser({
+    accountId: organization.id,
+    userId: user.id,
+    organization,
+    workspace,
+  });
   const adminClient = createServiceRoleClient();
 
   const [membersResult, invitationsResult] = await Promise.all([
     adminClient
-      .from("workspace_memberships")
-      .select("workspace_id, user_id, role, created_at")
-      .eq("workspace_id", workspace.id)
+      .from("account_members")
+      .select("workspace_id, user_id, account_class, created_at")
+      .eq("account_id", organization.id)
       .order("created_at", { ascending: true }),
 
     adminClient
-      .from("workspace_invitations")
-      .select("id, workspace_id, email, role, invited_by_user_id, expires_at, accepted_at, created_at")
-      .eq("workspace_id", workspace.id)
+      .from("account_invitations")
+      .select("id, account_id, workspace_id, email, account_class, invited_by_user_id, expires_at, accepted_at, created_at")
+      .eq("account_id", organization.id)
       .is("accepted_at", null)
       .gt("expires_at", new Date().toISOString())
       .order("created_at", { ascending: true }),
@@ -183,7 +188,12 @@ export async function getWorkspaceTeamForAuthorizationHeader(
   if (membersResult.error) throw new AppError(500, membersResult.error.message);
   if (invitationsResult.error) throw new AppError(500, invitationsResult.error.message);
 
-  const members = (membersResult.data ?? []) as unknown as WorkspaceMemberRow[];
+  const members = (membersResult.data ?? []) as unknown as Array<{
+    workspace_id: string | null;
+    user_id: string;
+    account_class: AccountClass;
+    created_at: string;
+  }>;
   const invitations = (invitationsResult.data ?? []) as WorkspaceInvitationRow[];
   const profilesById = await getProfileIdentitiesById(
     adminClient,
@@ -196,7 +206,7 @@ export async function getWorkspaceTeamForAuthorizationHeader(
       name: organization.name,
       slug: organization.slug,
       accountType: organization.account_type,
-      membershipRole: organizationMembershipRole,
+      accountClass,
     },
     workspace: {
       id: workspace.id,
@@ -209,7 +219,7 @@ export async function getWorkspaceTeamForAuthorizationHeader(
 
       return {
         userId: m.user_id,
-        role: m.role,
+        accountClass: m.account_class,
         displayName: profile?.display_name ?? profile?.email ?? "Unknown",
         email: profile?.email ?? null,
         isCurrentUser: m.user_id === user.id,
@@ -219,7 +229,7 @@ export async function getWorkspaceTeamForAuthorizationHeader(
     pendingInvitations: invitations.map((inv) => ({
       id: inv.id,
       email: inv.email,
-      role: inv.role,
+      accountClass: inv.account_class,
       expiresAt: inv.expires_at,
       createdAt: inv.created_at,
     })),
@@ -236,9 +246,9 @@ export async function createWorkspaceInvitationForAuthorizationHeader(
   preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, memberRole } = await requireWorkspaceWithRole(
+  const { workspace } = await requireWorkspaceWithRole(
     user,
-    ["account_admin", "admin"],
+    ["corporate_admin"],
     preferredWorkspaceId,
   );
   const organization = await getOrganizationForWorkspace(workspace);
@@ -248,18 +258,14 @@ export async function createWorkspaceInvitationForAuthorizationHeader(
   const adminClient = createServiceRoleClient();
   const env = readServerEnv();
 
-  if (parsed.role === "account_admin" && memberRole !== "account_admin") {
-    throw new AppError(403, "Only an account admin can grant account admin access.");
-  }
-
   // Check if already a member
   const existingProfile = await findProfileIdentityByEmail(adminClient, email);
 
   if (existingProfile?.id) {
     const { data: existingMembership } = await adminClient
-      .from("workspace_memberships")
-      .select("role")
-      .eq("workspace_id", workspace.id)
+      .from("account_members")
+      .select("account_class")
+      .eq("account_id", organization.id)
       .eq("user_id", existingProfile.id)
       .maybeSingle();
 
@@ -270,9 +276,9 @@ export async function createWorkspaceInvitationForAuthorizationHeader(
 
   // Check for existing pending invite
   const { data: existingInvite } = await adminClient
-    .from("workspace_invitations")
+    .from("account_invitations")
     .select("id")
-    .eq("workspace_id", workspace.id)
+    .eq("account_id", organization.id)
     .ilike("email", email)
     .is("accepted_at", null)
     .gt("expires_at", new Date().toISOString())
@@ -286,16 +292,17 @@ export async function createWorkspaceInvitationForAuthorizationHeader(
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
   const { data: invitation, error: insertError } = await adminClient
-    .from("workspace_invitations")
+    .from("account_invitations")
     .insert({
+      account_id: organization.id,
       workspace_id: workspace.id,
       email,
-      role: parsed.role,
+      account_class: parsed.accountClass,
       invited_by_user_id: user.id,
       token,
       expires_at: expiresAt,
     })
-    .select("id, email, role, expires_at")
+    .select("id, email, account_class, expires_at")
     .single();
 
   if (insertError || !invitation) {
@@ -306,21 +313,21 @@ export async function createWorkspaceInvitationForAuthorizationHeader(
     toEmail: email,
     inviterName: user.name ?? user.email,
     workspaceName: workspace.name,
-    role: parsed.role,
+    accountClass: parsed.accountClass,
     token,
     appOrigin: env.EASYDRAFT_APP_ORIGIN,
   });
 
   // Seat count advisory: count current members + pending invites after this one
   const { count: memberCount } = await adminClient
-    .from("workspace_memberships")
+    .from("account_members")
     .select("*", { head: true, count: "exact" })
-    .eq("workspace_id", workspace.id);
+    .eq("account_id", organization.id);
 
   const { count: pendingCount } = await adminClient
-    .from("workspace_invitations")
+    .from("account_invitations")
     .select("*", { head: true, count: "exact" })
-    .eq("workspace_id", workspace.id)
+    .eq("account_id", organization.id)
     .is("accepted_at", null)
     .gt("expires_at", new Date().toISOString());
 
@@ -344,7 +351,7 @@ export async function createWorkspaceInvitationForAuthorizationHeader(
     invitation: {
       id: invitation.id,
       email: invitation.email,
-      role: invitation.role,
+      accountClass: invitation.account_class,
       expiresAt: invitation.expires_at,
     },
     seatWarning,
@@ -361,13 +368,13 @@ export async function resendWorkspaceInvitationForAuthorizationHeader(
   preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace } = await requireWorkspaceWithRole(user, ["account_admin", "admin"], preferredWorkspaceId);
+  const { workspace } = await requireWorkspaceWithRole(user, ["corporate_admin"], preferredWorkspaceId);
   const adminClient = createServiceRoleClient();
   const env = readServerEnv();
 
   const { data: invitation, error } = await adminClient
-    .from("workspace_invitations")
-    .select("id, email, role, token, expires_at, accepted_at")
+    .from("account_invitations")
+    .select("id, email, account_class, token, expires_at, accepted_at")
     .eq("id", invitationId)
     .eq("workspace_id", workspace.id)
     .maybeSingle();
@@ -384,7 +391,7 @@ export async function resendWorkspaceInvitationForAuthorizationHeader(
   const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
   await adminClient
-    .from("workspace_invitations")
+    .from("account_invitations")
     .update({ expires_at: newExpiresAt })
     .eq("id", invitationId);
 
@@ -392,7 +399,7 @@ export async function resendWorkspaceInvitationForAuthorizationHeader(
     toEmail: invitation.email,
     inviterName: user.name ?? user.email,
     workspaceName: workspace.name,
-    role: invitation.role,
+    accountClass: invitation.account_class,
     token: invitation.token,
     appOrigin: env.EASYDRAFT_APP_ORIGIN,
   });
@@ -410,11 +417,11 @@ export async function revokeWorkspaceInvitationForAuthorizationHeader(
   preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace } = await requireWorkspaceWithRole(user, ["account_admin", "admin"], preferredWorkspaceId);
+  const { workspace } = await requireWorkspaceWithRole(user, ["corporate_admin"], preferredWorkspaceId);
   const adminClient = createServiceRoleClient();
 
   const { error } = await adminClient
-    .from("workspace_invitations")
+    .from("account_invitations")
     .delete()
     .eq("id", invitationId)
     .eq("workspace_id", workspace.id);
@@ -436,8 +443,8 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
   const adminClient = createServiceRoleClient();
 
   const { data: invitation, error } = await adminClient
-    .from("workspace_invitations")
-    .select("id, workspace_id, email, role, accepted_at, expires_at")
+    .from("account_invitations")
+    .select("id, account_id, workspace_id, email, account_class, accepted_at, expires_at")
     .eq("token", token)
     .maybeSingle();
 
@@ -455,36 +462,60 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
     );
   }
 
+  if (!invitation.workspace_id) {
+    throw new AppError(409, "This invitation is not attached to a workspace.");
+  }
+
   if (invitation.accepted_at) {
     // Already accepted — just make sure they're in the workspace and return success
     const { data: existingMembership } = await adminClient
-      .from("workspace_memberships")
-      .select("role")
-      .eq("workspace_id", invitation.workspace_id)
+      .from("account_members")
+      .select("account_class")
+      .eq("account_id", invitation.account_id)
       .eq("user_id", user.id)
       .maybeSingle();
 
     if (existingMembership) {
       const { data: workspace } = await adminClient
         .from("workspaces")
-        .select("id, name, slug, organization_id")
+        .select("id, name, slug, workspace_type, organization_id, owner_user_id")
         .eq("id", invitation.workspace_id)
         .maybeSingle();
 
       if (workspace?.organization_id) {
+        const legacyRole = legacyMembershipRoleFromAccountClass(invitation.account_class);
         const { error: orgMembershipError } = await adminClient.from("organization_memberships").upsert(
           {
             organization_id: workspace.organization_id,
             user_id: user.id,
-            role: invitation.role,
+            role: legacyRole,
           },
           { onConflict: "organization_id,user_id" },
         );
 
-        if (orgMembershipError) {
-          throw new AppError(500, orgMembershipError.message);
+          if (orgMembershipError) {
+            throw new AppError(500, orgMembershipError.message);
+          }
+
+          const organization = await getOrganizationById(workspace.organization_id);
+          if (organization) {
+            const { error: accountMemberError } = await adminClient.from("account_members").upsert(
+              {
+                account_id: workspace.organization_id,
+                workspace_id: workspace.id,
+                user_id: user.id,
+                account_class: invitation.account_class,
+                is_primary_admin: workspace.owner_user_id === user.id,
+                source_membership_role: legacyRole,
+              },
+              { onConflict: "account_id,user_id" },
+            );
+
+            if (accountMemberError) {
+              throw new AppError(500, accountMemberError.message);
+            }
+          }
         }
-      }
 
       return {
         joined: true,
@@ -492,7 +523,7 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
         workspace: workspace
           ? { id: workspace.id, name: workspace.name, slug: workspace.slug }
           : null,
-        role: invitation.role,
+        accountClass: invitation.account_class,
       };
     }
   }
@@ -503,17 +534,34 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
 
   // Check if already a member of this workspace (e.g. joined another way)
   const { data: existingMembership } = await adminClient
-    .from("workspace_memberships")
-    .select("role")
-    .eq("workspace_id", invitation.workspace_id)
+    .from("account_members")
+    .select("account_class")
+    .eq("account_id", invitation.account_id)
     .eq("user_id", user.id)
     .maybeSingle();
 
+  const legacyRole = legacyMembershipRoleFromAccountClass(invitation.account_class);
+
   if (!existingMembership) {
+    const { error: accountMemberError } = await adminClient.from("account_members").upsert(
+      {
+        account_id: invitation.account_id,
+        workspace_id: invitation.workspace_id,
+        user_id: user.id,
+        account_class: invitation.account_class,
+        is_primary_admin: false,
+        source_membership_role: legacyRole,
+      },
+      { onConflict: "account_id,user_id" },
+    );
+
+    if (accountMemberError) throw new AppError(500, accountMemberError.message);
+
+    // TEMP_MIGRATION_BRIDGE: workspace routing still depends on workspace_memberships.
     const { error: membershipError } = await adminClient.from("workspace_memberships").insert({
       workspace_id: invitation.workspace_id,
       user_id: user.id,
-      role: invitation.role,
+      role: legacyRole,
     });
 
     if (membershipError) throw new AppError(500, membershipError.message);
@@ -521,7 +569,7 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
 
   // Mark as accepted
   await adminClient
-    .from("workspace_invitations")
+    .from("account_invitations")
     .update({ accepted_at: new Date().toISOString() })
     .eq("id", invitation.id);
 
@@ -537,13 +585,32 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
       {
         organization_id: workspace.organization_id,
         user_id: user.id,
-        role: invitation.role,
+        role: legacyRole,
       },
       { onConflict: "organization_id,user_id" },
     );
 
     if (orgMembershipError) {
       throw new AppError(500, orgMembershipError.message);
+    }
+
+    const organization = await getOrganizationById(workspace.organization_id);
+    if (organization) {
+      const { error: accountMemberError } = await adminClient.from("account_members").upsert(
+        {
+          account_id: workspace.organization_id,
+          workspace_id: workspace.id,
+          user_id: user.id,
+          account_class: invitation.account_class,
+          is_primary_admin: workspace.owner_user_id === user.id,
+          source_membership_role: legacyRole,
+        },
+        { onConflict: "account_id,user_id" },
+      );
+
+      if (accountMemberError) {
+        throw new AppError(500, accountMemberError.message);
+      }
     }
   }
 
@@ -562,15 +629,15 @@ export async function acceptWorkspaceInvitationForAuthorizationHeader(
     workspace: workspace
       ? { id: workspace.id, name: workspace.name, slug: workspace.slug }
       : null,
-    role: invitation.role,
+    accountClass: invitation.account_class,
   };
 }
 
 export async function getWorkspaceInvitationDetails(token: string) {
   const adminClient = createServiceRoleClient();
   const { data: invitation, error } = await adminClient
-    .from("workspace_invitations")
-    .select("id, workspace_id, email, role, accepted_at, expires_at")
+    .from("account_invitations")
+    .select("id, account_id, workspace_id, email, account_class, accepted_at, expires_at")
     .eq("token", token)
     .maybeSingle();
 
@@ -591,7 +658,7 @@ export async function getWorkspaceInvitationDetails(token: string) {
   return {
     invitation: {
       email: invitation.email,
-      role: invitation.role,
+      accountClass: invitation.account_class,
       expiresAt: invitation.expires_at,
       acceptedAt: invitation.accepted_at,
       status: mapInvitationStatus(invitation),
@@ -616,7 +683,7 @@ export async function updateWorkspaceNameForAuthorizationHeader(
   preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace } = await requireWorkspaceWithRole(user, ["account_admin"], preferredWorkspaceId);
+  const { workspace } = await requireWorkspaceWithRole(user, ["personal", "corporate_admin"], preferredWorkspaceId);
   const parsed = updateWorkspaceNameSchema.parse(input);
   const adminClient = createServiceRoleClient();
   const organization = await getOrganizationForWorkspace(workspace);
@@ -640,9 +707,9 @@ export async function updateWorkspaceNameForAuthorizationHeader(
   }
 
   const { data: memberProfiles, error: memberProfilesError } = await adminClient
-    .from("workspace_memberships")
+    .from("account_members")
     .select("user_id")
-    .eq("workspace_id", workspace.id);
+    .eq("account_id", organization.id);
 
   if (memberProfilesError) {
     throw new AppError(500, memberProfilesError.message);
@@ -686,18 +753,18 @@ export async function sendWorkspaceMemberPasswordResetForAuthorizationHeader(
   preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, memberRole } = await requireWorkspaceWithRole(
+  const { workspace } = await requireWorkspaceWithRole(
     user,
-    ["account_admin", "admin"],
+    ["corporate_admin"],
     preferredWorkspaceId,
   );
   const parsed = sendWorkspacePasswordResetSchema.parse(input);
   const adminClient = createServiceRoleClient();
 
   const { data: membership, error } = await adminClient
-    .from("workspace_memberships")
-    .select("user_id, role")
-    .eq("workspace_id", workspace.id)
+    .from("account_members")
+    .select("user_id, account_class")
+    .eq("account_id", workspace.organization_id)
     .eq("user_id", parsed.userId)
     .maybeSingle();
 
@@ -706,8 +773,7 @@ export async function sendWorkspaceMemberPasswordResetForAuthorizationHeader(
     throw new AppError(404, "That user is not a member of this workspace.");
   }
 
-  const typedMembership = membership as { user_id: string; role: string };
-  const targetRole = typedMembership.role;
+  const typedMembership = membership as { user_id: string; account_class: AccountClass };
   const targetProfile = (await getProfileIdentitiesById(adminClient, [parsed.userId])).get(parsed.userId);
   const targetEmail = targetProfile?.email ?? null;
 
@@ -715,7 +781,7 @@ export async function sendWorkspaceMemberPasswordResetForAuthorizationHeader(
     throw new AppError(404, "That user does not have a sign-in email on file.");
   }
 
-  if (targetRole === "account_admin" && memberRole !== "account_admin" && typedMembership.user_id !== user.id) {
+  if (typedMembership.account_class === "corporate_admin" && typedMembership.user_id !== user.id) {
     throw new AppError(403, "Only an account admin can reset another account admin's password.");
   }
 
@@ -746,9 +812,9 @@ export async function changeWorkspaceMemberRoleForAuthorizationHeader(
   preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, memberRole } = await requireWorkspaceWithRole(
+  const { workspace } = await requireWorkspaceWithRole(
     user,
-    ["account_admin", "admin"],
+    ["corporate_admin"],
     preferredWorkspaceId,
   );
   const parsed = changeMemberRoleSchema.parse(input);
@@ -758,30 +824,35 @@ export async function changeWorkspaceMemberRoleForAuthorizationHeader(
     throw new AppError(400, "You cannot change your own role.");
   }
 
-  // Only the primary account admin can assign or remove account admin access.
-  if (parsed.role === "account_admin" && memberRole !== "account_admin") {
-    throw new AppError(403, "Only the primary account admin can grant account admin access.");
-  }
-
-  // Check the target is actually a member and get their current role
+  // Check the target is actually a member and get their current account class.
   const { data: membership, error: fetchError } = await adminClient
-    .from("workspace_memberships")
-    .select("role")
-    .eq("workspace_id", workspace.id)
+    .from("account_members")
+    .select("account_class")
+    .eq("account_id", workspace.organization_id)
     .eq("user_id", parsed.userId)
     .maybeSingle();
 
   if (fetchError) throw new AppError(500, fetchError.message);
   if (!membership) throw new AppError(404, "That user is not a member of this workspace.");
 
-  // Admins cannot change the primary account admin role.
-  if (membership.role === "account_admin" && memberRole !== "account_admin") {
-    throw new AppError(403, "Only the primary account admin can change another account admin's role.");
-  }
+  const nextLegacyRole = legacyMembershipRoleFromAccountClass(parsed.accountClass);
 
+  const { error: accountMemberError } = await adminClient
+    .from("account_members")
+    .update({
+      account_class: parsed.accountClass,
+      source_membership_role: nextLegacyRole,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("account_id", workspace.organization_id)
+    .eq("user_id", parsed.userId);
+
+  if (accountMemberError) throw new AppError(500, accountMemberError.message);
+
+  // TEMP_MIGRATION_BRIDGE: workspace routing still depends on workspace_memberships.
   const { error } = await adminClient
     .from("workspace_memberships")
-    .update({ role: parsed.role })
+    .update({ role: nextLegacyRole })
     .eq("workspace_id", workspace.id)
     .eq("user_id", parsed.userId);
 
@@ -790,7 +861,7 @@ export async function changeWorkspaceMemberRoleForAuthorizationHeader(
   if (workspace.organization_id) {
     const { error: organizationError } = await adminClient
       .from("organization_memberships")
-      .update({ role: parsed.role })
+      .update({ role: nextLegacyRole })
       .eq("organization_id", workspace.organization_id)
       .eq("user_id", parsed.userId);
 
@@ -799,7 +870,11 @@ export async function changeWorkspaceMemberRoleForAuthorizationHeader(
     }
   }
 
-  return { updated: true, userId: parsed.userId, role: parsed.role };
+  return {
+    updated: true,
+    userId: parsed.userId,
+    accountClass: parsed.accountClass,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -812,9 +887,9 @@ export async function removeWorkspaceMemberForAuthorizationHeader(
   preferredWorkspaceId?: string | null,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, memberRole } = await requireWorkspaceWithRole(
+  const { workspace } = await requireWorkspaceWithRole(
     user,
-    ["account_admin", "admin"],
+    ["corporate_admin"],
     preferredWorkspaceId,
   );
   const parsed = removeMemberSchema.parse(input);
@@ -824,22 +899,30 @@ export async function removeWorkspaceMemberForAuthorizationHeader(
     throw new AppError(400, "You cannot remove yourself from the workspace.");
   }
 
-  // Check the target is a member and get their role
+  // Check the target is a member and get their account class.
   const { data: membership, error: fetchError } = await adminClient
-    .from("workspace_memberships")
-    .select("role")
-    .eq("workspace_id", workspace.id)
+    .from("account_members")
+    .select("account_class")
+    .eq("account_id", workspace.organization_id)
     .eq("user_id", parsed.userId)
     .maybeSingle();
 
   if (fetchError) throw new AppError(500, fetchError.message);
   if (!membership) throw new AppError(404, "That user is not a member of this workspace.");
 
-  // Admins cannot remove the primary account admin.
-  if (membership.role === "account_admin" && memberRole !== "account_admin") {
-    throw new AppError(403, "Only the primary account admin can remove another account admin.");
+  if (membership.account_class === "corporate_admin") {
+    throw new AppError(403, "Corporate admins cannot be removed until their account class is changed.");
   }
 
+  const { error: accountMemberError } = await adminClient
+    .from("account_members")
+    .delete()
+    .eq("account_id", workspace.organization_id)
+    .eq("user_id", parsed.userId);
+
+  if (accountMemberError) throw new AppError(500, accountMemberError.message);
+
+  // TEMP_MIGRATION_BRIDGE: workspace routing still depends on workspace_memberships.
   const { error } = await adminClient
     .from("workspace_memberships")
     .delete()
@@ -877,6 +960,16 @@ export async function removeWorkspaceMemberForAuthorizationHeader(
       if (organizationError) {
         throw new AppError(500, organizationError.message);
       }
+
+      const { error: bridgedAccountMemberError } = await adminClient
+        .from("account_members")
+        .delete()
+        .eq("account_id", workspace.organization_id)
+        .eq("user_id", parsed.userId);
+
+      if (bridgedAccountMemberError) {
+        throw new AppError(500, bridgedAccountMemberError.message);
+      }
     }
   }
 
@@ -901,15 +994,15 @@ export async function listAccessibleWorkspacesForAuthorizationHeader(
     organizationIds.map(async (organizationId) => [organizationId, await getOrganizationById(organizationId)] as const),
   );
   const organizationById = new Map(organizations.filter(([, organization]) => organization).map(([id, organization]) => [id, organization as OrganizationRow]));
-  const organizationRoleById = new Map(
-    await Promise.all(
-      organizationIds.map(async (organizationId) => [
-        organizationId,
-        await getOrganizationMembershipRole(organizationId, user.id),
-      ] as const),
-    ),
-  );
   const currentOrganization = organizationById.get(currentWorkspace.organization_id);
+  const currentWorkspaceAccountClass =
+    workspaces.find((entry) => entry.workspace.id === currentWorkspace.id)?.accountClass ??
+    await getAccountClassForUser({
+      accountId: currentWorkspace.organization_id,
+      userId: user.id,
+      organization: currentOrganization,
+      workspace: currentWorkspace,
+    });
 
   return {
     currentWorkspace: {
@@ -917,14 +1010,14 @@ export async function listAccessibleWorkspacesForAuthorizationHeader(
       name: currentWorkspace.name,
       slug: currentWorkspace.slug,
       workspaceType: currentWorkspace.workspace_type,
-      role: workspaces.find((entry) => entry.workspace.id === currentWorkspace.id)?.role ?? null,
+      accountClass: currentWorkspaceAccountClass,
       organization: currentOrganization
         ? {
             id: currentOrganization.id,
             name: currentOrganization.name,
             slug: currentOrganization.slug,
             accountType: currentOrganization.account_type,
-            role: organizationRoleById.get(currentOrganization.id) ?? null,
+            accountClass: currentWorkspaceAccountClass,
           }
         : null,
     },
@@ -933,14 +1026,14 @@ export async function listAccessibleWorkspacesForAuthorizationHeader(
       name: entry.workspace.name,
       slug: entry.workspace.slug,
       workspaceType: entry.workspace.workspace_type,
-      role: entry.role,
+      accountClass: entry.accountClass,
       organization: organizationById.get(entry.workspace.organization_id)
         ? {
             id: organizationById.get(entry.workspace.organization_id)?.id ?? entry.workspace.organization_id,
             name: organizationById.get(entry.workspace.organization_id)?.name ?? entry.workspace.name,
             slug: organizationById.get(entry.workspace.organization_id)?.slug ?? entry.workspace.slug,
             accountType: organizationById.get(entry.workspace.organization_id)?.account_type ?? "individual",
-            role: organizationRoleById.get(entry.workspace.organization_id) ?? null,
+            accountClass: entry.accountClass,
           }
         : null,
     })),
@@ -953,24 +1046,22 @@ export async function listAccessibleWorkspacesForAuthorizationHeader(
 
 async function sendInviteEmail(
   env: ReturnType<typeof readServerEnv>,
-  opts: {
+	opts: {
     toEmail: string;
     inviterName: string;
     workspaceName: string;
-    role?: string;
+    accountClass: AccountClass;
     token: string;
     appOrigin: string;
   },
 ) {
   const acceptUrl = `${opts.appOrigin}?invite=${encodeURIComponent(opts.token)}`;
   const roleLabel =
-    opts.role === "account_admin"
-      ? "Account admin"
-      : opts.role === "admin"
-        ? "Admin"
-        : opts.role === "billing_admin"
-          ? "Billing admin"
-          : "Member";
+    opts.accountClass === "corporate_admin"
+      ? "Corporate admin"
+      : opts.accountClass === "personal"
+        ? "Personal"
+        : "Corporate member";
 
   const html = `
 <!DOCTYPE html>

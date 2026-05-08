@@ -1,5 +1,9 @@
 import type { DocumentRecord } from "@clean-pdf/domain";
 
+export type AccountClass = "personal" | "corporate_admin" | "corporate_member";
+export type DocumentMode = "initiator" | "internal_signer" | "external_signer";
+export type AuthorityLevel = "viewer" | "signer" | "document_admin" | "org_admin_override";
+
 export type SessionUser = {
   id: string;
   name: string;
@@ -9,11 +13,12 @@ export type SessionUser = {
 
 export type WorkflowDocument = DocumentRecord & {
   currentUserRole: "document_admin" | "editor" | "signer" | "viewer" | null;
+  currentUserAuthority: AuthorityLevel | null;
   currentUserIsSigner: boolean;
   currentUserSignerId: string | null;
   accessParticipants: Array<{
     userId: string;
-    role: "document_admin" | "editor" | "signer" | "viewer";
+    authority: AuthorityLevel;
     displayName: string;
     email: string | null;
   }>;
@@ -53,7 +58,7 @@ export type BillingOverview = {
     name: string;
     slug: string;
     accountType: "individual" | "corporate";
-    membershipRole: "account_admin" | "admin" | "member" | "billing_admin" | null;
+    accountClass: AccountClass;
     memberCount: number;
   };
   workspace: {
@@ -61,7 +66,7 @@ export type BillingOverview = {
     name: string;
     slug: string;
     workspaceType: "personal" | "team";
-    membershipRole: "account_admin" | "admin" | "member" | "billing_admin" | null;
+    accountClass: AccountClass;
     internalMemberCount: number;
   };
   subscription: {
@@ -169,6 +174,7 @@ export type AccountProfile = {
   avatarUrl: string | null;
   companyName: string | null;
   accountType: "individual" | "corporate";
+  accountClass: AccountClass;
   workspaceName: string | null;
   jobTitle: string | null;
   locale: string | null;
@@ -251,7 +257,7 @@ export type AdminFeedbackRequest = {
 
 export type WorkspaceTeamMember = {
   userId: string;
-  role: string;
+  accountClass: AccountClass;
   displayName: string;
   email: string | null;
   isCurrentUser: boolean;
@@ -261,7 +267,7 @@ export type WorkspaceTeamMember = {
 export type WorkspaceTeamInvitation = {
   id: string;
   email: string;
-  role: string;
+  accountClass: AccountClass;
   expiresAt: string;
   createdAt: string;
 };
@@ -272,7 +278,7 @@ export type WorkspaceTeam = {
     name: string;
     slug: string;
     accountType: "individual" | "corporate";
-    membershipRole: "account_admin" | "admin" | "member" | "billing_admin" | null;
+    accountClass: AccountClass;
   };
   workspace: {
     id: string;
@@ -289,13 +295,13 @@ export type WorkspaceOption = {
   name: string;
   slug: string;
   workspaceType: "personal" | "team";
-  role: "account_admin" | "admin" | "member" | "billing_admin" | null;
+  accountClass: AccountClass;
   organization: {
     id: string;
     name: string;
     slug: string;
     accountType: "individual" | "corporate";
-    role: "account_admin" | "admin" | "member" | "billing_admin" | null;
+    accountClass: AccountClass;
   } | null;
 };
 
@@ -313,7 +319,7 @@ export type OrganizationAdminOverview = {
     status: "pending_verification" | "active" | "payment_required" | "suspended" | "closing" | "closed";
     billingEmail: string | null;
     primaryAccountAdminUserId: string;
-    membershipRole: "account_admin" | "admin" | "member" | "billing_admin" | null;
+    accountClass: AccountClass;
     suspendedAt: string | null;
     closingRequestedAt: string | null;
     closedAt: string | null;
@@ -358,7 +364,7 @@ export type OrganizationAdminOverview = {
     userId: string;
     displayName: string;
     email: string | null;
-    role: "account_admin" | "admin" | "member" | "billing_admin";
+    accountClass: AccountClass;
     licenseStatus: "assigned" | "invited" | "suspended" | "revoked";
     joinedAt: string;
     isPrimaryAccountAdmin: boolean;
@@ -367,7 +373,7 @@ export type OrganizationAdminOverview = {
   pendingInvitations: Array<{
     id: string;
     email: string;
-    role: "account_admin" | "admin" | "member" | "billing_admin";
+    accountClass: AccountClass;
     licenseStatus: "assigned" | "invited" | "suspended" | "revoked";
     expiresAt: string;
     createdAt: string;

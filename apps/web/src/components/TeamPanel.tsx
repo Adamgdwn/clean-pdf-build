@@ -2,13 +2,12 @@ import { useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 
 import { apiFetch } from "../lib/api";
-import type { BillingOverview, WorkspaceTeam, WorkspaceTeamInvitation } from "../types";
+import type { AccountClass, BillingOverview, WorkspaceTeam, WorkspaceTeamInvitation } from "../types";
 
-const ROLE_LABELS: Record<string, string> = {
-  account_admin: "Account admin",
-  admin: "Admin",
-  member: "Member",
-  billing_admin: "Billing admin",
+const ACCOUNT_CLASS_LABELS: Record<AccountClass, string> = {
+  personal: "Personal",
+  corporate_admin: "Corporate admin",
+  corporate_member: "Corporate member",
 };
 
 type Props = {
@@ -20,7 +19,7 @@ type Props = {
 
 export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Props) {
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"account_admin" | "member" | "admin" | "billing_admin">("member");
+  const [inviteAccountClass, setInviteAccountClass] = useState<AccountClass>("corporate_member");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
@@ -29,14 +28,14 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
     team.organization.accountType === "corporate" ? team.organization.name : team.workspace.name,
   );
   const [editingRoleUserId, setEditingRoleUserId] = useState<string | null>(null);
-  const [editingRoleValue, setEditingRoleValue] = useState<"account_admin" | "member" | "admin" | "billing_admin">("member");
+  const [editingAccountClassValue, setEditingAccountClassValue] = useState<AccountClass>("corporate_member");
   const [confirmRemoveUserId, setConfirmRemoveUserId] = useState<string | null>(null);
 
   const subscription = billingOverview?.subscription ?? null;
   const isAccountAdminOrAdmin = team.members.some(
-    (m) => m.isCurrentUser && ["account_admin", "admin"].includes(m.role),
+    (m) => m.isCurrentUser && m.accountClass === "corporate_admin",
   );
-  const isCurrentUserAccountAdmin = team.members.some((m) => m.isCurrentUser && m.role === "account_admin");
+  const isCurrentUserAccountAdmin = team.members.some((m) => m.isCurrentUser && m.accountClass === "corporate_admin");
 
   const totalOccupied = team.members.length + team.pendingInvitations.length;
   const seatCount = subscription?.seatCount ?? 0;
@@ -55,7 +54,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
       const result = await apiFetch<{ invitation: { email: string }; seatWarning: string | null }>(
         "/workspace-invite",
         session,
-        { method: "POST", body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }) },
+        { method: "POST", body: JSON.stringify({ email: inviteEmail.trim(), accountClass: inviteAccountClass }) },
       );
       setInviteEmail("");
       setNoticeMessage(`Invitation sent to ${result.invitation.email}.${result.seatWarning ? ` ${result.seatWarning}` : ""}`);
@@ -159,7 +158,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
     try {
       await apiFetch("/workspace-member-role", session, {
         method: "PATCH",
-        body: JSON.stringify({ userId, role: editingRoleValue }),
+        body: JSON.stringify({ userId, accountClass: editingAccountClassValue }),
       });
       setNoticeMessage("Role updated.");
       onTeamRefresh();
@@ -249,14 +248,14 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
                 <p className="muted">{member.email ?? ""}</p>
               </div>
               <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexShrink: 0 }}>
-                <span className="muted">{ROLE_LABELS[member.role] ?? member.role}</span>
+                <span className="muted">{ACCOUNT_CLASS_LABELS[member.accountClass]}</span>
                 {isAccountAdminOrAdmin && !member.isCurrentUser ? (
                   <button
                     className="ghost-button small"
                     disabled={isLoading}
                     onClick={() => {
                       setEditingRoleUserId(editingRoleUserId === member.userId ? null : member.userId);
-                      setEditingRoleValue(member.role as "account_admin" | "member" | "admin" | "billing_admin");
+                      setEditingAccountClassValue(member.accountClass);
                       setConfirmRemoveUserId(null);
                     }}
                     type="button"
@@ -295,18 +294,16 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
             {editingRoleUserId === member.userId ? (
               <div className="row-inline" style={{ paddingTop: "4px", borderTop: "1px solid var(--border)" }}>
                 <select
-                  value={editingRoleValue}
-                  onChange={(e) => setEditingRoleValue(e.target.value as "account_admin" | "member" | "admin" | "billing_admin")}
+                  value={editingAccountClassValue}
+                  onChange={(e) => setEditingAccountClassValue(e.target.value as AccountClass)}
                   style={{ flex: 1 }}
                 >
-                  {isCurrentUserAccountAdmin ? <option value="account_admin">Account admin - full organization control</option> : null}
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                  <option value="billing_admin">Billing admin</option>
+                  {isCurrentUserAccountAdmin ? <option value="corporate_admin">Corporate admin - full organization control</option> : null}
+                  <option value="corporate_member">Corporate member</option>
                 </select>
                 <button
                   className="secondary-button"
-                  disabled={isLoading || editingRoleValue === member.role}
+                  disabled={isLoading || editingAccountClassValue === member.accountClass}
                   onClick={() => handleChangeRole(member.userId)}
                   type="button"
                 >
@@ -358,7 +355,7 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
               <div key={inv.id} className="row-card">
                 <div>
                   <span>{inv.email}</span>
-                  <p className="muted">{ROLE_LABELS[inv.role] ?? inv.role} · invited</p>
+                  <p className="muted">{ACCOUNT_CLASS_LABELS[inv.accountClass]} · invited</p>
                 </div>
                 {isAccountAdminOrAdmin ? (
                   <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -413,13 +410,11 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
                 <label className="form-field" style={{ flex: 1, margin: 0 }}>
                   <span>Role</span>
                   <select
-                    value={inviteRole}
-                    onChange={(e) => setInviteRole(e.target.value as "account_admin" | "member" | "admin" | "billing_admin")}
+                    value={inviteAccountClass}
+                    onChange={(e) => setInviteAccountClass(e.target.value as AccountClass)}
                   >
-                    {isCurrentUserAccountAdmin ? <option value="account_admin">Account admin - full organization control</option> : null}
-                    <option value="member">Member</option>
-                    <option value="admin">Admin</option>
-                    <option value="billing_admin">Billing admin</option>
+                    {isCurrentUserAccountAdmin ? <option value="corporate_admin">Corporate admin - full organization control</option> : null}
+                    <option value="corporate_member">Corporate member</option>
                   </select>
                 </label>
                 <button

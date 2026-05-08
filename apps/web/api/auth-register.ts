@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
+import { legacyMembershipRoleFromAccountClass, type AccountClass } from "../../../packages/domain/src/index.js";
 import { getCanonicalAppOrigin, readServerEnv } from "../../../packages/workflow-service/src/env.js";
 import { buildWelcomeEmail, deliverNotificationEmail } from "../../../packages/workflow-service/src/notifications.js";
 import {
@@ -24,7 +25,7 @@ type RegistrationInviteContext = {
   id: string;
   workspaceId: string;
   organizationId: string | null;
-  role: "account_admin" | "admin" | "member" | "billing_admin";
+  accountClass: AccountClass;
 };
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
@@ -98,8 +99,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
     if (workspaceInviteToken) {
       const { data: invitation, error: invitationError } = await adminClient
-        .from("workspace_invitations")
-        .select("id, workspace_id, email, role, expires_at, accepted_at, workspaces(id, organization_id)")
+        .from("account_invitations")
+        .select("id, workspace_id, email, account_class, expires_at, accepted_at, workspaces(id, organization_id)")
         .eq("token", workspaceInviteToken)
         .maybeSingle();
 
@@ -136,7 +137,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         id: invitation.id,
         workspaceId: invitation.workspace_id,
         organizationId: workspace.organization_id ?? null,
-        role: invitation.role,
+        accountClass: invitation.account_class,
       };
     }
 
@@ -222,11 +223,13 @@ export default async function handler(request: VercelRequest, response: VercelRe
     }
 
     if (data.user && inviteContext) {
+      const legacyRole = legacyMembershipRoleFromAccountClass(inviteContext.accountClass);
+      // TEMP_MIGRATION_BRIDGE: workspace routing still depends on workspace_memberships.
       const { error: workspaceMembershipError } = await adminClient.from("workspace_memberships").upsert(
         {
           workspace_id: inviteContext.workspaceId,
           user_id: data.user.id,
-          role: inviteContext.role,
+          role: legacyRole,
         },
         { onConflict: "workspace_id,user_id" },
       );
@@ -240,7 +243,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
           {
             organization_id: inviteContext.organizationId,
             user_id: data.user.id,
-            role: inviteContext.role,
+            role: legacyRole,
           },
           { onConflict: "organization_id,user_id" },
         );
@@ -248,10 +251,42 @@ export default async function handler(request: VercelRequest, response: VercelRe
         if (organizationMembershipError) {
           return response.status(500).json({ message: organizationMembershipError.message });
         }
+
+        const { data: accountContext, error: accountContextError } = await adminClient
+          .from("workspaces")
+          .select("id, workspace_type, organizations(id, account_type, owner_user_id)")
+          .eq("id", inviteContext.workspaceId)
+          .maybeSingle();
+
+        if (accountContextError) {
+          return response.status(500).json({ message: accountContextError.message });
+        }
+
+        const organization = Array.isArray(accountContext?.organizations)
+          ? accountContext?.organizations[0] ?? null
+          : accountContext?.organizations ?? null;
+
+        if (organization) {
+          const { error: accountMemberError } = await adminClient.from("account_members").upsert(
+            {
+              account_id: organization.id,
+              workspace_id: inviteContext.workspaceId,
+              user_id: data.user.id,
+              account_class: inviteContext.accountClass,
+              is_primary_admin: organization.owner_user_id === data.user.id,
+              source_membership_role: legacyRole,
+            },
+            { onConflict: "account_id,user_id" },
+          );
+
+          if (accountMemberError) {
+            return response.status(500).json({ message: accountMemberError.message });
+          }
+        }
       }
 
       const { error: invitationAcceptError } = await adminClient
-        .from("workspace_invitations")
+        .from("account_invitations")
         .update({ accepted_at: new Date().toISOString() })
         .eq("id", inviteContext.id)
         .is("accepted_at", null);

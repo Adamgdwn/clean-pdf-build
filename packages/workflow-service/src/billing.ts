@@ -1,12 +1,13 @@
 import Stripe from "stripe";
 import { z } from "zod";
 
+import { canAccountClassPerform, type AccountClass } from "../../domain/src/index.js";
 import { getCanonicalAppOrigin, readServerEnv, shouldRequireStripe } from "./env.js";
 import { AppError } from "./errors.js";
 import {
   ensureOrganizationForWorkspace,
+  getAccountClassForUser,
   getOrganizationById,
-  getOrganizationMembershipRole,
   resolveAuthenticatedUser,
   resolveWorkspaceForUser,
   type AuthenticatedUser,
@@ -156,8 +157,8 @@ function getStripeClient() {
 // Permissions
 // ---------------------------------------------------------------------------
 
-function requireBillingPermission(membership: WorkspaceMembershipRow | null) {
-  if (!membership || !["account_admin", "billing_admin"].includes(membership.role)) {
+function requireBillingPermission(accountClass: AccountClass | null) {
+  if (!canAccountClassPerform(accountClass, "manage_billing")) {
     throw new AppError(403, "You do not have permission to manage billing for this workspace.");
   }
 }
@@ -185,9 +186,9 @@ async function getBillingWorkspaceForUser(
   const organization = await ensureOrganizationForWorkspace(workspace);
   const adminClient = createServiceRoleClient();
   const { data: membership, error: membershipError } = await adminClient
-    .from("workspace_memberships")
-    .select("workspace_id, user_id, role")
-    .eq("workspace_id", workspace.id)
+    .from("account_members")
+    .select("workspace_id, user_id, account_class")
+    .eq("account_id", organization.id)
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -198,8 +199,12 @@ async function getBillingWorkspaceForUser(
   return {
     workspace,
     organization: organization as OrganizationRow,
-    membership: (membership ?? null) as WorkspaceMembershipRow | null,
-    organizationMembershipRole: await getOrganizationMembershipRole(organization.id, user.id),
+    accountClass: await getAccountClassForUser({
+      accountId: organization.id,
+      userId: user.id,
+      organization: organization as OrganizationRow,
+      workspace,
+    }),
   };
 }
 
@@ -240,7 +245,7 @@ async function getLatestSubscriptionForWorkspace(workspaceId: string) {
 async function countWorkspaceMembers(workspaceId: string) {
   const adminClient = createServiceRoleClient();
   const { count, error } = await adminClient
-    .from("workspace_memberships")
+    .from("account_members")
     .select("*", { head: true, count: "exact" })
     .eq("workspace_id", workspaceId);
 
@@ -254,9 +259,9 @@ async function countWorkspaceMembers(workspaceId: string) {
 async function countOrganizationMembers(organizationId: string) {
   const adminClient = createServiceRoleClient();
   const { count, error } = await adminClient
-    .from("organization_memberships")
+    .from("account_members")
     .select("*", { head: true, count: "exact" })
-    .eq("organization_id", organizationId);
+    .eq("account_id", organizationId);
 
   if (error) {
     throw new AppError(500, error.message);
@@ -519,7 +524,7 @@ export async function getBillingOverviewForAuthorizationHeader(
 ) {
   const stripeReady = isStripeConfigured();
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, organization, membership, organizationMembershipRole } =
+  const { workspace, organization, accountClass } =
     await getBillingWorkspaceForUser(user, preferredWorkspaceId);
 
   const [plans, subscription, internalMemberCount] = await Promise.all([
@@ -542,7 +547,7 @@ export async function getBillingOverviewForAuthorizationHeader(
       name: organization.name,
       slug: organization.slug,
       accountType: organization.account_type,
-      membershipRole: organizationMembershipRole,
+      accountClass,
       memberCount: internalMemberCount,
     },
     workspace: {
@@ -550,12 +555,7 @@ export async function getBillingOverviewForAuthorizationHeader(
       name: workspace.name,
       slug: workspace.slug,
       workspaceType: workspace.workspace_type,
-      membershipRole: (organizationMembershipRole ?? membership?.role ?? null) as
-        | "account_admin"
-        | "admin"
-        | "member"
-        | "billing_admin"
-        | null,
+      accountClass,
       internalMemberCount,
     },
     subscription: subscription
@@ -600,12 +600,10 @@ export async function createCheckoutSessionForAuthorizationHeader(
 ) {
   const appOrigin = getCanonicalAppOrigin();
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, organization, organizationMembershipRole } =
+  const { workspace, organization, accountClass } =
     await getBillingWorkspaceForUser(user, preferredWorkspaceId);
   assertOrganizationCanStartBillingChange(organization);
-  requireBillingPermission(
-    organizationMembershipRole ? { workspace_id: workspace.id, user_id: user.id, role: organizationMembershipRole } : null,
-  );
+  requireBillingPermission(accountClass);
 
   const existingSubscription = await getLatestSubscriptionForWorkspace(workspace.id);
 
@@ -710,12 +708,10 @@ export async function createTokenCheckoutSessionForAuthorizationHeader(
 ) {
   const appOrigin = getCanonicalAppOrigin();
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, organization, organizationMembershipRole } =
+  const { workspace, organization, accountClass } =
     await getBillingWorkspaceForUser(user, preferredWorkspaceId);
   assertOrganizationCanStartBillingChange(organization);
-  requireBillingPermission(
-    organizationMembershipRole ? { workspace_id: workspace.id, user_id: user.id, role: organizationMembershipRole } : null,
-  );
+  requireBillingPermission(accountClass);
 
   // Only subscribed workspaces can purchase tokens
   const subscription = await getLatestSubscriptionForWorkspace(workspace.id);
@@ -783,11 +779,9 @@ export async function createBillingPortalSessionForAuthorizationHeader(
 ) {
   const appOrigin = getCanonicalAppOrigin();
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const { workspace, organization, organizationMembershipRole } =
+  const { workspace, organization, accountClass } =
     await getBillingWorkspaceForUser(user, preferredWorkspaceId);
-  requireBillingPermission(
-    organizationMembershipRole ? { workspace_id: workspace.id, user_id: user.id, role: organizationMembershipRole } : null,
-  );
+  requireBillingPermission(accountClass);
 
   if (!assertStripeConfigurationReady()) {
     return {

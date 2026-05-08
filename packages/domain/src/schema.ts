@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { accountClassSchema, authorityLevelSchema, documentModeSchema } from "./target-model.js";
+
 export const workflowStateSchema = z.enum([
   "draft",
   "prepared",
@@ -26,6 +28,7 @@ export const signatureStatusSchema = z.enum(["pending", "sent", "signed", "rejec
 export const accessRoleSchema = z.enum(["document_admin", "editor", "signer", "viewer"]);
 export const routingStrategySchema = z.enum(["sequential", "parallel"]);
 export const participantTypeSchema = z.enum(["internal", "external"]);
+export { accountClassSchema, authorityLevelSchema, documentModeSchema };
 export const lockPolicySchema = z.enum([
   "document_admin_only",
   "document_admin_and_editors",
@@ -93,6 +96,7 @@ export const documentAccessSchema = z.object({
 
 export const signerSchema = z.object({
   id: z.string(),
+  participantId: z.string().nullable().default(null),
   userId: z.string().nullable().default(null),
   name: z.string(),
   email: z.string().email(),
@@ -108,6 +112,7 @@ export const fieldSchema = z.object({
   kind: fieldKindSchema,
   label: z.string(),
   required: z.boolean().default(false),
+  assigneeParticipantId: z.string().nullable().default(null),
   assigneeSignerId: z.string().nullable().default(null),
   source: fieldSourceSchema,
   x: z.number().min(0),
