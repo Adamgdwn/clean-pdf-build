@@ -101,7 +101,7 @@ Steps:
 2. Confirm public-email corporate signup is rejected with the organization-email message.
 3. Confirm the account admin experience loads first.
 4. Confirm organization, workspace, billing, team, and document areas appear.
-5. Create or confirm a saved signature.
+5. Create or confirm an electronic signature identity.
 6. Complete onboarding if prompted.
 
 Expected result:

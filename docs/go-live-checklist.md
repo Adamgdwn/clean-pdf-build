@@ -147,8 +147,8 @@ Store the future values in your secret manager or Vercel using these names for c
    - workspace switcher appears when a user belongs to more than one workspace
    - switching workspace updates documents, billing, and team scope together
    - public `/pricing` route loads and explains seats vs tokens clearly
-   - signature library can save at least one typed signature
-   - digital-signature profile can be created without browser fetch errors
+   - signature library can save at least one typed electronic identity
+   - verified-electronic and provider-backed signature identities can be requested without browser fetch errors
    - upload
    - internal-use-only signing
    - field placement

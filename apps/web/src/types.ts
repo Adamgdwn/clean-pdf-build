@@ -141,16 +141,26 @@ export type WorkspaceInviteDetails = {
   };
 };
 
-export type SavedSignature = {
+export type SignatureIdentity = {
   id: string;
   label: string;
   titleText: string | null;
+  signerName: string;
+  signerEmail: string;
+  organizationName: string | null;
+  assuranceLevel: "electronic" | "verified_electronic" | "digital_pki" | "qualified_provider";
   signatureType: "typed" | "uploaded";
   typedText: string | null;
   storagePath: string | null;
   previewUrl: string | null;
+  provider: "easy_draft" | "easy_draft_remote" | "qualified_remote" | "organization_hsm";
+  status: "active" | "verification_required" | "requested" | "verified" | "rejected";
+  certificateFingerprint: string | null;
+  providerReference: string | null;
+  signingReason: string | null;
   isDefault: boolean;
   createdAt: string;
+  updatedAt: string;
 };
 
 export type SignatureEvent = {
@@ -406,21 +416,4 @@ export type AdminManagedUser = {
   workspaceCount: number;
   documentCount: number;
   privilegeLabels: string[];
-};
-
-export type DigitalSignatureProfile = {
-  id: string;
-  label: string;
-  titleText: string | null;
-  signerName: string;
-  signerEmail: string | null;
-  organizationName: string | null;
-  signingReason: string | null;
-  provider: "easy_draft_remote" | "qualified_remote" | "organization_hsm";
-  assuranceLevel: string;
-  status: "setup_required" | "requested" | "verified" | "rejected";
-  certificateFingerprint: string | null;
-  providerReference: string | null;
-  createdAt: string;
-  updatedAt: string;
 };

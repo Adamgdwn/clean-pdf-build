@@ -2,8 +2,8 @@ import type { FastifyPluginAsync, FastifyReply } from "fastify";
 
 import {
   AppError,
-  createSavedSignatureForAuthorizationHeader,
-  listSavedSignaturesForAuthorizationHeader,
+  createSignatureIdentityForAuthorizationHeader,
+  listSignatureIdentitiesForAuthorizationHeader,
 } from "@clean-pdf/workflow-service";
 
 function sendError(reply: FastifyReply, error: unknown) {
@@ -12,17 +12,17 @@ function sendError(reply: FastifyReply, error: unknown) {
 }
 
 export const signatureRoutes: FastifyPluginAsync = async (app) => {
-  app.get("/saved-signatures", async (request, reply) => {
+  app.get("/signature-identities", async (request, reply) => {
     try {
-      return await listSavedSignaturesForAuthorizationHeader(request.headers.authorization);
+      return await listSignatureIdentitiesForAuthorizationHeader(request.headers.authorization);
     } catch (error) {
       return sendError(reply, error);
     }
   });
 
-  app.post("/saved-signatures", async (request, reply) => {
+  app.post("/signature-identities", async (request, reply) => {
     try {
-      return await createSavedSignatureForAuthorizationHeader(request.headers.authorization, request.body);
+      return await createSignatureIdentityForAuthorizationHeader(request.headers.authorization, request.body);
     } catch (error) {
       return sendError(reply, error);
     }

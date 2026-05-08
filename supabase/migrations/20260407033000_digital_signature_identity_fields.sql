@@ -1,1 +1,3 @@
-digital signature identity fields;
+-- Superseded by 20260508170000_signature_identities_core.sql.
+-- This migration was retained as a valid no-op so historical migration order
+-- remains executable in fresh local environments.

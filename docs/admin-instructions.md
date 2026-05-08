@@ -216,8 +216,8 @@ For production confidence, admins or operators should test:
 - upload and preview
 - account admin portal and user workspace switching
 - active workspace switching
-- saved signature creation
-- digital-signature profile creation
+- signature identity creation
+- verified-electronic / provider-backed signature identity request creation
 - Path 1 internal PDF signing
 - Path 2 Documenso envelope creation and webhook completion
 - internal-use-only flow

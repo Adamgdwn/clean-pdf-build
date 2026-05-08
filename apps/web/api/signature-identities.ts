@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import {
-  createDigitalSignatureProfileForAuthorizationHeader,
-  listDigitalSignatureProfilesForAuthorizationHeader,
+  createSignatureIdentityForAuthorizationHeader,
+  listSignatureIdentitiesForAuthorizationHeader,
 } from "../../../packages/workflow-service/src/index.js";
 
 import { readAuthorizationHeader, sendError } from "./_utils.js";
@@ -12,14 +12,14 @@ export default async function handler(request: VercelRequest, response: VercelRe
     if (request.method === "GET") {
       return response
         .status(200)
-        .json(await listDigitalSignatureProfilesForAuthorizationHeader(readAuthorizationHeader(request)));
+        .json(await listSignatureIdentitiesForAuthorizationHeader(readAuthorizationHeader(request)));
     }
 
     if (request.method === "POST") {
       return response
         .status(200)
         .json(
-          await createDigitalSignatureProfileForAuthorizationHeader(
+          await createSignatureIdentityForAuthorizationHeader(
             readAuthorizationHeader(request),
             request.body,
           ),

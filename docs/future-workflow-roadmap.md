@@ -78,7 +78,7 @@ flowchart TD
         S1 -->|no account needed| S3[External signer\ntoken link delivered via email]
 
         S2 --> S4{Pre-placed field?}
-        S4 -->|Yes| S5[Complete assigned field\nsaved signature · draw · type]
+        S4 -->|Yes| S5[Complete assigned field\nelectronic identity · draw · type]
         S4 -->|No| S6[Free-placement\nposition and sign in one step\nany page, any size]
         S6 --> S5
 
@@ -164,7 +164,7 @@ Stages can be combined: stage 1 parallel among three reviewers, stage 2 sequenti
 
 | Kind | Action field | Description |
 |---|---|---|
-| `signature` | Yes | Full signature — draw, type, or use saved signature |
+| `signature` | Yes | Full signature — draw, type, or use an electronic signature identity |
 | `initial` | Yes | Abbreviated signature — same options as signature |
 | `approval` | Yes | Checkbox approval — no drawn signature required |
 | `text` | No | Free-form text input |
@@ -192,7 +192,7 @@ Owners and editors cannot sign their own fields. Signers cannot lock, reopen, or
 These are not yet implemented. Add them when there is proven demand:
 
 - **Executed-record durability** — make completed workflows harder to delete or silently mutate, and ensure reopen/revision flows preserve completed history cleanly.
-- **Certificate-backed PDF signing** — PAdES/CAdES embedding via `easy_draft_remote`, `qualified_remote`, or `organization_hsm` provider. The `DigitalSignatureProfile` model and UI already exist; only the provider wiring is missing.
+- **Provider-backed PDF digital signatures** — PAdES/CAdES embedding via `easy_draft_remote`, `qualified_remote`, or `organization_hsm` provider. The canonical `signature_identities` model already distinguishes electronic, verified-electronic, digital-PKI, and qualified-provider identities; provider verification and PDF-byte finalization are the remaining work.
 - **Change-impact expansion** — extend test and endpoint coverage so every post-sign mutation path produces the right `non_material`, `review_required`, or `resign_required` consequence.
 - **Purpose-built signer page** — replace the current sidebar layout for external signers with a focused signing experience that shows the document prominently with field highlights.
 - **Stage-level originator updates** — send one email per stage completion rather than one per field to reduce notification noise on large documents.

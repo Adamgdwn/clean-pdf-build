@@ -25,7 +25,7 @@ import {
   type Field,
   type LockPolicy,
   type ParticipantType,
-  type SavedSignature,
+  type SignatureIdentity,
   type SignaturePath,
   type SignatureStatus,
   type Signer,
@@ -43,7 +43,6 @@ import { z } from "zod";
 
 import {
   getCanonicalAppOrigin,
-  isCertificateSigningEnabled,
   readServerEnv,
   shouldRequireEmailDelivery,
   shouldRequireStripe,
@@ -215,7 +214,7 @@ type FieldRow = {
   width: number;
   height: number;
   value: string | null;
-  applied_saved_signature_id: string | null;
+  applied_signature_identity_id: string | null;
   completed_at: string | null;
   completed_by_signer_id: string | null;
 };
@@ -305,16 +304,26 @@ type FeedbackRequestRow = {
   updated_at: string;
 };
 
-type SavedSignatureRow = {
+type SignatureIdentityRow = {
   id: string;
   user_id: string;
   label: string;
   title_text: string | null;
+  signer_name: string;
+  signer_email: string;
+  organization_name: string | null;
+  assurance_level: "electronic" | "verified_electronic" | "digital_pki" | "qualified_provider";
   signature_type: "typed" | "uploaded";
   typed_text: string | null;
   storage_path: string | null;
+  provider: "easy_draft" | "easy_draft_remote" | "qualified_remote" | "organization_hsm";
+  status: "active" | "verification_required" | "requested" | "verified" | "rejected";
+  certificate_fingerprint: string | null;
+  provider_reference: string | null;
+  signing_reason: string | null;
   is_default: boolean;
   created_at: string;
+  updated_at: string;
 };
 
 type ProfileRow = {
@@ -345,24 +354,6 @@ type EditorSnapshotRow = {
   fields: FieldRow[];
   created_by_user_id: string;
   created_at: string;
-};
-
-type DigitalSignatureProfileRow = {
-  id: string;
-  user_id: string;
-  label: string;
-  title_text: string | null;
-  signer_name: string;
-  signer_email: string | null;
-  organization_name: string | null;
-  signing_reason: string | null;
-  provider: "easy_draft_remote" | "qualified_remote" | "organization_hsm";
-  assurance_level: string;
-  status: "setup_required" | "requested" | "verified" | "rejected";
-  certificate_fingerprint: string | null;
-  provider_reference: string | null;
-  created_at: string;
-  updated_at: string;
 };
 
 type WorkspaceRow = {
@@ -501,23 +492,6 @@ type ProfileResponse = {
   };
 };
 
-type DigitalSignatureProfileResponse = {
-  id: string;
-  label: string;
-  titleText: string | null;
-  signerName: string;
-  signerEmail: string | null;
-  organizationName: string | null;
-  signingReason: string | null;
-  provider: "easy_draft_remote" | "qualified_remote" | "organization_hsm";
-  assuranceLevel: string;
-  status: "setup_required" | "requested" | "verified" | "rejected";
-  certificateFingerprint: string | null;
-  providerReference: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
 type AdminManagedUserResponse = {
   id: string;
   email: string;
@@ -555,7 +529,9 @@ const SIGNING_VERIFICATION_CODE_EXPIRY_MINUTES = 10;
 const SIGNING_VERIFICATION_RESEND_COOLDOWN_SECONDS = 60;
 const SIGNING_VERIFICATION_MAX_ATTEMPTS = 5;
 const fieldRowSelect =
-  "id, document_id, page, kind, label, required, assignee_participant_id, assignee_signer_id, source, x, y, width, height, value, applied_saved_signature_id, completed_at, completed_by_signer_id";
+  "id, document_id, page, kind, label, required, assignee_participant_id, assignee_signer_id, source, x, y, width, height, value, applied_signature_identity_id, completed_at, completed_by_signer_id";
+const signatureIdentityRowSelect =
+  "id, user_id, label, title_text, signer_name, signer_email, organization_name, assurance_level, signature_type, typed_text, storage_path, provider, status, certificate_fingerprint, provider_reference, signing_reason, is_default, created_at, updated_at";
 
 type DocumentStorageObjectRow = {
   bucket_id: string;
@@ -808,16 +784,53 @@ const inviteCollaboratorInputSchema = z.object({
   authority: z.enum(["document_admin", "viewer"]),
 });
 
-const createSavedSignatureInputSchema = z
+const createSignatureIdentityInputSchema = z
   .object({
     label: z.string().min(1).max(80),
     titleText: z.string().trim().max(120).nullable().default(null),
+    signerName: z.string().trim().min(1).max(120),
+    signerEmail: z.string().trim().email().transform((value) => normalizeEmailAddress(value)),
+    organizationName: z.string().trim().max(120).nullable().default(null),
+    assuranceLevel: z
+      .enum(["electronic", "verified_electronic", "digital_pki", "qualified_provider"])
+      .default("electronic"),
     signatureType: z.enum(["typed", "uploaded"]),
     typedText: z.string().trim().max(120).nullable().default(null),
     storagePath: z.string().min(1).nullable().default(null),
+    provider: z
+      .enum(["easy_draft", "easy_draft_remote", "qualified_remote", "organization_hsm"])
+      .default("easy_draft"),
+    signingReason: z.string().trim().min(1).max(80).nullable().default(null),
     isDefault: z.boolean().default(false),
   })
   .superRefine((value, context) => {
+    if (
+      (value.assuranceLevel === "electronic" || value.assuranceLevel === "verified_electronic") &&
+      value.provider !== "easy_draft"
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Electronic signature identities must use the EasyDraft provider.",
+        path: ["provider"],
+      });
+    }
+
+    if (value.assuranceLevel === "digital_pki" && !["easy_draft_remote", "organization_hsm"].includes(value.provider)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Digital PKI identities require a PKI-capable provider.",
+        path: ["provider"],
+      });
+    }
+
+    if (value.assuranceLevel === "qualified_provider" && value.provider !== "qualified_remote") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Qualified-provider identities require the qualified remote provider.",
+        path: ["provider"],
+      });
+    }
+
     if (value.signatureType === "typed" && !value.typedText?.trim()) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -836,7 +849,7 @@ const createSavedSignatureInputSchema = z
   });
 
 const completeFieldInputSchema = z.object({
-  savedSignatureId: z.string().uuid().nullable().default(null),
+  signatureIdentityId: z.string().uuid().nullable().default(null),
   signingReason: z.string().trim().min(1).max(80).nullable().default(null),
   signingLocation: z.string().trim().min(1).max(120).nullable().default(null),
 });
@@ -881,23 +894,6 @@ const adminInviteUserInputSchema = z.object({
   email: z.string().trim().email().transform((value) => normalizeEmailAddress(value)),
   displayName: z.string().trim().max(120).optional().default(""),
   redirectTo: z.string().url().nullable().optional(),
-});
-
-const createDigitalSignatureProfileInputSchema = z.object({
-  label: z.string().trim().min(1).max(80),
-  titleText: z.string().trim().max(120).nullable().default(null),
-  signerName: z.string().trim().min(1).max(120),
-  signerEmail: z
-    .string()
-    .trim()
-    .email()
-    .transform((value) => normalizeEmailAddress(value))
-    .nullable()
-    .default(null),
-  organizationName: z.string().trim().max(120).nullable().default(null),
-  signingReason: z.string().trim().min(1).max(80),
-  provider: z.enum(["easy_draft_remote", "qualified_remote", "organization_hsm"]),
-  assuranceLevel: z.string().trim().min(1).max(40).default("advanced"),
 });
 
 const createFeedbackRequestInputSchema = z.object({
@@ -2471,7 +2467,7 @@ function mapField(row: FieldRow): Field {
     width: row.width,
     height: row.height,
     value: row.value,
-    appliedSavedSignatureId: row.applied_saved_signature_id,
+    appliedSignatureIdentityId: row.applied_signature_identity_id,
     completedAt: row.completed_at,
     completedBySignerId: row.completed_by_signer_id,
   };
@@ -2597,7 +2593,7 @@ function mapNotification(row: NotificationRow): DocumentNotification {
   };
 }
 
-async function mapSavedSignature(row: SavedSignatureRow): Promise<SavedSignature> {
+async function mapSignatureIdentity(row: SignatureIdentityRow): Promise<SignatureIdentity> {
   let previewUrl: string | null = null;
 
   if (row.signature_type === "uploaded" && row.storage_path) {
@@ -2613,13 +2609,46 @@ async function mapSavedSignature(row: SavedSignatureRow): Promise<SavedSignature
     id: row.id,
     label: row.label,
     titleText: row.title_text,
+    signerName: row.signer_name,
+    signerEmail: row.signer_email,
+    organizationName: row.organization_name,
+    assuranceLevel: row.assurance_level,
     signatureType: row.signature_type,
     typedText: row.typed_text,
     storagePath: row.storage_path,
     previewUrl,
+    provider: row.provider,
+    status: row.status,
+    certificateFingerprint: row.certificate_fingerprint,
+    providerReference: row.provider_reference,
+    signingReason: row.signing_reason,
     isDefault: row.is_default,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
+}
+
+function getSignatureIdentityStatusForAssurance(
+  assuranceLevel: SignatureIdentityRow["assurance_level"],
+): SignatureIdentityRow["status"] {
+  if (assuranceLevel === "electronic") {
+    return "active";
+  }
+
+  if (assuranceLevel === "verified_electronic") {
+    return "verification_required";
+  }
+
+  return "requested";
+}
+
+function assertSignatureIdentityCanApplyToField(identity: SignatureIdentityRow) {
+  if (identity.assurance_level !== "electronic" || identity.status !== "active") {
+    throw new AppError(
+      409,
+      "Only active electronic signature identities can be applied directly to document fields. Verified and provider-backed identities must complete their verification path first.",
+    );
+  }
 }
 
 function mapProfile(row: ProfileRow): ProfileResponse["profile"] {
@@ -2694,33 +2723,6 @@ function mapAuthenticatedUserProfile(
     onboardingCompletedAt,
     profileKind,
     ...overrides,
-  };
-}
-
-function assertCertificateSigningEnabledForRequest() {
-  if (!isCertificateSigningEnabled()) {
-    throw new AppError(404, "Feature not available.");
-  }
-}
-
-function mapDigitalSignatureProfile(
-  row: DigitalSignatureProfileRow,
-): DigitalSignatureProfileResponse {
-  return {
-    id: row.id,
-    label: row.label,
-    titleText: row.title_text,
-    signerName: row.signer_name,
-    signerEmail: row.signer_email,
-    organizationName: row.organization_name,
-    signingReason: row.signing_reason,
-    provider: row.provider,
-    assuranceLevel: row.assurance_level,
-    status: row.status,
-    certificateFingerprint: row.certificate_fingerprint,
-    providerReference: row.provider_reference,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
   };
 }
 
@@ -3761,7 +3763,7 @@ async function restoreEditorSnapshot(
         width: field.width,
         height: field.height,
         value: field.value,
-        applied_saved_signature_id: field.applied_saved_signature_id,
+        applied_signature_identity_id: field.applied_signature_identity_id,
         completed_at: field.completed_at,
         completed_by_signer_id: field.completed_by_signer_id,
       })),
@@ -4742,7 +4744,7 @@ async function resetCompletedActionFields(documentId: string) {
     .from("document_fields")
     .update({
       value: null,
-      applied_saved_signature_id: null,
+      applied_signature_identity_id: null,
       completed_at: null,
       completed_by_signer_id: null,
     })
@@ -5192,70 +5194,6 @@ export async function updateProfileForAuthorizationHeader(
       marketingOptIn: parsed.marketingOptIn,
       productUpdatesOptIn: parsed.productUpdatesOptIn,
     }),
-  };
-}
-
-export async function listDigitalSignatureProfilesForAuthorizationHeader(
-  authorizationHeader: string | undefined,
-) {
-  assertCertificateSigningEnabledForRequest();
-  const user = await resolveAuthenticatedUser(authorizationHeader);
-  const adminClient = createServiceRoleClient();
-  const { data, error } = await adminClient
-    .from("digital_signature_profiles")
-    .select(
-      "id, user_id, label, title_text, signer_name, signer_email, organization_name, signing_reason, provider, assurance_level, status, certificate_fingerprint, provider_reference, created_at, updated_at",
-    )
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    throw new AppError(500, error.message);
-  }
-
-  return {
-    profiles: ((data ?? []) as DigitalSignatureProfileRow[]).map(mapDigitalSignatureProfile),
-  };
-}
-
-export async function createDigitalSignatureProfileForAuthorizationHeader(
-  authorizationHeader: string | undefined,
-  input: unknown,
-) {
-  assertCertificateSigningEnabledForRequest();
-  const user = await resolveAuthenticatedUser(authorizationHeader);
-  const parsed = createDigitalSignatureProfileInputSchema.parse(input);
-  const adminClient = createServiceRoleClient();
-  const env = readServerEnv();
-  const providerConnected =
-    Boolean(env.EASYDRAFT_DIGITAL_SIGNING_API_KEY) &&
-    env.EASYDRAFT_DIGITAL_SIGNING_PROVIDER === parsed.provider;
-  const { data, error } = await adminClient
-    .from("digital_signature_profiles")
-    .insert({
-      user_id: user.id,
-      label: parsed.label,
-      title_text: parsed.titleText?.trim() || null,
-      signer_name: parsed.signerName,
-      signer_email: parsed.signerEmail,
-      organization_name: parsed.organizationName?.trim() || null,
-      signing_reason: parsed.signingReason,
-      provider: parsed.provider,
-      assurance_level: parsed.assuranceLevel,
-      status: providerConnected ? "setup_required" : "requested",
-      provider_reference: providerConnected ? `${parsed.provider}-${crypto.randomUUID()}` : null,
-    })
-    .select(
-      "id, user_id, label, title_text, signer_name, signer_email, organization_name, signing_reason, provider, assurance_level, status, certificate_fingerprint, provider_reference, created_at, updated_at",
-    )
-    .single();
-
-  if (error || !data) {
-    throw new AppError(500, error?.message ?? "Unable to create digital signature profile request.");
-  }
-
-  return {
-    profile: mapDigitalSignatureProfile(data as DigitalSignatureProfileRow),
   };
 }
 
@@ -5809,9 +5747,9 @@ export async function deleteOwnAccountForAuthorizationHeader(
     await purgeDocumentStorageArtifactsForPrefixes(documentPrefixes);
   }
 
-  // Saved signature images
+  // Signature identity images
   const { data: signatures } = await adminClient
-    .from("saved_signatures")
+    .from("signature_identities")
     .select("storage_path")
     .eq("user_id", user.id)
     .not("storage_path", "is", null);
@@ -5834,16 +5772,17 @@ export async function deleteOwnAccountForAuthorizationHeader(
   return { deleted: true };
 }
 
-export async function listSavedSignaturesForAuthorizationHeader(
+export async function listSignatureIdentitiesForAuthorizationHeader(
   authorizationHeader: string | undefined,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const adminClient = createServiceRoleClient();
   const { data, error } = await adminClient
-    .from("saved_signatures")
-    .select("id, user_id, label, title_text, signature_type, typed_text, storage_path, is_default, created_at")
+    .from("signature_identities")
+    .select(signatureIdentityRowSelect)
     .eq("user_id", user.id)
     .order("is_default", { ascending: false })
+    .order("assurance_level", { ascending: true })
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -5851,16 +5790,16 @@ export async function listSavedSignaturesForAuthorizationHeader(
   }
 
   return {
-    signatures: await Promise.all(((data ?? []) as SavedSignatureRow[]).map(mapSavedSignature)),
+    signatures: await Promise.all(((data ?? []) as SignatureIdentityRow[]).map(mapSignatureIdentity)),
   };
 }
 
-export async function createSavedSignatureForAuthorizationHeader(
+export async function createSignatureIdentityForAuthorizationHeader(
   authorizationHeader: string | undefined,
   input: unknown,
 ) {
   const user = await resolveAuthenticatedUser(authorizationHeader);
-  const parsed = createSavedSignatureInputSchema.parse(input);
+  const parsed = createSignatureIdentityInputSchema.parse(input);
   const adminClient = createServiceRoleClient();
   const storagePath = parsed.storagePath?.trim() || null;
 
@@ -5869,29 +5808,39 @@ export async function createSavedSignatureForAuthorizationHeader(
   }
 
   if (parsed.isDefault) {
-    await adminClient.from("saved_signatures").update({ is_default: false }).eq("user_id", user.id);
+    await adminClient.from("signature_identities").update({ is_default: false }).eq("user_id", user.id);
   }
 
   const { data, error } = await adminClient
-    .from("saved_signatures")
+    .from("signature_identities")
     .insert({
       user_id: user.id,
       label: parsed.label,
       title_text: parsed.titleText?.trim() || null,
+      signer_name: parsed.signerName,
+      signer_email: parsed.signerEmail,
+      organization_name: parsed.organizationName?.trim() || null,
+      assurance_level: parsed.assuranceLevel,
       signature_type: parsed.signatureType,
       typed_text: parsed.signatureType === "typed" ? parsed.typedText?.trim() || null : null,
       storage_path: parsed.signatureType === "uploaded" ? storagePath : null,
+      provider: parsed.provider,
+      status: getSignatureIdentityStatusForAssurance(parsed.assuranceLevel),
+      signing_reason: parsed.signingReason?.trim() || null,
       is_default: parsed.isDefault,
     })
-    .select("id, user_id, label, title_text, signature_type, typed_text, storage_path, is_default, created_at")
+    .select(signatureIdentityRowSelect)
     .single();
 
   if (error || !data) {
-    throw new AppError(500, error?.message ?? "Unable to save signature.");
+    if (error?.code === "23505") {
+      throw new AppError(409, "A signature identity already exists for this email and assurance level.");
+    }
+    throw new AppError(500, error?.message ?? "Unable to save signature identity.");
   }
 
   return {
-    signature: await mapSavedSignature(data as SavedSignatureRow),
+    signature: await mapSignatureIdentity(data as SignatureIdentityRow),
   };
 }
 
@@ -7393,13 +7342,13 @@ export async function completeFieldForAuthorizationHeader(
     throw new AppError(403, "This field is assigned to another signer.");
   }
 
-  let appliedSavedSignature: SavedSignatureRow | null = null;
+  let appliedSignatureIdentity: SignatureIdentityRow | null = null;
 
-  if (parsedInput.savedSignatureId) {
+  if (parsedInput.signatureIdentityId) {
     const { data: signatureRow, error: signatureError } = await adminClient
-      .from("saved_signatures")
-      .select("id, user_id, label, title_text, signature_type, typed_text, storage_path, is_default, created_at")
-      .eq("id", parsedInput.savedSignatureId)
+      .from("signature_identities")
+      .select(signatureIdentityRowSelect)
+      .eq("id", parsedInput.signatureIdentityId)
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -7408,22 +7357,23 @@ export async function completeFieldForAuthorizationHeader(
     }
 
     if (!signatureRow) {
-      throw new AppError(404, "Saved signature not found.");
+      throw new AppError(404, "Signature identity not found.");
     }
 
-    appliedSavedSignature = signatureRow as SavedSignatureRow;
+    appliedSignatureIdentity = signatureRow as SignatureIdentityRow;
+    assertSignatureIdentityCanApplyToField(appliedSignatureIdentity);
   }
 
   const completionValue =
-    appliedSavedSignature?.signature_type === "typed"
-      ? appliedSavedSignature.typed_text
-      : appliedSavedSignature?.storage_path ?? field.value ?? "completed";
+    appliedSignatureIdentity?.signature_type === "typed"
+      ? appliedSignatureIdentity.typed_text
+      : appliedSignatureIdentity?.storage_path ?? field.value ?? "completed";
   const completedAt = new Date().toISOString();
   const { error } = await adminClient
     .from("document_fields")
     .update({
       value: completionValue,
-      applied_saved_signature_id: appliedSavedSignature?.id ?? null,
+      applied_signature_identity_id: appliedSignatureIdentity?.id ?? null,
       completed_at: completedAt,
       completed_by_signer_id: signer.id,
     })
@@ -7435,7 +7385,7 @@ export async function completeFieldForAuthorizationHeader(
 
   await appendAuditEvent(documentId, user.id, "field.completed", `Completed field ${field.label}`, {
     page: field.page,
-    usedSavedSignature: Boolean(appliedSavedSignature),
+    usedSignatureIdentity: Boolean(appliedSignatureIdentity),
     ...(parsedInput.signingReason ? { signingReason: parsedInput.signingReason } : {}),
     ...(parsedInput.signingLocation ? { signingLocation: parsedInput.signingLocation } : {}),
   });
@@ -7828,7 +7778,7 @@ export async function duplicateDocumentForAuthorizationHeader(
     width: field.width,
     height: field.height,
     value: null,
-    applied_saved_signature_id: null,
+    applied_signature_identity_id: null,
     completed_at: null,
     completed_by_signer_id: null,
   }));
@@ -7850,7 +7800,7 @@ export async function duplicateDocumentForAuthorizationHeader(
         width: field.width,
         height: field.height,
         value: field.value,
-        applied_saved_signature_id: field.applied_saved_signature_id,
+        applied_signature_identity_id: field.applied_signature_identity_id,
         completed_at: field.completed_at,
         completed_by_signer_id: field.completed_by_signer_id,
       })),
@@ -8451,7 +8401,7 @@ const placeSignatureInputSchema = z.object({
   width: z.number().positive().max(800),
   height: z.number().positive().max(400),
   page: z.number().int().positive(),
-  savedSignatureId: z.string().uuid().optional().nullable(),
+  signatureIdentityId: z.string().uuid().optional().nullable(),
   signingReason: z.string().trim().min(1).max(80).nullable().default(null),
   signingLocation: z.string().trim().min(1).max(120).nullable().default(null),
   label: z.string().max(80).optional(),
@@ -8477,25 +8427,26 @@ export async function placeAndCompleteSignatureFieldForAuthorizationHeader(
 
   const signer = ensureSignerCanRespondToWorkflow(document, user);
 
-  let appliedSavedSignature: SavedSignatureRow | null = null;
+  let appliedSignatureIdentity: SignatureIdentityRow | null = null;
 
-  if (parsed.savedSignatureId) {
+  if (parsed.signatureIdentityId) {
     const { data: signatureRow, error: signatureError } = await adminClient
-      .from("saved_signatures")
-      .select("id, user_id, label, title_text, signature_type, typed_text, storage_path, is_default, created_at")
-      .eq("id", parsed.savedSignatureId)
+      .from("signature_identities")
+      .select(signatureIdentityRowSelect)
+      .eq("id", parsed.signatureIdentityId)
       .eq("user_id", user.id)
       .maybeSingle();
 
     if (signatureError) throw new AppError(500, signatureError.message);
-    if (!signatureRow) throw new AppError(404, "Saved signature not found.");
-    appliedSavedSignature = signatureRow as SavedSignatureRow;
+    if (!signatureRow) throw new AppError(404, "Signature identity not found.");
+    appliedSignatureIdentity = signatureRow as SignatureIdentityRow;
+    assertSignatureIdentityCanApplyToField(appliedSignatureIdentity);
   }
 
   const completionValue =
-    appliedSavedSignature?.signature_type === "typed"
-      ? appliedSavedSignature.typed_text
-      : appliedSavedSignature?.storage_path ?? signer.name ?? "Signed";
+    appliedSignatureIdentity?.signature_type === "typed"
+      ? appliedSignatureIdentity.typed_text
+      : appliedSignatureIdentity?.storage_path ?? signer.name ?? "Signed";
 
   const fieldLabel = parsed.label?.trim() || `Signature — ${signer.name}`;
   const completedAt = new Date().toISOString();
@@ -8516,7 +8467,7 @@ export async function placeAndCompleteSignatureFieldForAuthorizationHeader(
       width: parsed.width,
       height: parsed.height,
       value: completionValue,
-      applied_saved_signature_id: appliedSavedSignature?.id ?? null,
+      applied_signature_identity_id: appliedSignatureIdentity?.id ?? null,
       completed_at: completedAt,
       completed_by_signer_id: signer.id,
     })
@@ -8529,7 +8480,7 @@ export async function placeAndCompleteSignatureFieldForAuthorizationHeader(
 
   await appendAuditEvent(documentId, user.id, "field.completed", `${signer.name} placed and signed a free-form signature field`, {
     page: parsed.page,
-    usedSavedSignature: Boolean(appliedSavedSignature),
+    usedSignatureIdentity: Boolean(appliedSignatureIdentity),
     freePlaced: true,
     ...(parsed.signingReason ? { signingReason: parsed.signingReason } : {}),
     ...(parsed.signingLocation ? { signingLocation: parsed.signingLocation } : {}),
@@ -8579,7 +8530,7 @@ export async function completeFieldForSigningToken(
 
   await ensureSigningVerificationForAction(tokenRow, field.kind);
 
-  // Guest signers do not have saved signatures — value defaults to field value or "completed"
+  // Guest signers do not have signature identities; value defaults to field value or "completed".
   const completionValue = parsedInput.value ?? field.value ?? "completed";
   const completedAt = new Date().toISOString();
 
@@ -8587,7 +8538,7 @@ export async function completeFieldForSigningToken(
     .from("document_fields")
     .update({
       value: completionValue,
-      applied_saved_signature_id: null,
+      applied_signature_identity_id: null,
       completed_at: completedAt,
       completed_by_signer_id: signer.id,
     })

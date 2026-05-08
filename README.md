@@ -76,7 +76,7 @@ Refine. Share. Sign.
 - User guide at `/guide.html`
 
 ### Still intentionally unfinished
-- **Certificate-backed PDF signing**: the `DigitalSignatureProfile` model and UI exist, but actual PAdES/CAdES embedding is still a TODO in `renderDocumentExportToStorage`.
+- **Provider-backed PDF digital signatures**: `signature_identities` now stores electronic, verified-electronic, digital-PKI, and qualified-provider identities in one canonical model. Actual PAdES/CAdES embedding and remote certificate verification remain TODOs in `renderDocumentExportToStorage` and provider integration.
 - **External alert routing**: error capture and queue visibility exist, but production alert delivery and escalation ownership still need final operational setup.
 - **Integration test coverage**: invite acceptance, external signer verification, and billing webhook paths are smoke-tested manually but not covered by automated integration tests.
 

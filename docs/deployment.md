@@ -138,7 +138,7 @@ Reference:
    - `20260330230000_initial_workflow.sql` — base tables
    - `20260405120000_signing_tokens.sql` — external signer token ledger
    - `20260406223000_annual_billing_plan.sql` — annual billing plan
-   - `20260407033000_digital_signature_identity_fields.sql` — digital-signature profile fields
+   - `20260407033000_digital_signature_identity_fields.sql` — legacy digital-profile fields superseded by canonical signature identities
    - `20260407120000_onboarding_flag.sql` — server-side onboarding flag on role-specific profile directories
    - `20260417120000_invite_and_signing_verification.sql` — guest email-code verification state plus Stripe object-level webhook dedupe
    - `20260502133000_profile_identity_directory.sql` — username, company, account type, workspace name, and populated role-specific profile directories
@@ -248,7 +248,7 @@ The Dropbox Sign integration is not wired yet, but you can prepare the productio
 
 Recommended callback base: `https://easydraftdocs.app`
 
-Until that integration is wired, `internal_use_only` is the built-in low-cost signing path for authenticated internal users. It relies on EasyDraft accounts, saved signatures, and the audit trail rather than third-party certificate-backed signing.
+Until that integration is wired, `internal_use_only` is the built-in low-cost signing path for authenticated internal users. It relies on EasyDraft accounts, electronic signature identities, and the audit trail rather than third-party certificate-backed signing.
 
 ## Notifications and processor service
 

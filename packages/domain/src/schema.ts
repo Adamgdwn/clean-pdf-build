@@ -81,7 +81,26 @@ export const notificationEventTypeSchema = z.enum([
 ]);
 export const notificationChannelSchema = z.enum(["email", "in_app"]);
 export const notificationStatusSchema = z.enum(["queued", "sent", "failed", "skipped"]);
-export const savedSignatureTypeSchema = z.enum(["typed", "uploaded"]);
+export const signatureIdentityTypeSchema = z.enum(["typed", "uploaded"]);
+export const signatureAssuranceLevelSchema = z.enum([
+  "electronic",
+  "verified_electronic",
+  "digital_pki",
+  "qualified_provider",
+]);
+export const signatureIdentityProviderSchema = z.enum([
+  "easy_draft",
+  "easy_draft_remote",
+  "qualified_remote",
+  "organization_hsm",
+]);
+export const signatureIdentityStatusSchema = z.enum([
+  "active",
+  "verification_required",
+  "requested",
+  "verified",
+  "rejected",
+]);
 
 export const userSchema = z.object({
   id: z.string(),
@@ -120,7 +139,7 @@ export const fieldSchema = z.object({
   width: z.number().positive(),
   height: z.number().positive(),
   value: z.string().nullable().default(null),
-  appliedSavedSignatureId: z.string().nullable().default(null),
+  appliedSignatureIdentityId: z.string().nullable().default(null),
   completedAt: z.string().datetime().nullable().default(null),
   completedBySignerId: z.string().nullable().default(null),
 });
@@ -157,16 +176,26 @@ export const documentNotificationSchema = z.object({
   metadata: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
 });
 
-export const savedSignatureSchema = z.object({
+export const signatureIdentitySchema = z.object({
   id: z.string(),
   label: z.string(),
   titleText: z.string().nullable().default(null),
-  signatureType: savedSignatureTypeSchema,
+  signerName: z.string(),
+  signerEmail: z.string().email(),
+  organizationName: z.string().nullable().default(null),
+  assuranceLevel: signatureAssuranceLevelSchema,
+  signatureType: signatureIdentityTypeSchema,
   typedText: z.string().nullable().default(null),
   storagePath: z.string().nullable().default(null),
   previewUrl: z.string().nullable().default(null),
+  provider: signatureIdentityProviderSchema,
+  status: signatureIdentityStatusSchema,
+  certificateFingerprint: z.string().nullable().default(null),
+  providerReference: z.string().nullable().default(null),
+  signingReason: z.string().nullable().default(null),
   isDefault: z.boolean().default(false),
   createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
 });
 
 export const documentSchema = z.object({
@@ -239,5 +268,5 @@ export type Field = z.infer<typeof fieldSchema>;
 export type DocumentVersion = z.infer<typeof documentVersionSchema>;
 export type AuditEvent = z.infer<typeof auditEventSchema>;
 export type DocumentNotification = z.infer<typeof documentNotificationSchema>;
-export type SavedSignature = z.infer<typeof savedSignatureSchema>;
+export type SignatureIdentity = z.infer<typeof signatureIdentitySchema>;
 export type DocumentRecord = z.infer<typeof documentSchema>;

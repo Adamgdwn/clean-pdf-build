@@ -23,10 +23,9 @@ import type {
   AdminManagedUser,
   AdminOverview,
   BillingOverview,
-  DigitalSignatureProfile,
   GuestSigningSession,
   OrganizationAdminOverview,
-  SavedSignature,
+  SignatureIdentity,
   SessionUser,
   SignatureEvent,
   WorkflowDocument,
@@ -62,8 +61,6 @@ const shouldRestoreSessionFromRedirect =
 const unsignedDocumentBucket =
   import.meta.env.VITE_SUPABASE_UNSIGNED_DOCUMENT_BUCKET ?? "documents-unsigned";
 const signatureBucket = import.meta.env.VITE_SUPABASE_SIGNATURE_BUCKET ?? "signatures";
-const isCertificateSigningEnabled = import.meta.env.VITE_EASYDRAFT_ENABLE_CERTIFICATE_SIGNING === "true";
-
 function formatState(state: string) {
   return state.replaceAll("_", " ");
 }
@@ -471,9 +468,8 @@ export default function App() {
   const [billingOverview, setBillingOverview] = useState<BillingOverview | null>(null);
   const [organizationAdminOverview, setOrganizationAdminOverview] =
     useState<OrganizationAdminOverview | null>(null);
-  const [savedSignatures, setSavedSignatures] = useState<SavedSignature[]>([]);
+  const [signatureIdentities, setSignatureIdentities] = useState<SignatureIdentity[]>([]);
   const [accountProfile, setAccountProfile] = useState<AccountProfile | null>(null);
-  const [digitalSignatureProfiles, setDigitalSignatureProfiles] = useState<DigitalSignatureProfile[]>([]);
   const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
   const [adminUsers, setAdminUsers] = useState<AdminManagedUser[]>([]);
   const [adminFeedbackRequests, setAdminFeedbackRequests] = useState<AdminFeedbackRequest[]>([]);
@@ -525,11 +521,20 @@ export default function App() {
   const [fieldAssigneeParticipantId, setFieldAssigneeParticipantId] = useState<string>("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteAuthority, setInviteAuthority] = useState<"document_admin" | "viewer">("viewer");
-  const [savedSignatureLabel, setSavedSignatureLabel] = useState("");
-  const [savedSignatureTitle, setSavedSignatureTitle] = useState("");
-  const [savedSignatureType, setSavedSignatureType] = useState<"typed" | "uploaded">("typed");
-  const [savedSignatureTypedText, setSavedSignatureTypedText] = useState("");
-  const [selectedSavedSignatureId, setSelectedSavedSignatureId] = useState("");
+  const [signatureIdentityLabel, setSignatureIdentityLabel] = useState("");
+  const [signatureIdentityTitle, setSignatureIdentityTitle] = useState("");
+  const [signatureIdentitySignerName, setSignatureIdentitySignerName] = useState("");
+  const [signatureIdentitySignerEmail, setSignatureIdentitySignerEmail] = useState("");
+  const [signatureIdentityOrganizationName, setSignatureIdentityOrganizationName] = useState("");
+  const [signatureIdentityAssuranceLevel, setSignatureIdentityAssuranceLevel] = useState<
+    SignatureIdentity["assuranceLevel"]
+  >("electronic");
+  const [signatureIdentityProvider, setSignatureIdentityProvider] =
+    useState<SignatureIdentity["provider"]>("easy_draft");
+  const [signatureIdentitySigningReason, setSignatureIdentitySigningReason] = useState("");
+  const [signatureIdentityType, setSignatureIdentityType] = useState<"typed" | "uploaded">("typed");
+  const [signatureIdentityTypedText, setSignatureIdentityTypedText] = useState("");
+  const [selectedSignatureIdentityId, setSelectedSignatureIdentityId] = useState("");
   const [internalSignatureFieldId, setInternalSignatureFieldId] = useState("");
   const [internalSignatureSignerName, setInternalSignatureSignerName] = useState("");
   const [internalSignatureSignerEmail, setInternalSignatureSignerEmail] = useState("");
@@ -546,14 +551,6 @@ export default function App() {
   const [profileLocale, setProfileLocale] = useState("");
   const [profileMarketingOptIn, setProfileMarketingOptIn] = useState(false);
   const [profileProductUpdatesOptIn, setProfileProductUpdatesOptIn] = useState(true);
-  const [digitalSignatureLabel, setDigitalSignatureLabel] = useState("");
-  const [digitalSignatureTitle, setDigitalSignatureTitle] = useState("");
-  const [digitalSignatureSignerName, setDigitalSignatureSignerName] = useState("");
-  const [digitalSignatureSignerEmail, setDigitalSignatureSignerEmail] = useState("");
-  const [digitalSignatureOrganizationName, setDigitalSignatureOrganizationName] = useState("");
-  const [digitalSignatureProvider, setDigitalSignatureProvider] =
-    useState<"easy_draft_remote" | "qualified_remote" | "organization_hsm">("easy_draft_remote");
-  const [digitalSignatureAssuranceLevel, setDigitalSignatureAssuranceLevel] = useState("advanced");
   const [activeSigningReason, setActiveSigningReason] = useState("approve");
   const [activeSigningLocation, setActiveSigningLocation] = useState("");
   const [nextSignerName, setNextSignerName] = useState("");
@@ -596,10 +593,14 @@ export default function App() {
 
   const selectedDocument =
     documents.find((document) => document.id === selectedDocumentId) ?? documents[0] ?? null;
-  const selectedSavedSignature =
-    savedSignatures.find((signature) => signature.id === selectedSavedSignatureId) ??
-    savedSignatures[0] ??
+  const selectedSignatureIdentity =
+    signatureIdentities.find((signature) => signature.id === selectedSignatureIdentityId) ??
+    signatureIdentities[0] ??
     null;
+  const selectedElectronicSignatureIdentity =
+    selectedSignatureIdentity?.assuranceLevel === "electronic" && selectedSignatureIdentity.status === "active"
+      ? selectedSignatureIdentity
+      : null;
   const canEdit =
     selectedDocument?.currentUserAuthority === "document_admin" ||
     selectedDocument?.currentUserAuthority === "org_admin_override";
@@ -766,9 +767,8 @@ export default function App() {
       setDocuments([]);
       setBillingOverview(null);
       setOrganizationAdminOverview(null);
-      setSavedSignatures([]);
+      setSignatureIdentities([]);
       setAccountProfile(null);
-      setDigitalSignatureProfiles([]);
       setAdminOverview(null);
       setAdminUsers([]);
       setAdminFeedbackRequests([]);
@@ -826,23 +826,10 @@ export default function App() {
     setProfileProductUpdatesOptIn(payload.profile.productUpdatesOptIn);
   }
 
-  async function refreshSavedSignatures(activeSession: Session) {
-    const payload = await apiFetch<{ signatures: SavedSignature[] }>("/saved-signatures", activeSession);
-    setSavedSignatures(payload.signatures);
-    setSelectedSavedSignatureId((currentValue) => currentValue || payload.signatures[0]?.id || "");
-  }
-
-  async function refreshDigitalSignatureProfiles(activeSession: Session) {
-    if (!isCertificateSigningEnabled) {
-      setDigitalSignatureProfiles([]);
-      return;
-    }
-
-    const payload = await apiFetch<{ profiles: DigitalSignatureProfile[] }>(
-      "/digital-signatures",
-      activeSession,
-    );
-    setDigitalSignatureProfiles(payload.profiles);
+  async function refreshSignatureIdentities(activeSession: Session) {
+    const payload = await apiFetch<{ signatures: SignatureIdentity[] }>("/signature-identities", activeSession);
+    setSignatureIdentities(payload.signatures);
+    setSelectedSignatureIdentityId((currentValue) => currentValue || payload.signatures[0]?.id || "");
   }
 
   async function refreshAdminOverview(activeSession: Session) {
@@ -1630,47 +1617,6 @@ export default function App() {
     }
   }
 
-  async function handleCreateDigitalSignatureProfile(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!session) {
-      return;
-    }
-
-    setIsLoading(true);
-    setErrorMessage(null);
-    setNoticeMessage(null);
-
-    try {
-      const payload = await apiFetch<{ profile: DigitalSignatureProfile }>("/digital-signatures", session, {
-        method: "POST",
-        body: JSON.stringify({
-          label: digitalSignatureLabel,
-          titleText: digitalSignatureTitle.trim() || null,
-          signerName: digitalSignatureSignerName.trim(),
-          signerEmail: digitalSignatureSignerEmail.trim() || null,
-          organizationName: digitalSignatureOrganizationName.trim() || null,
-          provider: digitalSignatureProvider,
-          assuranceLevel: digitalSignatureAssuranceLevel,
-        }),
-      });
-      setDigitalSignatureProfiles((current) => [payload.profile, ...current.filter((profile) => profile.id !== payload.profile.id)]);
-      setDigitalSignatureLabel("");
-      setDigitalSignatureTitle("");
-      setDigitalSignatureSignerName("");
-      setDigitalSignatureSignerEmail("");
-      setDigitalSignatureOrganizationName("");
-      refreshDigitalSignatureProfiles(session).catch(() => null);
-      setNoticeMessage(
-        "Digital-signature profile request saved. Certificate-backed signing still requires provider verification before it can be used on PDFs.",
-      );
-    } catch (error) {
-      setErrorMessage((error as Error).message);
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
   async function handleQuickRoute(routeMode: "sequential" | "parallel") {
     if (!session || !selectedDocument) {
       return;
@@ -1732,7 +1678,7 @@ export default function App() {
     }
   }
 
-  async function handleCreateSavedSignature(event: FormEvent<HTMLFormElement>) {
+  async function handleCreateSignatureIdentity(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!session || !sessionUser) {
@@ -1746,15 +1692,15 @@ export default function App() {
     try {
       let storagePath: string | null = null;
 
-      if (savedSignatureType === "uploaded") {
-        const uploadInput = document.getElementById("saved-signature-upload") as HTMLInputElement | null;
+      if (signatureIdentityType === "uploaded") {
+        const uploadInput = document.getElementById("signature-identity-upload") as HTMLInputElement | null;
         const file = uploadInput?.files?.[0];
 
         if (!file) {
-          throw new Error("Choose an image file for this saved signature.");
+          throw new Error("Choose an image file for this signature identity.");
         }
 
-        storagePath = `${sessionUser.id}/saved-signatures/${crypto.randomUUID()}-${file.name}`;
+        storagePath = `${sessionUser.id}/signature-identities/${crypto.randomUUID()}-${file.name}`;
         let uploadResponse: Response;
         try {
           uploadResponse = await fetch(
@@ -1774,38 +1720,50 @@ export default function App() {
 
         if (!uploadResponse.ok) {
           const payload = (await uploadResponse.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(payload?.message ?? "Failed to upload saved signature.");
+          throw new Error(payload?.message ?? "Failed to upload signature identity.");
         }
       }
 
-      const payload = await apiFetch<{ signature: SavedSignature }>("/saved-signatures", session, {
+      const payload = await apiFetch<{ signature: SignatureIdentity }>("/signature-identities", session, {
         method: "POST",
         body: JSON.stringify({
-          label: savedSignatureLabel,
-          titleText: savedSignatureTitle.trim() || null,
-          signatureType: savedSignatureType,
-          typedText: savedSignatureType === "typed" ? savedSignatureTypedText : null,
+          label: signatureIdentityLabel,
+          titleText: signatureIdentityTitle.trim() || null,
+          signerName: signatureIdentitySignerName.trim(),
+          signerEmail: signatureIdentitySignerEmail.trim(),
+          organizationName: signatureIdentityOrganizationName.trim() || null,
+          assuranceLevel: signatureIdentityAssuranceLevel,
+          provider: signatureIdentityProvider,
+          signatureType: signatureIdentityType,
+          typedText: signatureIdentityType === "typed" ? signatureIdentityTypedText : null,
           storagePath,
-          isDefault: savedSignatures.length === 0,
+          signingReason: signatureIdentitySigningReason.trim() || null,
+          isDefault: signatureIdentities.length === 0,
         }),
       });
-      setSavedSignatures((current) => [
+      setSignatureIdentities((current) => [
         payload.signature,
         ...current.filter((signature) => signature.id !== payload.signature.id),
       ]);
 
-      setSavedSignatureLabel("");
-      setSavedSignatureTitle("");
-      setSavedSignatureTypedText("");
-      setSelectedSavedSignatureId(payload.signature.id);
+      setSignatureIdentityLabel("");
+      setSignatureIdentityTitle("");
+      setSignatureIdentitySignerName("");
+      setSignatureIdentitySignerEmail("");
+      setSignatureIdentityOrganizationName("");
+      setSignatureIdentityAssuranceLevel("electronic");
+      setSignatureIdentityProvider("easy_draft");
+      setSignatureIdentitySigningReason("");
+      setSignatureIdentityTypedText("");
+      setSelectedSignatureIdentityId(payload.signature.id);
 
-      const uploadInput = document.getElementById("saved-signature-upload") as HTMLInputElement | null;
+      const uploadInput = document.getElementById("signature-identity-upload") as HTMLInputElement | null;
       if (uploadInput) {
         uploadInput.value = "";
       }
 
-      refreshSavedSignatures(session).catch(() => null);
-      setNoticeMessage("Saved signature added to your EasyDraft profile.");
+      refreshSignatureIdentities(session).catch(() => null);
+      setNoticeMessage("Signature identity added to your EasyDraft profile.");
     } catch (error) {
       setErrorMessage((error as Error).message);
     } finally {
@@ -2245,9 +2203,8 @@ export default function App() {
           refreshBilling(activeSession),
           refreshTeam(activeSession),
           refreshDocuments(activeSession),
-          refreshSavedSignatures(activeSession),
+          refreshSignatureIdentities(activeSession),
           refreshProfile(activeSession),
-          ...(isCertificateSigningEnabled ? [refreshDigitalSignatureProfiles(activeSession)] : []),
           ...(sessionUser?.isAdmin
             ? [
                 refreshAdminOverview(activeSession),
@@ -3080,44 +3037,54 @@ export default function App() {
           <section className="card" id="section-signatures">
             <div className="section-heading compact">
               <p className="eyebrow">Signature Library</p>
-              <span>{savedSignatures.length}</span>
+              <span>{signatureIdentities.length}</span>
             </div>
             <div className="stack">
-              <p className="muted">Re-use your signatures and initials across documents. Save once, select on any document.</p>
-              {savedSignatures.length === 0 ? null : (
-                savedSignatures.map((signature) => (
+              <p className="muted">
+                Create one signature identity per email and assurance level. Electronic identities can
+                be applied to fields today; verified and provider-backed identities stay separate until
+                their verification path is complete.
+              </p>
+              {signatureIdentities.length === 0 ? null : (
+                signatureIdentities.map((signature) => (
                   <button
                     key={signature.id}
-                    className={`document-button ${selectedSavedSignatureId === signature.id ? "active" : ""}`}
-                    onClick={() => setSelectedSavedSignatureId(signature.id)}
+                    className={`document-button ${selectedSignatureIdentityId === signature.id ? "active" : ""}`}
+                    onClick={() => setSelectedSignatureIdentityId(signature.id)}
                     type="button"
                   >
                     <span>{signature.label}</span>
                     <small>
-                      {signature.signatureType}
+                      {signature.signerEmail} · {formatState(signature.assuranceLevel)}
                       {signature.titleText ? ` · ${signature.titleText}` : ""}
                     </small>
                   </button>
                 ))
               )}
 
-              {selectedSavedSignature ? (
+              {selectedSignatureIdentity ? (
                 <div className="row-card">
                   <div>
-                    <strong>{selectedSavedSignature.label}</strong>
+                    <strong>{selectedSignatureIdentity.label}</strong>
                     <p className="muted">
-                      {selectedSavedSignature.signatureType === "typed"
-                        ? selectedSavedSignature.typedText
+                      {selectedSignatureIdentity.signatureType === "typed"
+                        ? selectedSignatureIdentity.typedText
                         : "Uploaded signature image"}
                     </p>
-                    {selectedSavedSignature.titleText ? (
-                      <p className="muted">{selectedSavedSignature.titleText}</p>
+                    <p className="muted">
+                      {selectedSignatureIdentity.signerName} · {selectedSignatureIdentity.signerEmail}
+                    </p>
+                    <p className="muted">
+                      {formatState(selectedSignatureIdentity.assuranceLevel)} · {formatState(selectedSignatureIdentity.status)}
+                    </p>
+                    {selectedSignatureIdentity.titleText ? (
+                      <p className="muted">{selectedSignatureIdentity.titleText}</p>
                     ) : null}
                   </div>
-                  {selectedSavedSignature.previewUrl ? (
+                  {selectedSignatureIdentity.previewUrl ? (
                     <img
-                      alt={`${selectedSavedSignature.label} preview`}
-                      src={selectedSavedSignature.previewUrl}
+                      alt={`${selectedSignatureIdentity.label} preview`}
+                      src={selectedSignatureIdentity.previewUrl}
                       style={{
                         maxHeight: "48px",
                         maxWidth: "120px",
@@ -3128,102 +3095,22 @@ export default function App() {
                 </div>
               ) : null}
 
-              <form className="stack form-block" onSubmit={handleCreateSavedSignature}>
+              <form className="stack form-block" onSubmit={handleCreateSignatureIdentity}>
                 <label className="form-field">
                   <span>Label</span>
                   <input
                     required
                     placeholder="President, Director, Personal"
-                    value={savedSignatureLabel}
-                    onChange={(event) => setSavedSignatureLabel(event.target.value)}
+                    value={signatureIdentityLabel}
+                    onChange={(event) => setSignatureIdentityLabel(event.target.value)}
                   />
                 </label>
                 <label className="form-field">
                   <span>Title text</span>
                   <input
                     placeholder="VP Operations"
-                    value={savedSignatureTitle}
-                    onChange={(event) => setSavedSignatureTitle(event.target.value)}
-                  />
-                </label>
-                <label className="form-field">
-                  <span>Signature type</span>
-                  <select
-                    value={savedSignatureType}
-                    onChange={(event) => setSavedSignatureType(event.target.value as "typed" | "uploaded")}
-                  >
-                    <option value="typed">Typed</option>
-                    <option value="uploaded">Uploaded image</option>
-                  </select>
-                </label>
-                {savedSignatureType === "typed" ? (
-                  <label className="form-field">
-                    <span>Typed signature text</span>
-                    <input
-                      required
-                      placeholder="Adam Goodwin"
-                      value={savedSignatureTypedText}
-                      onChange={(event) => setSavedSignatureTypedText(event.target.value)}
-                    />
-                  </label>
-                ) : (
-                  <label className="form-field">
-                    <span>Signature image</span>
-                    <input
-                      id="saved-signature-upload"
-                      accept="image/png,image/jpeg,image/webp"
-                      required
-                      type="file"
-                    />
-                  </label>
-                )}
-                <button className="ghost-button" disabled={isLoading} type="submit">
-                  Save signature
-                </button>
-              </form>
-            </div>
-          </section>
-        ) : null}
-
-        {sessionUser && isCertificateSigningEnabled ? (
-          <section className="card">
-            <div className="section-heading compact">
-              <p className="eyebrow">Digital Signing</p>
-              <span>{digitalSignatureProfiles.length}</span>
-            </div>
-            <div className="stack">
-              <p className="muted">
-                Reusable e-signatures are live today. Certificate-backed digital signatures are
-                modeled here as provider-managed profiles and require verification before they can
-                be used to sign PDF bytes securely.
-              </p>
-              {digitalSignatureProfiles.map((profile) => (
-                <div key={profile.id} className="row-card">
-                  <div>
-                    <strong>{profile.label}</strong>
-                    <p className="muted">
-                      Digitally signed by {profile.signerName}
-                    </p>
-                    <p className="muted">
-                      {profile.titleText ? `${profile.titleText} · ` : ""}
-                      {profile.organizationName ? `${profile.organizationName} · ` : ""}
-                      {profile.signerEmail ?? "Email not set"}
-                    </p>
-                    <p className="muted">
-                      {profile.provider} · {profile.assuranceLevel}
-                    </p>
-                  </div>
-                  <span>{profile.status}</span>
-                </div>
-              ))}
-              <form className="stack form-block" onSubmit={handleCreateDigitalSignatureProfile}>
-                <label className="form-field">
-                  <span>Profile label</span>
-                  <input
-                    required
-                    placeholder="Corporate signing cert"
-                    value={digitalSignatureLabel}
-                    onChange={(event) => setDigitalSignatureLabel(event.target.value)}
+                    value={signatureIdentityTitle}
+                    onChange={(event) => setSignatureIdentityTitle(event.target.value)}
                   />
                 </label>
                 <label className="form-field">
@@ -3231,81 +3118,112 @@ export default function App() {
                   <input
                     required
                     placeholder="Adam Goodwin"
-                    value={digitalSignatureSignerName}
-                    onChange={(event) => setDigitalSignatureSignerName(event.target.value)}
+                    value={signatureIdentitySignerName}
+                    onChange={(event) => setSignatureIdentitySignerName(event.target.value)}
                   />
                 </label>
                 <label className="form-field">
                   <span>Signer email</span>
                   <input
+                    required
                     type="email"
-                    placeholder="admin@agoperations.ca"
-                    value={digitalSignatureSignerEmail}
-                    onChange={(event) => setDigitalSignatureSignerEmail(event.target.value)}
-                  />
-                </label>
-                <label className="form-field">
-                  <span>Title text</span>
-                  <input
-                    placeholder="VP Operations"
-                    value={digitalSignatureTitle}
-                    onChange={(event) => setDigitalSignatureTitle(event.target.value)}
+                    placeholder="adam@example.com"
+                    value={signatureIdentitySignerEmail}
+                    onChange={(event) => setSignatureIdentitySignerEmail(event.target.value)}
                   />
                 </label>
                 <label className="form-field">
                   <span>Organization</span>
                   <input
                     placeholder="AG Operations"
-                    value={digitalSignatureOrganizationName}
-                    onChange={(event) => setDigitalSignatureOrganizationName(event.target.value)}
+                    value={signatureIdentityOrganizationName}
+                    onChange={(event) => setSignatureIdentityOrganizationName(event.target.value)}
                   />
                 </label>
                 <div className="form-grid compact-grid">
                   <label className="form-field">
-                    <span>Provider</span>
+                    <span>Assurance level</span>
                     <select
-                      value={digitalSignatureProvider}
-                      onChange={(event) =>
-                        setDigitalSignatureProvider(
-                          event.target.value as
-                            | "easy_draft_remote"
-                            | "qualified_remote"
-                            | "organization_hsm",
-                        )
-                      }
+                      value={signatureIdentityAssuranceLevel}
+                      onChange={(event) => {
+                        const nextLevel = event.target.value as SignatureIdentity["assuranceLevel"];
+                        setSignatureIdentityAssuranceLevel(nextLevel);
+                        if (nextLevel === "electronic" || nextLevel === "verified_electronic") {
+                          setSignatureIdentityProvider("easy_draft");
+                        } else if (nextLevel === "qualified_provider") {
+                          setSignatureIdentityProvider("qualified_remote");
+                        } else if (!["easy_draft_remote", "organization_hsm"].includes(signatureIdentityProvider)) {
+                          setSignatureIdentityProvider("easy_draft_remote");
+                        }
+                      }}
                     >
-                      <option value="easy_draft_remote">EasyDraft remote</option>
-                      <option value="qualified_remote">Qualified remote</option>
-                      <option value="organization_hsm">Organization HSM</option>
+                      <option value="electronic">Electronic</option>
+                      <option value="verified_electronic">Verified electronic</option>
+                      <option value="digital_pki">Digital PKI</option>
+                      <option value="qualified_provider">Qualified provider</option>
                     </select>
                   </label>
                   <label className="form-field">
-                    <span>Assurance</span>
+                    <span>Provider</span>
                     <select
-                      value={digitalSignatureAssuranceLevel}
-                      onChange={(event) => setDigitalSignatureAssuranceLevel(event.target.value)}
+                      value={signatureIdentityProvider}
+                      onChange={(event) => setSignatureIdentityProvider(event.target.value as SignatureIdentity["provider"])}
                     >
-                      <option value="advanced">Advanced</option>
-                      <option value="qualified">Qualified</option>
+                      {signatureIdentityAssuranceLevel === "electronic" ||
+                      signatureIdentityAssuranceLevel === "verified_electronic" ? (
+                        <option value="easy_draft">EasyDraft</option>
+                      ) : signatureIdentityAssuranceLevel === "qualified_provider" ? (
+                        <option value="qualified_remote">Qualified remote</option>
+                      ) : (
+                        <>
+                          <option value="easy_draft_remote">EasyDraft remote</option>
+                          <option value="organization_hsm">Organization HSM</option>
+                        </>
+                      )}
                     </select>
                   </label>
                 </div>
-                <div className="row-card">
-                  <div>
-                    <strong>Preview appearance</strong>
-                    <p className="muted">
-                      Digitally signed by {digitalSignatureSignerName || "Signer name"}
-                    </p>
-                    <p className="muted">
-                      {digitalSignatureTitle || "Title"} · {digitalSignatureOrganizationName || "Organization"}
-                    </p>
-                    <p className="muted">
-                      Reason will be selected at signing time. Date will be stamped at signing time.
-                    </p>
-                  </div>
-                </div>
+                <label className="form-field">
+                  <span>Signature type</span>
+                  <select
+                    value={signatureIdentityType}
+                    onChange={(event) => setSignatureIdentityType(event.target.value as "typed" | "uploaded")}
+                  >
+                    <option value="typed">Typed</option>
+                    <option value="uploaded">Uploaded image</option>
+                  </select>
+                </label>
+                {signatureIdentityType === "typed" ? (
+                  <label className="form-field">
+                    <span>Typed signature text</span>
+                    <input
+                      required
+                      placeholder="Adam Goodwin"
+                      value={signatureIdentityTypedText}
+                      onChange={(event) => setSignatureIdentityTypedText(event.target.value)}
+                    />
+                  </label>
+                ) : (
+                  <label className="form-field">
+                    <span>Signature image</span>
+                    <input
+                      id="signature-identity-upload"
+                      accept="image/png,image/jpeg,image/webp"
+                      required
+                      type="file"
+                    />
+                  </label>
+                )}
+                <label className="form-field">
+                  <span>Signing reason</span>
+                  <input
+                    placeholder="approve"
+                    value={signatureIdentitySigningReason}
+                    onChange={(event) => setSignatureIdentitySigningReason(event.target.value)}
+                  />
+                </label>
                 <button className="ghost-button" disabled={isLoading} type="submit">
-                  Request digital signing profile
+                  Save signature identity
                 </button>
               </form>
             </div>
@@ -3842,14 +3760,18 @@ export default function App() {
                   </div>
                   <div className="meta-item">
                     <span>Signature security</span>
-                    <strong>
-                      {selectedDocument.deliveryMode === "internal_use_only"
-                        ? "Internal-use-only approval trail"
-                        : isCertificateSigningEnabled &&
-                          digitalSignatureProfiles.some((profile) => profile.status === "verified")
-                        ? "Verified digital profile available"
-                        : "SHA-256 export integrity"}
-                    </strong>
+	                    <strong>
+	                      {selectedDocument.deliveryMode === "internal_use_only"
+	                        ? "Internal-use-only approval trail"
+	                        : signatureIdentities.some(
+	                            (identity) =>
+	                              identity.status === "verified" &&
+	                              (identity.assuranceLevel === "digital_pki" ||
+	                                identity.assuranceLevel === "qualified_provider"),
+	                          )
+	                          ? "Verified provider-backed identity available"
+	                          : "SHA-256 export integrity"}
+	                    </strong>
                   </div>
                   <div className="meta-item">
                     <span>Lock policy</span>
@@ -4656,11 +4578,11 @@ export default function App() {
                                 ? signerLabelById.get(fieldAssignmentId(field) ?? "") ?? "assigned participant"
                                 : "unassigned"}
                             </p>
-                            {field.appliedSavedSignatureId ? (
+                            {field.appliedSignatureIdentityId ? (
                               <p className="muted">
-                                Saved signature:{" "}
-                                {savedSignatures.find(
-                                  (signature) => signature.id === field.appliedSavedSignatureId,
+	                                Signature identity:{" "}
+                                {signatureIdentities.find(
+                                  (signature) => signature.id === field.appliedSignatureIdentityId,
                                 )?.label ?? "Applied"}
                               </p>
                             ) : null}
@@ -4669,14 +4591,14 @@ export default function App() {
                             <span>{field.completedAt ? "Complete" : "Open"}</span>
                             {!field.completedAt &&
                             (field.kind === "signature" || field.kind === "initial") &&
-                            selectedSavedSignature ? (
-                              <small className="muted">
-                                Uses {selectedSavedSignature.label}
-                                {selectedSavedSignature.titleText
-                                  ? ` · ${selectedSavedSignature.titleText}`
-                                  : ""}
-                              </small>
-                            ) : null}
+	                            selectedElectronicSignatureIdentity ? (
+	                              <small className="muted">
+	                                Uses {selectedElectronicSignatureIdentity.label}
+	                                {selectedElectronicSignatureIdentity.titleText
+	                                  ? ` · ${selectedElectronicSignatureIdentity.titleText}`
+	                                  : ""}
+	                              </small>
+	                            ) : null}
                             {!field.completedAt &&
                             currentUserIsActiveWorkflowSigner &&
                             currentUserAssignmentId === fieldAssignmentId(field) ? (
@@ -4699,10 +4621,10 @@ export default function App() {
                                     : runDocumentAction("/document-field-complete", {
                                         documentId: selectedDocument.id,
                                         fieldId: field.id,
-                                        savedSignatureId:
-                                          field.kind === "signature" || field.kind === "initial"
-                                            ? selectedSavedSignatureId || null
-                                            : null,
+	                                        signatureIdentityId:
+	                                          field.kind === "signature" || field.kind === "initial"
+	                                            ? selectedElectronicSignatureIdentity?.id ?? null
+	                                            : null,
                                         signingReason:
                                           field.kind === "signature" || field.kind === "initial"
                                             ? activeSigningReason
@@ -4900,7 +4822,7 @@ export default function App() {
                                   width: Number(freeSignW),
                                   height: Number(freeSignH),
                                   page: Number(freeSignPage),
-                                  savedSignatureId: selectedSavedSignatureId || null,
+	                                  signatureIdentityId: selectedElectronicSignatureIdentity?.id ?? null,
                                   signingReason: activeSigningReason,
                                   signingLocation: activeSigningLocation || null,
                                 }),
@@ -4947,10 +4869,10 @@ export default function App() {
                         <p className="muted">
                           Choose the purpose and location for this signing action now. These describe the specific event, not the reusable signature profile.
                         </p>
-                        <p className="muted">
-                          Drag the box below to position and resize your signature, then click <em>Place and sign</em>.
-                          Your currently selected saved signature will be used.
-                        </p>
+	                        <p className="muted">
+	                          Drag the box below to position and resize your signature, then click <em>Place and sign</em>.
+	                          Your currently selected electronic signature identity will be used.
+	                        </p>
                         <div className="form-grid compact-grid">
                           <label className="form-field">
                             <span>Page</span>
@@ -5020,7 +4942,7 @@ export default function App() {
                               height: `${Number(freeSignH)}px`,
                             }}
                           >
-                            <span>{selectedSavedSignature?.label ?? "Your signature"}</span>
+	                            <span>{selectedElectronicSignatureIdentity?.label ?? "Your signature"}</span>
                             <button
                               className="field-canvas-handle"
                               onPointerDown={(event) => {

@@ -3,11 +3,9 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import {
   AppError,
   closeOrganizationForAuthorizationHeader,
-  createDigitalSignatureProfileForAuthorizationHeader,
   deleteOwnAccountForAuthorizationHeader,
   getOrganizationAdminOverviewForAuthorizationHeader,
   getProfileForAuthorizationHeader,
-  listDigitalSignatureProfilesForAuthorizationHeader,
   changePrimaryAccountAdminForAuthorizationHeader,
   updateProfileForAuthorizationHeader,
 } from "@clean-pdf/workflow-service";
@@ -76,25 +74,6 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
   app.post("/profile", async (request, reply) => {
     try {
       return await updateProfileForAuthorizationHeader(request.headers.authorization, request.body);
-    } catch (error) {
-      return sendError(reply, error);
-    }
-  });
-
-  app.get("/digital-signatures", async (request, reply) => {
-    try {
-      return await listDigitalSignatureProfilesForAuthorizationHeader(request.headers.authorization);
-    } catch (error) {
-      return sendError(reply, error);
-    }
-  });
-
-  app.post("/digital-signatures", async (request, reply) => {
-    try {
-      return await createDigitalSignatureProfileForAuthorizationHeader(
-        request.headers.authorization,
-        request.body,
-      );
     } catch (error) {
       return sendError(reply, error);
     }

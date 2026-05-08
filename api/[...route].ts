@@ -15,7 +15,6 @@ import billingCheckoutHandler from "../apps/web/api/billing-checkout.js";
 import billingOverviewHandler from "../apps/web/api/billing-overview.js";
 import billingPortalHandler from "../apps/web/api/billing-portal.js";
 import billingTokenCheckoutHandler from "../apps/web/api/billing-token-checkout.js";
-import digitalSignaturesHandler from "../apps/web/api/digital-signatures.js";
 import documensoEnvelopeHandler from "../apps/web/api/documenso-envelope.js";
 import documensoWebhookHandler from "../apps/web/api/documenso-webhook.js";
 import documentHandler from "../apps/web/api/document.js";
@@ -56,7 +55,7 @@ import organizationPrimaryAdminHandler from "../apps/web/api/organization-primar
 import organizationVerifyHandler from "../apps/web/api/organization-verify.js";
 import processorRunHandler from "../apps/web/api/processor-run.js";
 import profileHandler from "../apps/web/api/profile.js";
-import savedSignaturesHandler from "../apps/web/api/saved-signatures.js";
+import signatureIdentitiesHandler from "../apps/web/api/signature-identities.js";
 import sessionHandler from "../apps/web/api/session.js";
 import signatureEventsHandler from "../apps/web/api/signature-events.js";
 import signaturesBlockchainHandler from "../apps/web/api/signatures-blockchain.js";
@@ -96,7 +95,6 @@ const routeHandlers: Record<string, RouteHandler> = {
   "billing-overview": billingOverviewHandler,
   "billing-portal": billingPortalHandler,
   "billing-token-checkout": billingTokenCheckoutHandler,
-  "digital-signatures": digitalSignaturesHandler,
   "documenso-envelope": documensoEnvelopeHandler,
   "documenso-webhook": documensoWebhookHandler,
   document: documentHandler,
@@ -137,7 +135,7 @@ const routeHandlers: Record<string, RouteHandler> = {
   "organization-verify": organizationVerifyHandler,
   "processor-run": processorRunHandler,
   profile: profileHandler,
-  "saved-signatures": savedSignaturesHandler,
+  "signature-identities": signatureIdentitiesHandler,
   session: sessionHandler,
   "signature-events": signatureEventsHandler,
   "signatures-blockchain": signaturesBlockchainHandler,
