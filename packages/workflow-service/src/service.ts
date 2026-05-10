@@ -5909,7 +5909,16 @@ export async function createSignatureIdentityForAuthorizationHeader(
   let uploadedSignaturePath: string | null = null;
 
   if (parsed.signatureType === "uploaded") {
-    const image = validateSignatureIdentityImageUpload(parsed.uploadedImage!);
+    const uploadedImage = parsed.uploadedImage;
+
+    if (!uploadedImage?.contentType || !uploadedImage.dataBase64) {
+      throw new AppError(400, "Uploaded signatures require an image file.");
+    }
+
+    const image = validateSignatureIdentityImageUpload({
+      contentType: uploadedImage.contentType,
+      dataBase64: uploadedImage.dataBase64,
+    });
     storagePath = `${user.id}/signature-identities/${randomUUID()}.${image.extension}`;
     const { error: uploadError } = await adminClient.storage
       .from(readServerEnv().SUPABASE_SIGNATURE_BUCKET)
