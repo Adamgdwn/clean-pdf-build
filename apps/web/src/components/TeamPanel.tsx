@@ -10,6 +10,21 @@ const ACCOUNT_CLASS_LABELS: Record<AccountClass, string> = {
   corporate_member: "Corporate member",
 };
 
+function parseInviteEmails(value: string) {
+  const seen = new Set<string>();
+
+  return value
+    .split(/[\s,;]+/)
+    .map((email) => email.trim())
+    .filter(Boolean)
+    .filter((email) => {
+      const normalized = email.toLowerCase();
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+}
+
 type Props = {
   session: Session;
   team: WorkspaceTeam;
@@ -41,23 +56,53 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
   const seatCount = subscription?.seatCount ?? 0;
   const isSubscribed = subscription && ["active", "trialing"].includes(subscription.status);
   const overSeat = isSubscribed && totalOccupied > seatCount;
+  const availableSeats = Math.max(0, seatCount - totalOccupied);
+  const parsedInviteEmails = parseInviteEmails(inviteEmail);
 
   async function handleInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!inviteEmail.trim()) return;
+    if (parsedInviteEmails.length === 0) return;
+
+    if (parsedInviteEmails.length > 10) {
+      setErrorMessage("Send up to 10 invitations at a time.");
+      return;
+    }
 
     setIsLoading(true);
     setErrorMessage(null);
     setNoticeMessage(null);
 
     try {
-      const result = await apiFetch<{ invitation: { email: string }; seatWarning: string | null }>(
-        "/workspace-invite",
-        session,
-        { method: "POST", body: JSON.stringify({ email: inviteEmail.trim(), accountClass: inviteAccountClass }) },
-      );
-      setInviteEmail("");
-      setNoticeMessage(`Invitation sent to ${result.invitation.email}.${result.seatWarning ? ` ${result.seatWarning}` : ""}`);
+      const sentEmails: string[] = [];
+      const failedInvites: string[] = [];
+      const seatWarnings: string[] = [];
+
+      for (const email of parsedInviteEmails) {
+        try {
+          const result = await apiFetch<{ invitation: { email: string }; seatWarning: string | null }>(
+            "/workspace-invite",
+            session,
+            { method: "POST", body: JSON.stringify({ email, accountClass: inviteAccountClass }) },
+          );
+          sentEmails.push(result.invitation.email);
+          if (result.seatWarning) seatWarnings.push(result.seatWarning);
+        } catch (error) {
+          failedInvites.push(`${email}: ${(error as Error).message}`);
+        }
+      }
+
+      if (sentEmails.length > 0) {
+        setInviteEmail("");
+        const warning = seatWarnings.at(-1);
+        setNoticeMessage(
+          `${sentEmails.length} invitation${sentEmails.length === 1 ? "" : "s"} sent.${warning ? ` ${warning}` : ""}`,
+        );
+      }
+
+      if (failedInvites.length > 0) {
+        setErrorMessage(`Could not send ${failedInvites.length} invite${failedInvites.length === 1 ? "" : "s"}: ${failedInvites.join("; ")}`);
+      }
+
       onTeamRefresh();
     } catch (error) {
       setErrorMessage((error as Error).message);
@@ -234,8 +279,10 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
         {/* Seat summary */}
         {isSubscribed ? (
           <p className="muted">
-            {totalOccupied} of {seatCount} seat{seatCount !== 1 ? "s" : ""} used
-            {overSeat ? " — visit Billing to add seats" : ""}
+            {team.members.length} active and {team.pendingInvitations.length} invited seat{totalOccupied === 1 ? "" : "s"} count against {seatCount} purchased.
+            {overSeat
+              ? ` ${totalOccupied - seatCount} assignment${totalOccupied - seatCount === 1 ? "" : "s"} need more purchased seats.`
+              : ` ${availableSeats} available.`}
           </p>
         ) : null}
 
@@ -385,10 +432,11 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
         {/* Invite form */}
         {isAccountAdminOrAdmin ? (
           <>
-            <p className="eyebrow" style={{ marginTop: "0.5rem" }}>Invite a teammate</p>
+            <p className="eyebrow" style={{ marginTop: "0.5rem" }}>Invite teammates</p>
             <p className="muted">
               Internal members are billed at either $12 CAD per user/month or $120 CAD per
               user/year. External signers are not billed as users, and token purchases are shared across the {team.organization.accountType === "corporate" ? "organization" : "account"}.
+              Paste up to 10 email addresses separated by commas, spaces, or new lines.
             </p>
             {isCurrentUserAccountAdmin ? (
               <p className="muted">
@@ -397,11 +445,10 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
             ) : null}
             <form className="stack" onSubmit={handleInvite}>
               <label className="form-field">
-                <span>Email address</span>
-                <input
+                <span>Email addresses</span>
+                <textarea
                   required
-                  type="email"
-                  placeholder="teammate@company.com"
+                  placeholder={"teammate@company.com\nsecond@company.com"}
                   value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)}
                 />
@@ -419,11 +466,15 @@ export function TeamPanel({ session, team, billingOverview, onTeamRefresh }: Pro
                 </label>
                 <button
                   className="secondary-button"
-                  disabled={isLoading || !inviteEmail.trim()}
+                  disabled={isLoading || parsedInviteEmails.length === 0}
                   type="submit"
                   style={{ alignSelf: "flex-end" }}
                 >
-                  {isLoading ? "Sending…" : "Send invite"}
+                  {isLoading
+                    ? "Sending…"
+                    : parsedInviteEmails.length > 1
+                      ? `Send ${parsedInviteEmails.length} invites`
+                      : "Send invite"}
                 </button>
               </div>
             </form>

@@ -22,6 +22,7 @@
     "smoke:api-routes": "node scripts/smoke-api-routes.mjs",
     "processor:run-queued": "curl -s -X POST http://localhost:4010/jobs/run-queued",
     "processor:run-notifications": "curl -s -X POST http://localhost:4010/notifications/run-queued",
+    "processor:run-overdue-reminders": "curl -s -X POST http://localhost:4010/notifications/run-overdue-reminders",
     "processor:run-purges": "curl -s -X POST http://localhost:4010/retention/run-due"
   },
   "devDependencies": {

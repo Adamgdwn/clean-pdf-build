@@ -6,6 +6,7 @@ import {
   AppError,
   captureServerException,
   markProcessingJobCompleted,
+  processOverdueWorkflowReminders,
   processDueDocumentPurges,
   processQueuedJobs,
   processQueuedNotifications,
@@ -88,6 +89,14 @@ export function buildDocumentProcessorServer() {
   app.post("/notifications/run-queued", async (_, reply) => {
     try {
       return await processQueuedNotifications();
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post("/notifications/run-overdue-reminders", async (_, reply) => {
+    try {
+      return await processOverdueWorkflowReminders();
     } catch (error) {
       return sendError(reply, error);
     }

@@ -166,7 +166,7 @@ export function AuthPanel({
         onRegistered(accountType);
         setNoticeMessage(
           accountType === "corporate"
-            ? "Welcome to EasyDraftDocs. Your organization admin center is ready."
+            ? "Welcome to EasyDraftDocs. Your organization admin center is available while EasyDraft verifies the account."
             : "Welcome to EasyDraftDocs. Your workspace is ready.",
         );
       }
@@ -288,7 +288,7 @@ export function AuthPanel({
                 {hasPendingInvite
                   ? "Create your account with the invited email address so the workspace attaches to the right identity."
                   : accountType === "corporate"
-                    ? "Start a 30-day free trial with no card up front. You will be the account admin for this organization."
+                    ? "Request a corporate account with a work-domain email. EasyDraft verifies new organizations before billing, team invites, and workflow sends unlock."
                     : "Start a 30-day free trial with no card up front. Create your workspace and send your first workflow from the same account."}
               </p>
               <label className="form-field">
@@ -418,12 +418,13 @@ export function AuthPanel({
             />
           </label>
           <button className="primary-button" disabled={isLoading} type="submit">
-            {authMode === "sign_in" ? "Continue" : "Start free trial"}
+            {authMode === "sign_in" ? "Continue" : accountType === "corporate" ? "Request corporate account" : "Start free trial"}
           </button>
           {authMode === "sign_up" ? (
             <p className="muted">
-              30 days free. No card required.
-              {accountType === "corporate" ? " You can name more than one account admin after signup." : ""}
+              {accountType === "corporate"
+                ? "No card required. You can name more than one account admin after activation."
+                : "30 days free. No card required."}
             </p>
           ) : null}
 

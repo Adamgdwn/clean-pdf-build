@@ -9,6 +9,7 @@ import {
   shouldRequireEmailDelivery,
   shouldRequireProcessorSecret,
   shouldRequireStripe,
+  validateSignatureIdentityImageUpload,
 } from "./index.js";
 
 process.env.SUPABASE_URL ??= "https://example.supabase.co";
@@ -126,6 +127,55 @@ describe("rate limiting", () => {
 
     expect((await consumeRateLimit("client-b", policy, 0, productionEnv)).allowed).toBe(true);
     expect((await consumeRateLimit("client-b", policy, 1, productionEnv)).allowed).toBe(false);
+  });
+});
+
+describe("signature identity upload validation", () => {
+  it("accepts a PNG only when the declared type and bytes match", () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+
+    expect(
+      validateSignatureIdentityImageUpload({
+        contentType: "image/png",
+        dataBase64: png.toString("base64"),
+      }),
+    ).toMatchObject({
+      contentType: "image/png",
+      extension: "png",
+    });
+  });
+
+  it("accepts a JPEG only when the declared type and bytes match", () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00]);
+
+    expect(
+      validateSignatureIdentityImageUpload({
+        contentType: "image/jpeg",
+        dataBase64: jpeg.toString("base64"),
+      }),
+    ).toMatchObject({
+      contentType: "image/jpeg",
+      extension: "jpg",
+    });
+  });
+
+  it("rejects unsupported or mismatched signature image uploads", () => {
+    const webp = Buffer.from("RIFFxxxxWEBP");
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+
+    expect(() =>
+      validateSignatureIdentityImageUpload({
+        contentType: "image/webp",
+        dataBase64: webp.toString("base64"),
+      }),
+    ).toThrow("Signature images must be PNG or JPEG.");
+
+    expect(() =>
+      validateSignatureIdentityImageUpload({
+        contentType: "image/jpeg",
+        dataBase64: png.toString("base64"),
+      }),
+    ).toThrow("Signature image content does not match its declared file type.");
   });
 });
 

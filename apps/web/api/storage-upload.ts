@@ -37,7 +37,6 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const allowedBuckets = new Set([
       env.SUPABASE_DOCUMENT_BUCKET,
       env.SUPABASE_UNSIGNED_DOCUMENT_BUCKET,
-      env.SUPABASE_SIGNATURE_BUCKET,
     ]);
     if (!allowedBuckets.has(bucket)) {
       throw new AppError(400, "That upload bucket is not allowed.");

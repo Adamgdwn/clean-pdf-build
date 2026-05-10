@@ -185,6 +185,68 @@ export function getDocumentSendReadiness(document: DocumentRecord) {
   };
 }
 
+export function getEligibleSignerIdsForCurrentRouting(document: DocumentRecord) {
+  const pendingFields = getRequiredAssignedActionFields(document).filter((field) => !field.completedAt);
+
+  if (pendingFields.length === 0) {
+    return [] as string[];
+  }
+
+  const signerByAssignmentId = new Map(
+    document.signers.map((signer) => [signerAssignmentId(signer), signer]),
+  );
+  const pendingFieldsWithSigner = pendingFields
+    .map((field) => ({
+      field,
+      signer: signerByAssignmentId.get(fieldAssigneeId(field) ?? ""),
+    }))
+    .filter((entry): entry is { field: Field; signer: DocumentRecord["signers"][number] } =>
+      Boolean(entry.signer),
+    );
+
+  if (pendingFieldsWithSigner.length === 0) {
+    return [] as string[];
+  }
+
+  const nextStage = Math.min(
+    ...pendingFieldsWithSigner.map((entry) => entry.signer.routingStage ?? 1),
+  );
+  const stagePendingFields = pendingFieldsWithSigner.filter(
+    (entry) => (entry.signer.routingStage ?? 1) === nextStage,
+  );
+
+  if (document.routingStrategy === "parallel") {
+    return [
+      ...new Set(stagePendingFields.map((entry) => fieldAssigneeId(entry.field)).filter(Boolean)),
+    ] as string[];
+  }
+
+  const signerOrderById = new Map(
+    document.signers.map((signer) => [
+      signerAssignmentId(signer),
+      signer.signingOrder ?? Number.MAX_SAFE_INTEGER,
+    ]),
+  );
+  const nextOrder = Math.min(
+    ...stagePendingFields.map(
+      (entry) => signerOrderById.get(fieldAssigneeId(entry.field) ?? "") ?? Number.MAX_SAFE_INTEGER,
+    ),
+  );
+
+  return [
+    ...new Set(
+      stagePendingFields
+        .filter(
+          (entry) =>
+            (signerOrderById.get(fieldAssigneeId(entry.field) ?? "") ?? Number.MAX_SAFE_INTEGER) ===
+            nextOrder,
+        )
+        .map((entry) => fieldAssigneeId(entry.field))
+        .filter(Boolean),
+    ),
+  ] as string[];
+}
+
 export function completeField(
   document: DocumentRecord,
   fieldId: string,

@@ -60,9 +60,25 @@ const shouldRestoreSessionFromRedirect =
 
 const unsignedDocumentBucket =
   import.meta.env.VITE_SUPABASE_UNSIGNED_DOCUMENT_BUCKET ?? "documents-unsigned";
-const signatureBucket = import.meta.env.VITE_SUPABASE_SIGNATURE_BUCKET ?? "signatures";
 function formatState(state: string) {
   return state.replaceAll("_", " ");
+}
+
+function readFileAsBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const [, base64] = result.split(",", 2);
+      if (!base64) {
+        reject(new Error("Could not read the signature image."));
+        return;
+      }
+      resolve(base64);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read the signature image."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function formatAccountClassLabel(accountClass: string | null) {
@@ -1324,7 +1340,7 @@ export default function App() {
       </tr>
       <tr>
         <td>SHA-256 (last export)</td>
-        <td style="font-family:monospace;font-size:0.8rem;word-break:break-all">${doc.exportSha256 ?? "Not yet exported — download the document to generate the hash."}</td>
+        <td style="font-family:monospace;font-size:0.8rem;word-break:break-all">${doc.exportSha256 ?? "Not exported yet."}</td>
       </tr>
       <tr>
         <td>Latest change impact</td>
@@ -1333,9 +1349,9 @@ export default function App() {
     </tbody>
   </table>
   <p style="font-size:0.8rem;color:#9ca3af;margin-top:8px">
-    The SHA-256 digest is computed server-side over the final rendered PDF bytes at download time and stored
-    alongside the document record. To verify your copy: <code>sha256sum your-file.pdf</code> and compare to
-    the value above. Certificate-backed PDF signing is not part of the current beta release.
+    The SHA-256 digest is computed server-side over the final rendered PDF bytes and stored alongside the
+    document record. To verify your copy: <code>sha256sum your-file.pdf</code> and compare to the value above.
+    Certificate-backed PDF signing is not part of the current beta release.
   </p>
   ${doc.latestChangeImpactSummary ? `<p style="font-size:0.8rem;color:#cbd5e1;margin-top:8px">${doc.latestChangeImpactSummary}</p>` : ""}
 
@@ -1713,7 +1729,7 @@ export default function App() {
     setNoticeMessage(null);
 
     try {
-      let storagePath: string | null = null;
+      let uploadedImage: { fileName: string; contentType: string; dataBase64: string } | null = null;
 
       if (signatureIdentityType === "uploaded") {
         const uploadInput = document.getElementById("signature-identity-upload") as HTMLInputElement | null;
@@ -1723,28 +1739,19 @@ export default function App() {
           throw new Error("Choose an image file for this signature identity.");
         }
 
-        storagePath = `${sessionUser.id}/signature-identities/${crypto.randomUUID()}-${file.name}`;
-        let uploadResponse: Response;
-        try {
-          uploadResponse = await fetch(
-            `/api/storage-upload?bucket=${encodeURIComponent(signatureBucket)}&path=${encodeURIComponent(storagePath)}`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${session.access_token}`,
-                "Content-Type": file.type || "image/png",
-              },
-              body: file,
-            },
-          );
-        } catch (error) {
-          throw new Error(`Network error calling /storage-upload: ${(error as Error).message}`);
+        if (file.type !== "image/png" && file.type !== "image/jpeg") {
+          throw new Error("Signature images must be PNG or JPEG.");
         }
 
-        if (!uploadResponse.ok) {
-          const payload = (await uploadResponse.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(payload?.message ?? "Failed to upload signature identity.");
+        if (file.size > 1_000_000) {
+          throw new Error("Signature images must be 1 MB or smaller.");
         }
+
+        uploadedImage = {
+          fileName: file.name,
+          contentType: file.type,
+          dataBase64: await readFileAsBase64(file),
+        };
       }
 
       const payload = await apiFetch<{ signature: SignatureIdentity }>("/signature-identities", session, {
@@ -1759,7 +1766,7 @@ export default function App() {
           provider: signatureIdentityProvider,
           signatureType: signatureIdentityType,
           typedText: signatureIdentityType === "typed" ? signatureIdentityTypedText : null,
-          storagePath,
+          uploadedImage,
           signingReason: signatureIdentitySigningReason.trim() || null,
           isDefault: signatureIdentities.length === 0,
         }),
@@ -1772,7 +1779,7 @@ export default function App() {
       setSignatureIdentityLabel("");
       setSignatureIdentityTitle("");
       setSignatureIdentitySignerName("");
-      setSignatureIdentitySignerEmail("");
+      setSignatureIdentitySignerEmail(accountProfile?.email ?? sessionUser.email ?? "");
       setSignatureIdentityOrganizationName("");
       setSignatureIdentityAssuranceLevel("electronic");
       setSignatureIdentityProvider("easy_draft");
@@ -1859,14 +1866,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!accountProfile) {
+    if (!accountProfile && !sessionUser) {
       return;
     }
 
-    setSignatureIdentitySignerEmail((currentValue) => currentValue || accountProfile.email);
-    setSignatureIdentitySignerName((currentValue) => currentValue || accountProfile.displayName || accountProfile.email);
-    setSignatureIdentityOrganizationName((currentValue) => currentValue || accountProfile.companyName || "");
-  }, [accountProfile]);
+    const email = accountProfile?.email ?? sessionUser?.email ?? "";
+    setSignatureIdentitySignerEmail((currentValue) => currentValue || email);
+    setSignatureIdentitySignerName((currentValue) => currentValue || accountProfile?.displayName || email);
+    setSignatureIdentityOrganizationName((currentValue) => currentValue || accountProfile?.companyName || "");
+  }, [accountProfile, sessionUser]);
 
   useEffect(() => {
     function handlePopState() {
@@ -3261,11 +3269,11 @@ export default function App() {
                 <label className="form-field">
                   <span>Signer email</span>
                   <input
+                    readOnly
                     required
                     type="email"
-                    placeholder="adam@example.com"
+                    placeholder={accountProfile?.email ?? sessionUser?.email ?? "you@example.com"}
                     value={signatureIdentitySignerEmail}
-                    onChange={(event) => setSignatureIdentitySignerEmail(event.target.value)}
                   />
                 </label>
                 <label className="form-field">
@@ -3342,12 +3350,12 @@ export default function App() {
                 ) : (
                   <label className="form-field">
                     <span>Signature image</span>
-                    <input
-                      id="signature-identity-upload"
-                      accept="image/png,image/jpeg,image/webp"
-                      required
-                      type="file"
-                    />
+	                    <input
+	                      id="signature-identity-upload"
+	                      accept="image/png,image/jpeg"
+	                      required
+	                      type="file"
+	                    />
                   </label>
                 )}
 	                <label className="form-field">
@@ -4571,6 +4579,11 @@ export default function App() {
 
                     {canEdit ? (
                       <form className="stack form-block" onSubmit={handleAddSigner}>
+                        {selectedDocument.routingStrategy === "sequential" ? (
+                          <p className="muted">
+                            For a strict five-person signing line, keep every participant in stage 1 and set action orders 1 through 5.
+                          </p>
+                        ) : null}
                         <label className="form-field">
                           <span>Name</span>
                           <input
@@ -4604,6 +4617,8 @@ export default function App() {
                           <label className="form-field">
                             <span>Stage</span>
                             <input
+                              min="1"
+                              type="number"
                               value={signerStage}
                               onChange={(event) => setSignerStage(event.target.value)}
                             />
@@ -4620,6 +4635,8 @@ export default function App() {
                         <label className="form-field">
                           <span>Action order</span>
                           <input
+                            min="1"
+                            type="number"
                             value={signerOrder}
                             onChange={(event) => setSignerOrder(event.target.value)}
                           />

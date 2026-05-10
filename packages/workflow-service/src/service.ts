@@ -8,6 +8,7 @@ import {
   legacyAccessRoleFromAuthority,
   legacyParticipantTypeFromDocumentMode,
   getDocumentCompletionSummary,
+  getEligibleSignerIdsForCurrentRouting,
   getDocumentSendReadiness,
   isDocumentSignable,
   isWorkflowOverdue,
@@ -32,7 +33,7 @@ import {
   type User,
   type WorkflowOperationalStatus,
 } from "../../domain/src/index.js";
-import { createHash, randomInt, timingSafeEqual } from "crypto";
+import { createHash, randomInt, randomUUID, timingSafeEqual } from "crypto";
 import { pdflibAddPlaceholder } from "@signpdf/placeholder-pdf-lib";
 import { P12Signer } from "@signpdf/signer-p12";
 import { SignPdf } from "@signpdf/signpdf";
@@ -800,7 +801,14 @@ const createSignatureIdentityInputSchema = z
       .default("electronic"),
     signatureType: z.enum(["typed", "uploaded"]),
     typedText: z.string().trim().max(120).nullable().default(null),
-    storagePath: z.string().min(1).nullable().default(null),
+    uploadedImage: z
+      .object({
+        fileName: z.string().trim().max(180).nullable().default(null),
+        contentType: z.string().trim().max(80),
+        dataBase64: z.string().min(1),
+      })
+      .nullable()
+      .default(null),
     provider: z
       .enum(["easy_draft", "easy_draft_remote", "qualified_remote", "organization_hsm"])
       .default("easy_draft"),
@@ -843,11 +851,11 @@ const createSignatureIdentityInputSchema = z
       });
     }
 
-    if (value.signatureType === "uploaded" && !value.storagePath) {
+    if (value.signatureType === "uploaded" && !value.uploadedImage) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Uploaded signatures require a storage path.",
-        path: ["storagePath"],
+        message: "Uploaded signatures require an image file.",
+        path: ["uploadedImage"],
       });
     }
   });
@@ -1098,12 +1106,20 @@ function getActionLabelForFieldKind(kind: Field["kind"]) {
   return kind === "approval" ? "approval" : "signature";
 }
 
-function looksLikeStoredImagePath(value: string | null) {
+function looksLikeSupportedSignatureImagePath(value: string | null) {
   if (!value) {
     return false;
   }
 
-  return /\/.+\.(png|jpg|jpeg|webp)$/i.test(value);
+  return /\/.+\.(png|jpg|jpeg)$/i.test(value);
+}
+
+function looksLikeUnsupportedSignatureImagePath(value: string | null) {
+  if (!value) {
+    return false;
+  }
+
+  return /\/.+\.(webp|gif|bmp|tiff?|svg)$/i.test(value);
 }
 
 function formatCompletedAtLabel(timestamp: string | null) {
@@ -2662,6 +2678,72 @@ function assertSignatureIdentityCanApplyToField(identity: SignatureIdentityRow) 
       "Only active electronic signature identities can be applied directly to document fields. Verified and provider-backed identities must complete their verification path first.",
     );
   }
+
+  if (identity.signature_type === "uploaded" && !looksLikeSupportedSignatureImagePath(identity.storage_path)) {
+    throw new AppError(409, "Uploaded signature identities must use a PNG or JPEG image. Create a new signature identity.");
+  }
+}
+
+const MAX_SIGNATURE_IMAGE_BYTES = 1_000_000;
+
+type ValidatedSignatureImage = {
+  buffer: Buffer;
+  contentType: "image/png" | "image/jpeg";
+  extension: "png" | "jpg";
+};
+
+export function validateSignatureIdentityImageUpload(input: {
+  dataBase64: string;
+  contentType: string;
+}): ValidatedSignatureImage {
+  const declaredContentType = input.contentType.toLowerCase().split(";")[0]?.trim();
+  const maxBase64Length = Math.ceil(MAX_SIGNATURE_IMAGE_BYTES / 3) * 4 + 128;
+
+  if (declaredContentType !== "image/png" && declaredContentType !== "image/jpeg") {
+    throw new AppError(400, "Signature images must be PNG or JPEG.");
+  }
+
+  if (input.dataBase64.length > maxBase64Length) {
+    throw new AppError(400, "Signature images must be 1 MB or smaller.");
+  }
+
+  let buffer: Buffer;
+
+  try {
+    buffer = Buffer.from(input.dataBase64, "base64");
+  } catch {
+    throw new AppError(400, "Signature image data could not be decoded.");
+  }
+
+  if (buffer.length === 0) {
+    throw new AppError(400, "Signature image was empty.");
+  }
+
+  if (buffer.length > MAX_SIGNATURE_IMAGE_BYTES) {
+    throw new AppError(400, "Signature images must be 1 MB or smaller.");
+  }
+
+  const isPng =
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a;
+  const isJpeg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+
+  if (declaredContentType === "image/png" && isPng) {
+    return { buffer, contentType: "image/png", extension: "png" };
+  }
+
+  if (declaredContentType === "image/jpeg" && isJpeg) {
+    return { buffer, contentType: "image/jpeg", extension: "jpg" };
+  }
+
+  throw new AppError(400, "Signature image content does not match its declared file type.");
 }
 
 function mapProfile(row: ProfileRow): ProfileResponse["profile"] {
@@ -3088,6 +3170,7 @@ async function queueOriginatorWorkflowUpdate(
   actorLabel: string,
   summary: string,
   appOrigin?: string,
+  metadata: Record<string, string | number | boolean | null> = {},
 ) {
   const originator = await getProfileById(document.uploadedByUserId);
 
@@ -3101,6 +3184,7 @@ async function queueOriginatorWorkflowUpdate(
       ...(appOrigin ? { appOrigin } : {}),
       signerName: actorLabel,
       actionLabel: "action",
+      ...metadata,
       summary,
     },
   });
@@ -3518,8 +3602,26 @@ function buildNotificationEmailContent(notification: NotificationRow, document: 
     typeof notification.metadata?.actionLabel === "string" ? notification.metadata.actionLabel : "signature";
   const summary =
     typeof notification.metadata?.summary === "string" ? notification.metadata.summary : "Workflow updated";
+  const nextSignerNames =
+    typeof notification.metadata?.nextSignerNames === "string" ? notification.metadata.nextSignerNames : "";
+  const workflowUpdateKind =
+    typeof notification.metadata?.workflowUpdateKind === "string" ? notification.metadata.workflowUpdateKind : "";
 
   if (notification.event_type === "workflow_update") {
+    if (workflowUpdateKind === "document_completed") {
+      return {
+        subject: `Document completed: ${document.name}`,
+        html: `<p>${summary}</p><p>The final PDF and certificate are ready in EasyDraft.</p><p><a href="${actionUrl}">Open the completed document</a></p>`,
+      };
+    }
+
+    if (workflowUpdateKind === "overdue_escalation") {
+      return {
+        subject: `Workflow overdue: ${document.name}`,
+        html: `<p>${summary}</p><p><a href="${actionUrl}">Open the workflow in EasyDraft</a></p>`,
+      };
+    }
+
     return {
       subject: `Workflow update for ${document.name}`,
       html: `<p>${summary}</p><p><a href="${actionUrl}">Open the document in EasyDraft</a></p>`,
@@ -3534,7 +3636,9 @@ function buildNotificationEmailContent(notification: NotificationRow, document: 
 
     return {
       subject,
-      html: `<p>${actorLabel} completed ${fieldLabel} on <strong>${document.name}</strong>.</p><p><a href="${actionUrl}">Open the document in EasyDraft</a></p>`,
+      html: `<p>${actorLabel} completed ${fieldLabel} on <strong>${document.name}</strong>.</p>${
+        nextSignerNames ? `<p>${nextSignerNames} ${nextSignerNames.includes(",") ? "have" : "has"} been notified next.</p>` : ""
+      }<p><a href="${actionUrl}">Open the document in EasyDraft</a></p>`,
     };
   }
 
@@ -3817,6 +3921,16 @@ function getPendingRequiredAssignedFields(document: DocumentRecord) {
   );
 }
 
+function getSignerNamesForAssignmentIds(document: DocumentRecord, signerIds: string[]) {
+  const signerByAssignmentId = new Map(
+    document.signers.map((signer) => [signerAssignmentId(signer), signer]),
+  );
+
+  return signerIds
+    .map((signerId) => signerByAssignmentId.get(signerId)?.name)
+    .filter((name): name is string => Boolean(name));
+}
+
 async function assertWorkspaceHasActivePlan(workspaceId: string) {
   const env = readServerEnv();
   if (!env.STRIPE_SECRET_KEY) {
@@ -4096,60 +4210,7 @@ async function ensureSigningVerificationForAction(tokenRow: SigningTokenRow, fie
 }
 
 function getEligibleSignerIdsForNotifications(document: DocumentRecord) {
-  const pendingFields = getPendingRequiredAssignedFields(document);
-
-  if (pendingFields.length === 0) {
-    return [] as string[];
-  }
-
-  const signerByAssignmentId = new Map(
-    document.signers.map((signer) => [signerAssignmentId(signer), signer]),
-  );
-  const pendingFieldsInCurrentStage = pendingFields
-    .map((field) => ({
-      field,
-      signer: signerByAssignmentId.get(fieldAssignmentId(field) ?? ""),
-    }))
-    .filter((entry): entry is { field: Field; signer: Signer } => Boolean(entry.signer));
-
-  if (pendingFieldsInCurrentStage.length === 0) {
-    return [] as string[];
-  }
-
-  const nextStage = Math.min(
-    ...pendingFieldsInCurrentStage.map((entry) => entry.signer.routingStage ?? 1),
-  );
-  const stagePendingFields = pendingFieldsInCurrentStage.filter(
-    (entry) => (entry.signer.routingStage ?? 1) === nextStage,
-  );
-
-  if (document.routingStrategy === "parallel") {
-    return [
-      ...new Set(stagePendingFields.map((entry) => fieldAssignmentId(entry.field)).filter(Boolean)),
-    ] as string[];
-  }
-
-  const signerOrderById = new Map(
-    document.signers.map((signer) => [signerAssignmentId(signer), signer.signingOrder ?? Number.MAX_SAFE_INTEGER]),
-  );
-  const nextOrder = Math.min(
-    ...stagePendingFields.map(
-      (entry) => signerOrderById.get(fieldAssignmentId(entry.field) ?? "") ?? Number.MAX_SAFE_INTEGER,
-    ),
-  );
-
-  return [
-    ...new Set(
-      stagePendingFields
-        .filter(
-          (entry) =>
-            (signerOrderById.get(fieldAssignmentId(entry.field) ?? "") ?? Number.MAX_SAFE_INTEGER) ===
-            nextOrder,
-        )
-        .map((entry) => fieldAssignmentId(entry.field))
-        .filter(Boolean),
-    ),
-  ] as string[];
+  return getEligibleSignerIdsForCurrentRouting(document);
 }
 
 async function queueEligibleSignerNotifications(
@@ -4564,7 +4625,11 @@ async function renderDocumentExportBuffer(document: DocumentRecord) {
     const height = Math.max(16, field.height);
     const signer = field.completedBySignerId ? signerById.get(field.completedBySignerId) : null;
 
-    if ((field.kind === "signature" || field.kind === "initial") && looksLikeStoredImagePath(field.value)) {
+    if ((field.kind === "signature" || field.kind === "initial") && looksLikeUnsupportedSignatureImagePath(field.value)) {
+      throw new AppError(409, "Final PDF export requires signature images to be PNG or JPEG.");
+    }
+
+    if ((field.kind === "signature" || field.kind === "initial") && looksLikeSupportedSignatureImagePath(field.value)) {
       const storedImagePath = field.value as string;
       const { data: imageBlob, error: imageDownloadError } = await adminClient.storage
         .from(env.SUPABASE_SIGNATURE_BUCKET)
@@ -4677,6 +4742,25 @@ async function renderDocumentExportToStorage(document: DocumentRecord) {
     .eq("id", document.id);
 
   return { exportPath, exportSha256, bucket: env.SUPABASE_DOCUMENT_BUCKET };
+}
+
+async function persistCompletedDocumentExport(document: DocumentRecord, actorUserId: string) {
+  const { exportPath, exportSha256, bucket } = await renderDocumentExportToStorage(document);
+
+  await appendAuditEvent(
+    document.id,
+    actorUserId,
+    "document.exported",
+    "Generated final PDF export on workflow completion",
+    {
+      exportPath,
+      exportSha256,
+      bucket,
+      generatedOnCompletion: true,
+    },
+  );
+
+  return { exportPath, exportSha256, bucket };
 }
 
 async function createExportSignedUrl(document: DocumentRecord, expiresInSeconds: number) {
@@ -5815,41 +5899,65 @@ export async function createSignatureIdentityForAuthorizationHeader(
   const user = await resolveAuthenticatedUser(authorizationHeader);
   const parsed = createSignatureIdentityInputSchema.parse(input);
   const adminClient = createServiceRoleClient();
-  const storagePath = parsed.storagePath?.trim() || null;
+  const authenticatedEmail = normalizeEmailAddress(user.rawEmail);
 
-  if (parsed.signatureType === "uploaded" && storagePath && !storagePath.startsWith(`${user.id}/`)) {
-    throw new AppError(400, "Signature assets must be stored in the signed-in user's folder.");
+  if (parsed.signerEmail !== authenticatedEmail) {
+    throw new AppError(403, "Reusable signature identities must use the signed-in user's verified email address.");
   }
 
-  if (parsed.isDefault) {
-    await adminClient.from("signature_identities").update({ is_default: false }).eq("user_id", user.id);
+  let storagePath: string | null = null;
+  let uploadedSignaturePath: string | null = null;
+
+  if (parsed.signatureType === "uploaded") {
+    const image = validateSignatureIdentityImageUpload(parsed.uploadedImage!);
+    storagePath = `${user.id}/signature-identities/${randomUUID()}.${image.extension}`;
+    const { error: uploadError } = await adminClient.storage
+      .from(readServerEnv().SUPABASE_SIGNATURE_BUCKET)
+      .upload(storagePath, image.buffer, {
+        contentType: image.contentType,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      throw new AppError(500, uploadError.message);
+    }
+
+    uploadedSignaturePath = storagePath;
   }
 
   const { data, error } = await adminClient
-    .from("signature_identities")
-    .insert({
-      user_id: user.id,
-      label: parsed.label,
-      title_text: parsed.titleText?.trim() || null,
-      signer_name: parsed.signerName,
-      signer_email: parsed.signerEmail,
-      organization_name: parsed.organizationName?.trim() || null,
-      assurance_level: parsed.assuranceLevel,
-      signature_type: parsed.signatureType,
-      typed_text: parsed.signatureType === "typed" ? parsed.typedText?.trim() || null : null,
-      storage_path: parsed.signatureType === "uploaded" ? storagePath : null,
-      provider: parsed.provider,
-      status: getSignatureIdentityStatusForAssurance(parsed.assuranceLevel),
-      signing_reason: parsed.signingReason?.trim() || null,
-      is_default: parsed.isDefault,
-      consent_version: "signature_identity_v1",
-      consent_accepted_at: new Date().toISOString(),
-      evidence_retention_policy: "retain_identity_record_after_delete",
+    .rpc("create_signature_identity", {
+      p_user_id: user.id,
+      p_label: parsed.label,
+      p_title_text: parsed.titleText?.trim() || null,
+      p_signer_name: parsed.signerName,
+      p_signer_email: parsed.signerEmail,
+      p_organization_name: parsed.organizationName?.trim() || null,
+      p_assurance_level: parsed.assuranceLevel,
+      p_signature_type: parsed.signatureType,
+      p_typed_text: parsed.signatureType === "typed" ? parsed.typedText?.trim() || null : null,
+      p_storage_path: parsed.signatureType === "uploaded" ? storagePath : null,
+      p_provider: parsed.provider,
+      p_status: getSignatureIdentityStatusForAssurance(parsed.assuranceLevel),
+      p_signing_reason: parsed.signingReason?.trim() || null,
+      p_is_default: parsed.isDefault,
+      p_consent_version: "signature_identity_v1",
+      p_consent_accepted_at: new Date().toISOString(),
+      p_evidence_retention_policy: "retain_identity_record_after_delete",
     })
-    .select(signatureIdentityRowSelect)
     .single();
 
   if (error || !data) {
+    if (uploadedSignaturePath) {
+      const { error: cleanupError } = await adminClient.storage
+        .from(readServerEnv().SUPABASE_SIGNATURE_BUCKET)
+        .remove([uploadedSignaturePath]);
+
+      if (cleanupError) {
+        throw new AppError(500, `Unable to save signature identity, and cleanup failed: ${cleanupError.message}`);
+      }
+    }
+
     if (error?.code === "23505") {
       throw new AppError(409, "A signature identity already exists for this email and assurance level.");
     }
@@ -7468,11 +7576,21 @@ export async function completeFieldForAuthorizationHeader(
 
   const updatedDocument = await requireDocumentBundle(documentId);
   const eligibleSignerIdsAfter = getEligibleSignerIdsForNotifications(updatedDocument);
+  const newlyEligibleSignerIds = eligibleSignerIdsAfter.filter(
+    (signerId) => !eligibleSignerIdsBefore.includes(signerId),
+  );
+  const nextSignerNames = getSignerNamesForAssignmentIds(updatedDocument, newlyEligibleSignerIds);
+  const signerStillPendingAfterAction = getPendingRequiredAssignedFields(updatedDocument).some((candidate) =>
+    isFieldAssignedToSigner(candidate, signer),
+  );
+  const workflowState = deriveWorkflowState(updatedDocument);
 
   if (
     updatedDocument.deliveryMode === "platform_managed" &&
     updatedDocument.notifyOriginatorOnEachSignature &&
-    isActionFieldKind(field.kind)
+    isActionFieldKind(field.kind) &&
+    !signerStillPendingAfterAction &&
+    workflowState !== "completed"
   ) {
     const originator = await getProfileById(updatedDocument.uploadedByUserId);
 
@@ -7486,6 +7604,7 @@ export async function completeFieldForAuthorizationHeader(
           actionLabel: getActionLabelForFieldKind(field.kind),
           fieldLabel: field.label,
           fieldKind: field.kind,
+          nextSignerNames: nextSignerNames.join(", "),
         },
       });
 
@@ -7501,10 +7620,6 @@ export async function completeFieldForAuthorizationHeader(
     }
   }
 
-  const newlyEligibleSignerIds = eligibleSignerIdsAfter.filter(
-    (signerId) => !eligibleSignerIdsBefore.includes(signerId),
-  );
-
   if (newlyEligibleSignerIds.length > 0) {
     await queueEligibleSignerNotifications(updatedDocument, user.id, newlyEligibleSignerIds, {
       reason: "previous_signer_completed",
@@ -7512,8 +7627,6 @@ export async function completeFieldForAuthorizationHeader(
       appOrigin,
     });
   }
-
-  const workflowState = deriveWorkflowState(updatedDocument);
 
   if (workflowState === "completed") {
     const completionTimestamp = updatedDocument.completedAt ?? new Date().toISOString();
@@ -7536,6 +7649,24 @@ export async function completeFieldForAuthorizationHeader(
       "document.completed",
       "Completed all required assigned action fields",
     );
+    await persistCompletedDocumentExport(
+      {
+        ...updatedDocument,
+        completedAt: completionTimestamp,
+      },
+      user.id,
+    );
+
+    if (updatedDocument.deliveryMode === "platform_managed") {
+      await queueOriginatorWorkflowUpdate(
+        updatedDocument,
+        user.id,
+        signer.name,
+        `${updatedDocument.name} is complete. The final PDF and certificate are ready to review, download, or share.`,
+        appOrigin,
+        { workflowUpdateKind: "document_completed" },
+      );
+    }
   }
 
   const finalDocument = await requireDocumentBundle(documentId);
@@ -8643,11 +8774,22 @@ export async function completeFieldForSigningToken(
 
   const updatedDocument = await requireDocumentBundle(documentId);
   const eligibleSignerIdsAfter = getEligibleSignerIdsForNotifications(updatedDocument);
+  const eligibleSignerIdsBefore = eligibleSignerIds;
+  const newlyEligibleSignerIds = eligibleSignerIdsAfter.filter(
+    (signerId) => !eligibleSignerIdsBefore.includes(signerId),
+  );
+  const nextSignerNames = getSignerNamesForAssignmentIds(updatedDocument, newlyEligibleSignerIds);
+  const signerStillPendingAfterAction = getPendingRequiredAssignedFields(updatedDocument).some((candidate) =>
+    isFieldAssignedToSigner(candidate, signer),
+  );
+  const workflowState = deriveWorkflowState(updatedDocument);
 
   if (
     updatedDocument.deliveryMode === "platform_managed" &&
     updatedDocument.notifyOriginatorOnEachSignature &&
-    isActionFieldKind(field.kind)
+    isActionFieldKind(field.kind) &&
+    !signerStillPendingAfterAction &&
+    workflowState !== "completed"
   ) {
     const originator = await getProfileById(updatedDocument.uploadedByUserId);
 
@@ -8661,15 +8803,11 @@ export async function completeFieldForSigningToken(
           actionLabel: getActionLabelForFieldKind(field.kind),
           fieldLabel: field.label,
           fieldKind: field.kind,
+          nextSignerNames: nextSignerNames.join(", "),
         },
       });
     }
   }
-
-  const eligibleSignerIdsBefore = eligibleSignerIds;
-  const newlyEligibleSignerIds = eligibleSignerIdsAfter.filter(
-    (signerId) => !eligibleSignerIdsBefore.includes(signerId),
-  );
 
   if (newlyEligibleSignerIds.length > 0) {
     // For newly eligible signers, look up their tokens if they are external
@@ -8692,8 +8830,6 @@ export async function completeFieldForSigningToken(
     });
   }
 
-  const workflowState = deriveWorkflowState(updatedDocument);
-
   if (workflowState === "completed") {
     const completionTimestamp = updatedDocument.completedAt ?? new Date().toISOString();
     await adminClient
@@ -8715,6 +8851,24 @@ export async function completeFieldForSigningToken(
       "document.completed",
       "Completed all required assigned action fields (guest signer)",
     );
+    await persistCompletedDocumentExport(
+      {
+        ...updatedDocument,
+        completedAt: completionTimestamp,
+      },
+      `guest:${signer.email}`,
+    );
+
+    if (updatedDocument.deliveryMode === "platform_managed") {
+      await queueOriginatorWorkflowUpdate(
+        updatedDocument,
+        `guest:${signer.email}`,
+        signer.name,
+        `${updatedDocument.name} is complete. The final PDF and certificate are ready to review, download, or share.`,
+        appOrigin,
+        { workflowUpdateKind: "document_completed" },
+      );
+    }
   }
 
   const finalDocument = await requireDocumentBundle(documentId);
@@ -8843,4 +8997,133 @@ export async function processQueuedNotifications(limit = 10) {
   return {
     deliveredNotifications,
   };
+}
+
+async function hasRecentNotificationReason(input: {
+  documentId: string;
+  eventType: NotificationRow["event_type"];
+  reason?: string;
+  workflowUpdateKind?: string;
+  since: string;
+  recipientSignerIds?: string[];
+}) {
+  const adminClient = createServiceRoleClient();
+  let query = adminClient
+    .from("document_notifications")
+    .select("id, metadata")
+    .eq("document_id", input.documentId)
+    .eq("event_type", input.eventType)
+    .gte("queued_at", input.since)
+    .limit(50);
+
+  if (input.recipientSignerIds?.length) {
+    query = query.in("recipient_signer_id", input.recipientSignerIds);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  return (data ?? []).some((notification) => {
+    const metadata = (notification.metadata ?? {}) as Record<string, unknown>;
+    return (
+      (!input.reason || metadata.reason === input.reason) &&
+      (!input.workflowUpdateKind || metadata.workflowUpdateKind === input.workflowUpdateKind)
+    );
+  });
+}
+
+export async function processOverdueWorkflowReminders(limit = 25, reminderCooldownHours = 24) {
+  assertNotificationEmailReady();
+
+  const adminClient = createServiceRoleClient();
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const cooldownSince = new Date(now.getTime() - reminderCooldownHours * 60 * 60 * 1000).toISOString();
+  const { data, error } = await adminClient
+    .from("documents")
+    .select("id")
+    .eq("delivery_mode", "platform_managed")
+    .eq("workflow_status", "active")
+    .not("sent_at", "is", null)
+    .is("completed_at", null)
+    .lt("due_at", nowIso)
+    .order("due_at", { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    throw new AppError(500, error.message);
+  }
+
+  let reminded = 0;
+  let escalated = 0;
+  let skipped = 0;
+
+  for (const row of data ?? []) {
+    const document = await requireDocumentBundle(row.id);
+
+    if (!isWorkflowOverdue(document, nowIso) || deriveWorkflowState(document) === "completed") {
+      skipped += 1;
+      continue;
+    }
+
+    const eligibleSignerIds = getEligibleSignerIdsForNotifications(document);
+
+    if (eligibleSignerIds.length === 0) {
+      skipped += 1;
+      continue;
+    }
+
+    const recentlyReminded = await hasRecentNotificationReason({
+      documentId: document.id,
+      eventType: "signature_request",
+      reason: "overdue_reminder",
+      since: cooldownSince,
+      recipientSignerIds: eligibleSignerIds,
+    });
+
+    if (!recentlyReminded) {
+      const signerTokens = new Map<string, string>();
+      const externalEligible = document.signers.filter(
+        (signer) => eligibleSignerIds.includes(signerAssignmentId(signer)) && signer.participantType === "external",
+      );
+
+      for (const signer of externalEligible) {
+        const expiresAt = document.dueAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        const token = await getOrReuseSigningToken(document.id, signer, expiresAt);
+        signerTokens.set(signer.id, token);
+      }
+
+      await queueEligibleSignerNotifications(document, "system:overdue-reminder", eligibleSignerIds, {
+        reason: "overdue_reminder",
+        actorLabel: "EasyDraft",
+        signerTokens,
+      });
+      reminded += eligibleSignerIds.length;
+    }
+
+    const recentlyEscalated = await hasRecentNotificationReason({
+      documentId: document.id,
+      eventType: "workflow_update",
+      workflowUpdateKind: "overdue_escalation",
+      since: cooldownSince,
+    });
+
+    if (!recentlyEscalated) {
+      const waitingNames = getSignerNamesForAssignmentIds(document, eligibleSignerIds).join(", ");
+      await queueOriginatorWorkflowUpdate(
+        document,
+        "system:overdue-reminder",
+        "EasyDraft",
+        `${document.name} is overdue and waiting on ${waitingNames || "the next eligible signer"}. A reminder has been queued for the signer.`,
+        undefined,
+        { workflowUpdateKind: "overdue_escalation" },
+      );
+      escalated += 1;
+    }
+  }
+
+  return { processed: (data ?? []).length, reminded, escalated, skipped };
 }

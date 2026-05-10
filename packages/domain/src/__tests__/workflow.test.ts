@@ -4,6 +4,7 @@ import {
   areAllRequiredAssignedSigningFieldsComplete,
   deriveWorkflowState,
   getDocumentCompletionSummary,
+  getEligibleSignerIdsForCurrentRouting,
   getDocumentSendReadiness,
   isDocumentSignable,
   isWorkflowOverdue,
@@ -253,6 +254,56 @@ describe("workflow rules", () => {
         "Set an action order for each participant assigned to a required signature, initial, or approval field.",
       ],
     });
+  });
+
+  it("advances one-stage sequential routing through five ordered signers", () => {
+    const signers = Array.from({ length: 5 }, (_, index) => ({
+      ...baseDocument.signers[0],
+      id: `signer_${index + 1}`,
+      userId: `user_signer_${index + 1}`,
+      name: `Signer ${index + 1}`,
+      email: `signer${index + 1}@example.com`,
+      routingStage: 1,
+      signingOrder: index + 1,
+    }));
+    const fields = signers.map((signer, index) => ({
+      ...baseDocument.fields[0],
+      id: `field_${index + 1}`,
+      label: `Required action ${index + 1}`,
+      assigneeSignerId: signer.id,
+      value: null,
+      completedAt: null,
+      completedBySignerId: null,
+    }));
+    const fiveSignerDocument: DocumentRecord = {
+      ...baseDocument,
+      sentAt: null,
+      signers,
+      fields,
+    };
+
+    expect(getDocumentSendReadiness(fiveSignerDocument)).toEqual({
+      ready: true,
+      blockers: [],
+    });
+    expect(getEligibleSignerIdsForCurrentRouting(fiveSignerDocument)).toEqual(["signer_1"]);
+
+    const afterSignerOne = {
+      ...fiveSignerDocument,
+      sentAt: "2026-03-30T18:10:00.000Z",
+      fields: fields.map((field) =>
+        field.id === "field_1"
+          ? {
+              ...field,
+              value: "completed",
+              completedAt: "2026-03-30T18:11:00.000Z",
+              completedBySignerId: "signer_1",
+            }
+          : field,
+      ),
+    };
+
+    expect(getEligibleSignerIdsForCurrentRouting(afterSignerOne)).toEqual(["signer_2"]);
   });
 
   it("marks a prepared signing workflow ready to send", () => {
